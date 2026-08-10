@@ -394,9 +394,12 @@ de scripts que imprimen secretos.
   parámetros incluidos en el envelope. El secreto y la frase nunca se escriben en
   logs ni dentro del repositorio; el módulo exige soporte Argon2id del runtime y
   rechaza versiones/parámetros desconocidos.
-- [ ] Crear el bundle con ACL restringida al usuario actual y documentar los casos
-  de cambio de cuenta/equipo, rotación, frase perdida y perfil Windows perdido. El
-  bundle + frase es la vía de migración entre perfiles; perder ambos es
+- [x] Persistir el bundle en un archivo acotado mediante `server/src/lib/portable-bundle-file.ts`:
+  escritura temporal con `fsync`/rename, sin herencia ACL en Windows y permisos solo para el usuario actual;
+  la lectura rechaza archivos no regulares o mayores de 16 MiB. `portable-bundle-file.test.ts` cubre
+  round-trip, ausencia de temporales y rechazo de tamaño.
+- [ ] Documentar y probar bajo otro perfil los casos de cambio de cuenta/equipo, rotación, frase perdida y
+  perfil Windows perdido. El bundle + frase es la vía de migración entre perfiles; perder ambos es
   irrecuperable y la UI debe advertirlo antes de podar la base antigua.
 - [ ] Migrar una credencial piloto, verificar lectura y health check, y luego migrar
   las restantes de forma transaccional e idempotente.
