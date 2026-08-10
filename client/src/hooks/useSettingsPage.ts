@@ -11,8 +11,6 @@ import type {
   SettingsSnapshot,
 } from '../../../shared/types'
 
-type UnifiedKeyResponse = { apiKey: string }
-
 export const scopeLabels: Record<SettingScope, string> = {
   routing: 'Routing',
   health: 'Health and retries',
@@ -40,10 +38,6 @@ export function useSettingsPage() {
   const { data, isLoading, isError } = useQuery<SettingsSnapshot>({
     queryKey: ['settings'],
     queryFn: () => apiFetch('/api/settings'),
-  })
-  const { data: unifiedKey } = useQuery<UnifiedKeyResponse>({
-    queryKey: ['unified-key'],
-    queryFn: () => apiFetch('/api/settings/api-key'),
   })
   const { data: providerSettings } = useQuery<ProviderSettingsSnapshot>({
     queryKey: ['provider-settings'],
@@ -77,7 +71,6 @@ export function useSettingsPage() {
     mutationFn: (body: { expectedRevision: number; values: Record<string, SettingPrimitive> }) =>
       apiFetch<SettingsSnapshot>('/api/settings', {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${unifiedKey?.apiKey ?? ''}` },
         body: JSON.stringify(body),
       }),
     onSuccess: snapshot => {
@@ -90,7 +83,6 @@ export function useSettingsPage() {
     mutationFn: (input: { platform: string; overrides: ProviderSettingsOverrides; revision: number }) =>
       apiFetch<ProviderSettingsSnapshot>(`/api/settings/providers/${encodeURIComponent(input.platform)}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${unifiedKey?.apiKey ?? ''}` },
         body: JSON.stringify({ expectedRevision: input.revision, values: { overrides: input.overrides } }),
       }),
     onSuccess: snapshot => {
@@ -103,7 +95,6 @@ export function useSettingsPage() {
     mutationFn: (input: { platform: string; modelId: string; overrides: ModelSettingsOverrides; revision: number }) =>
       apiFetch<ProviderSettingsSnapshot>(`/api/settings/providers/${encodeURIComponent(input.platform)}/models/${encodeURIComponent(input.modelId)}`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${unifiedKey?.apiKey ?? ''}` },
         body: JSON.stringify({ expectedRevision: input.revision, values: { overrides: input.overrides } }),
       }),
     onSuccess: snapshot => {
@@ -123,11 +114,21 @@ export function useSettingsPage() {
   }
 
   function saveChanges() {
-    if (data && unifiedKey?.apiKey && hasChanges) save.mutate({ expectedRevision: data.revision, values: draft })
+    if (data && hasChanges) save.mutate({ expectedRevision: data.revision, values: draft })
   }
 
   function discardChanges() {
     if (data) setDraft(Object.fromEntries(data.settings.map(setting => [setting.key, setting.value])))
+  }
+
+  function resetScope(scope: SettingScope) {
+    setDraft(current => {
+      const next = { ...current }
+      for (const setting of data?.settings ?? []) {
+        if (setting.scope === scope) next[setting.key] = setting.defaultValue
+      }
+      return next
+    })
   }
 
   function updateProviderOverride(platform: string, key: keyof ProviderSettingsOverrides, value: string) {
@@ -163,10 +164,10 @@ export function useSettingsPage() {
     save,
     saveProviderOverride,
     saveModelOverride,
-    unifiedKey,
     updateValue,
     saveChanges,
     discardChanges,
+    resetScope,
     updateProviderOverride,
     updateModelOverride,
   }

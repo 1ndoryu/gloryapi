@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,13 +19,24 @@ export default function SettingsPage() {
     save,
     saveProviderOverride,
     saveModelOverride,
-    unifiedKey,
     updateValue,
     saveChanges,
     discardChanges,
+    resetScope,
     updateProviderOverride,
     updateModelOverride,
   } = useSettingsPage()
+  const [activeScope, setActiveScope] = useState<string>('routing')
+  const tabScopes = [
+    ['general', 'General'],
+    ['routing', 'Routing'],
+    ['health', 'Health y reintentos'],
+    ['provider', 'Proveedores'],
+    ['compatibility', 'Compatibilidad'],
+    ['logging', 'Logs'],
+    ['security', 'Seguridad'],
+  ] as const
+  const activeSettings = grouped.find(([scope]) => scope === activeScope)?.[1] ?? []
 
   return (
     <div>
@@ -34,7 +46,7 @@ export default function SettingsPage() {
         actions={
           <div className="flex items-center gap-2">
             {hasChanges && <Button variant="ghost" size="sm" onClick={discardChanges}>Discard</Button>}
-            <Button size="sm" onClick={saveChanges} disabled={!hasChanges || save.isPending || !unifiedKey?.apiKey}>
+          <Button size="sm" onClick={saveChanges} disabled={!hasChanges || save.isPending}>
               {save.isPending ? 'Saving…' : 'Save changes'}
             </Button>
           </div>
@@ -47,11 +59,28 @@ export default function SettingsPage() {
         <p className="text-sm text-destructive">Settings could not be loaded.</p>
       ) : (
         <div className="space-y-6">
-          {grouped.map(([scope, settings]) => (
-            <section key={scope}>
-              <h2 className="text-sm font-medium mb-3">{scopeLabels[scope]}</h2>
+          <div className="flex flex-wrap gap-1 rounded-lg border bg-muted/30 p-1" role="tablist" aria-label="Settings sections">
+            {tabScopes.map(([scope, label]) => (
+              <button
+                key={scope}
+                type="button"
+                role="tab"
+                aria-selected={activeScope === scope}
+                onClick={() => setActiveScope(scope)}
+                className={`rounded-md px-3 py-1.5 text-xs transition-colors ${activeScope === scope ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-medium">{scopeLabels[activeScope as keyof typeof scopeLabels] ?? tabScopes.find(([scope]) => scope === activeScope)?.[1]}</h2>
+              {activeSettings.length > 0 && <Button variant="outline" size="xs" onClick={() => resetScope(activeScope as keyof typeof scopeLabels)}>Restore defaults</Button>}
+            </div>
+            {activeSettings.length > 0 ? (
               <div className="rounded-lg border divide-y bg-card">
-                {settings.map(setting => {
+                {activeSettings.map(setting => {
                   const value = data?.settings.find(item => item.key === setting.key)?.value ?? setting.defaultValue
                   return (
                     <div key={setting.key} className="flex flex-wrap items-center gap-4 px-4 py-3">
@@ -87,15 +116,19 @@ export default function SettingsPage() {
                   )
                 })}
               </div>
-            </section>
-          ))}
+            ) : (
+              <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                This section has no mutable settings yet. Provider compatibility and security invariants stay explicit and fail closed.
+              </div>
+            )}
+          </section>
           {save.isError && <p className="text-sm text-destructive">{(save.error as Error).message}</p>}
           {save.isSuccess && !hasChanges && <p className="text-xs text-muted-foreground">Saved at revision {data?.revision}.</p>}
           <p className="text-xs text-muted-foreground">Configuration revision: {data?.revision ?? 0}</p>
         </div>
       )}
 
-      {providerSettings && (
+      {providerSettings && activeScope === 'provider' && (
         <section className="mt-10">
           <div className="mb-3">
             <h2 className="text-sm font-medium">Provider and model overrides</h2>
@@ -111,7 +144,7 @@ export default function SettingsPage() {
                       <h3 className="text-sm font-medium">{provider.platform}</h3>
                       <p className="text-xs text-muted-foreground">Provider settings and inherited capabilities</p>
                     </div>
-                    <Button size="xs" onClick={() => saveProviderOverride.mutate({ platform: provider.platform, overrides: providerDraft, revision: providerSettings.revision })} disabled={saveProviderOverride.isPending || !unifiedKey?.apiKey}>Save provider</Button>
+                    <Button size="xs" onClick={() => saveProviderOverride.mutate({ platform: provider.platform, overrides: providerDraft, revision: providerSettings.revision })} disabled={saveProviderOverride.isPending}>Save provider</Button>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
@@ -143,7 +176,7 @@ export default function SettingsPage() {
                               <Input id={`model-timeout-${identity}`} type="number" min={1000} max={120000} step={1000} value={modelDraft.timeoutMs ?? model.effective.timeoutMs} onChange={event => updateModelOverride(provider.platform, model.modelId, 'timeoutMs', event.target.value)} className="font-mono text-xs" />
                               <p className="text-[11px] text-muted-foreground">Timeout: {model.effective.sources.timeoutMs}</p>
                             </div>
-                            <Button size="xs" variant="outline" onClick={() => saveModelOverride.mutate({ platform: provider.platform, modelId: model.modelId, overrides: modelDraft, revision: providerSettings.revision })} disabled={saveModelOverride.isPending || !unifiedKey?.apiKey}>Save model</Button>
+                            <Button size="xs" variant="outline" onClick={() => saveModelOverride.mutate({ platform: provider.platform, modelId: model.modelId, overrides: modelDraft, revision: providerSettings.revision })} disabled={saveModelOverride.isPending}>Save model</Button>
                           </div>
                         )
                       })}

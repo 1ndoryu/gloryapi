@@ -1,13 +1,10 @@
-import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select as SelectDropdown, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
-import type { ApiKey, Platform, RegistrySnapshot } from '../../../shared/types'
+import type { ApiKey, RegistrySnapshot } from '../../../shared/types'
 import { UnifiedKeySection } from '@/components/keys/UnifiedKeySection'
+import { ProviderKeyWizard } from '@/components/keys/ProviderKeyWizard'
 
 const statusDot: Record<string, string> = {
   healthy: 'bg-emerald-500',
@@ -42,12 +39,6 @@ interface HealthData {
 
 export default function KeysPage() {
   const queryClient = useQueryClient()
-  const [form, setForm] = useState<{
-    platform: Platform | ''
-    apiKey: string
-    label: string
-  }>({ platform: '', apiKey: '', label: '' })
-  const updateForm = (patch: Partial<typeof form>) => setForm(current => ({ ...current, ...patch }))
 
   const { data: keys = [], isLoading } = useQuery<ApiKey[]>({
     queryKey: ['keys'],
@@ -63,18 +54,6 @@ export default function KeysPage() {
     queryKey: ['health'],
     queryFn: () => apiFetch('/api/health'),
     refetchInterval: 30000,
-  })
-
-  const addKey = useMutation({
-    mutationFn: (body: { platform: string; key: string; label?: string }) =>
-      apiFetch('/api/keys', { method: 'POST', body: JSON.stringify(body) }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['keys'] })
-      queryClient.invalidateQueries({ queryKey: ['health'] })
-      queryClient.invalidateQueries({ queryKey: ['registry'] })
-      queryClient.invalidateQueries({ queryKey: ['fallback'] })
-      setForm({ platform: '', apiKey: '', label: '' })
-    },
   })
 
   const deleteKey = useMutation({
@@ -102,28 +81,14 @@ export default function KeysPage() {
     },
   })
 
-  const providerOptions = (registry?.providers ?? []).map(provider => ({
-    value: provider.platform,
-    label: provider.displayName,
-    lifecycle: provider.lifecycle,
-  }))
-  const platformsWithKeys = new Set(keys.map(k => k.platform))
-  const configuredPlatforms = providerOptions.filter(p => platformsWithKeys.has(p.value))
-  const newPlatforms = providerOptions.filter(p => p.lifecycle === 'active' && !platformsWithKeys.has(p.value))
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!form.platform || !form.apiKey) return
-    addKey.mutate({ platform: form.platform, key: form.apiKey, label: form.label || undefined })
-  }
-
   const healthKeyMap = new Map<number, { status: string; lastCheckedAt: string | null }>()
   for (const k of healthData?.keys ?? []) healthKeyMap.set(k.id, k)
 
-  const grouped = providerOptions.map(p => ({
-    ...p,
-    keys: keys.filter(k => k.platform === p.value),
-  })).filter(p => p.keys.length > 0)
+  const grouped = (registry?.providers ?? []).map(provider => ({
+    value: provider.platform,
+    label: provider.displayName,
+    keys: keys.filter(key => key.platform === provider.platform),
+  })).filter(provider => provider.keys.length > 0)
 
   return (
     <div>
@@ -144,62 +109,7 @@ export default function KeysPage() {
 
         <section>
           <h2 className="text-sm font-medium mb-3">Add a provider key</h2>
-          <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3 rounded-lg border p-4 bg-card">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Platform</Label>
-              <SelectDropdown value={form.platform} onValueChange={(v) => updateForm({ platform: v as Platform })}>
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue placeholder="Select provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  {configuredPlatforms.length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel>Already configured</SelectLabel>
-                      {configuredPlatforms.map(p => (
-                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
-                  {configuredPlatforms.length > 0 && newPlatforms.length > 0 && (
-                    <SelectSeparator />
-                  )}
-                  {newPlatforms.length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel>Add new</SelectLabel>
-                      {newPlatforms.map(p => (
-                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                      ))}
-                    </SelectGroup>
-                  )}
-                </SelectContent>
-              </SelectDropdown>
-            </div>
-            <div className="space-y-1.5 flex-1 min-w-[240px]">
-              <Label className="text-xs">API key</Label>
-              <Input
-                type="password"
-                value={form.apiKey}
-                onChange={e => updateForm({ apiKey: e.target.value })}
-                placeholder="paste key here"
-                className="font-mono text-xs"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Label</Label>
-              <Input
-                value={form.label}
-                onChange={e => updateForm({ label: e.target.value })}
-                placeholder="optional"
-                className="w-[160px]"
-              />
-            </div>
-            <Button type="submit" size="sm" disabled={!form.platform || !form.apiKey || addKey.isPending}>
-              {addKey.isPending ? 'Adding…' : 'Add key'}
-            </Button>
-          </form>
-          {addKey.isError && (
-            <p className="text-destructive text-xs mt-2">{(addKey.error as Error).message}</p>
-          )}
+          <ProviderKeyWizard registry={registry} keys={keys} />
         </section>
 
         <section>

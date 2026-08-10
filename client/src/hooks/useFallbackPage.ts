@@ -9,6 +9,7 @@ import {
 } from '@dnd-kit/core'
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 import { apiFetch } from '@/lib/api'
+import { ensureDashboardSession } from '@/lib/session'
 
 export interface FallbackEntryIdentity {
   modelDbId: number
@@ -53,12 +54,12 @@ export interface FallbackSnapshot {
 }
 
 async function listenForRoutingChanges(
-  token: string,
   signal: AbortSignal,
   onChange: () => void,
 ): Promise<void> {
+  const session = await ensureDashboardSession()
   const response = await fetch('/api/fallback/events', {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${session.token}` },
     signal,
   })
   if (!response.ok) throw new Error(`Live routing sync unavailable (HTTP ${response.status})`)
@@ -91,28 +92,22 @@ export function useFallbackPage() {
     queryKey: ['fallback'],
     queryFn: () => apiFetch('/api/fallback'),
   })
-  const { data: unifiedKey } = useQuery<{ apiKey: string }>({
-    queryKey: ['unified-key'],
-    queryFn: () => apiFetch('/api/settings/api-key'),
-  })
   const entries = snapshot?.entries ?? []
 
   useEffect(() => {
-    if (!unifiedKey?.apiKey) return
     const controller = new AbortController()
-    listenForRoutingChanges(unifiedKey.apiKey, controller.signal, () => {
+    listenForRoutingChanges(controller.signal, () => {
       queryClient.invalidateQueries({ queryKey: ['fallback'] })
     }).catch(error => {
       if (!controller.signal.aborted) setEventError((error as Error).message)
     })
     return () => controller.abort()
-  }, [queryClient, unifiedKey?.apiKey])
+  }, [queryClient])
 
   const saveMutation = useMutation({
     mutationFn: (input: { expectedRevision: number; entries: { modelDbId: number; priority: number; enabled: boolean }[] }) =>
       apiFetch<FallbackSnapshot>('/api/fallback', {
         method: 'PUT',
-        headers: { Authorization: `Bearer ${unifiedKey?.apiKey ?? ''}` },
         body: JSON.stringify(input),
       }),
     onSuccess: next => {
@@ -147,7 +142,7 @@ export function useFallbackPage() {
   )
 
   function persist(nextEntries: FallbackEntry[]) {
-    if (!snapshot || !unifiedKey?.apiKey) return
+    if (!snapshot) return
     setLocalEntries(nextEntries)
     setSaveError(null)
     if (saveMutation.isPending) {

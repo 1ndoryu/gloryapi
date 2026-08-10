@@ -29,11 +29,17 @@ function SortableModelRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: entry.modelDbId,
   })
+  const setSortableNode = (node: HTMLDivElement | null) => {
+    setNodeRef(node)
+    if (!node) return
+    node.style.setProperty('--sortable-transform', CSS.Transform.toString(transform) ?? 'none')
+    node.style.setProperty('--sortable-transition', transition ?? 'none')
+  }
 
   return (
     <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
+      ref={setSortableNode}
+      data-sortable-row="true"
       className={`group flex items-center gap-3 px-4 py-3 bg-card ${isDragging ? 'opacity-50' : ''} ${entry.enabled ? '' : 'opacity-50'}`}
     >
       <button
