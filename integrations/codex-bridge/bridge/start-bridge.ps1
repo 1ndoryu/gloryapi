@@ -99,6 +99,12 @@ function Start-IsolatedBridge {
         $env:GLORY_API_KEY = $upstreamToken
         $env:BRIDGE_PORT = [string]$Port
         $env:GLORY_API_CONTRACT = 'chat-completions-v1'
+        # Vision: el pool free de opencode-zen (mimo-v2.5-free) se sirve SIN API
+        # key; el bridge omite el header Authorization cuando VISION_API_KEY está
+        # vacío. Los valores por defecto de server.js ya apuntan aquí, pero se fijan
+        # explícitamente para dejar el contrato visible en el arranque.
+        $env:VISION_BASE_URL = 'https://opencode.ai/zen/v1'
+        $env:VISION_MODEL = 'mimo-v2.5-free'
         return Start-Process -FilePath $node -ArgumentList @($bridgeServer) -WorkingDirectory $BridgeDir `
             -WindowStyle Hidden -RedirectStandardOutput $LogOut -RedirectStandardError $LogErr -PassThru
     }

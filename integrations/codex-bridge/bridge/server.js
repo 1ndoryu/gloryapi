@@ -194,8 +194,11 @@ loadReasoningCache();
 // persisted to disk so repeated images are not re-described.
 // ---------------------------------------------------------------------------
 
-const VISION_BASE_URL = process.env.VISION_BASE_URL || 'https://opencode.ai/zen/go/v1';
-const VISION_MODEL = process.env.VISION_MODEL || 'mimo-v2.5';
+const VISION_BASE_URL = process.env.VISION_BASE_URL || 'https://opencode.ai/zen/v1';
+const VISION_MODEL = process.env.VISION_MODEL || 'mimo-v2.5-free';
+// Optional: the opencode-zen free pool (mimo-v2.5-free, ...-free rows) is
+// served WITHOUT authentication. If VISION_API_KEY is empty the Authorization
+// header is omitted entirely; a dummy key would be rejected with AuthError.
 const VISION_API_KEY = process.env.VISION_API_KEY || '';
 const VISION_MAX_TOKENS = boundedEnvInt('VISION_MAX_TOKENS', 4096, 1, 16384);
 const VISION_TIMEOUT_MS = boundedEnvInt('VISION_TIMEOUT_MS', 180000, 100, 300000);
@@ -270,7 +273,7 @@ function validateImageReference(rawImage) {
  * ONLY the prompt + the image - never conversation context.
  */
 async function describeImage(imageUrl, focusHint) {
-  if (VISION_DISABLE || !VISION_API_KEY || !imageUrl) return null;
+  if (VISION_DISABLE || !imageUrl) return null;
   try {
     imageUrl = validateImageReference(imageUrl);
   } catch (error) {
@@ -305,10 +308,12 @@ async function describeImage(imageUrl, focusHint) {
     try {
       controller = new AbortController();
       timer = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
+      const headers = { 'Content-Type': 'application/json' };
+      if (VISION_API_KEY) headers.Authorization = `Bearer ${VISION_API_KEY}`;
       const res = await fetch(visionEndpoint, {
         method: 'POST',
         redirect: 'error',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${VISION_API_KEY}` },
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -325,9 +330,11 @@ async function describeImage(imageUrl, focusHint) {
       const json = await res.json();
       const msg = json.choices && json.choices[0] && json.choices[0].message;
       // mimo-v2.5 is a reasoning model: content can be null if max_tokens was
-      // consumed by reasoning_content, so fall back to it.
+      // consumed by the thinking block. Fall back to reasoning_content and to
+      // opencode-zen's `reasoning` field (their shape; not OpenAI's).
       let text = (msg && msg.content) || '';
       if (!String(text).trim() && msg && msg.reasoning_content) text = msg.reasoning_content;
+      if (!String(text).trim() && msg && msg.reasoning) text = String(msg.reasoning);
       text = String(text).trim();
       if (!text) {
         lastFailure = { kind: 'empty_response', status: res.status, bytes: 0 };
@@ -2498,7 +2505,8 @@ function getLifecycle() {
 }
 
 function getCapabilityMatrix() {
-  const visionSupported = Boolean(VISION_API_KEY) && !VISION_DISABLE;
+  // Vision is supported without a key: opencode-zen's -free pool is anonymous.
+  const visionSupported = !VISION_DISABLE;
   return [{
     client: 'codex-responses',
     adapterVersion: ADAPTER_VERSION,
@@ -2657,7 +2665,7 @@ const server = http.createServer(async (req, res) => {
         namespaces: true,
         deferredToolDiscovery: true,
         webSearch: true,
-        vision: Boolean(VISION_API_KEY) && !VISION_DISABLE,
+        vision: !VISION_DISABLE,
         cancellation: true,
         contextCompaction: false,
       },
