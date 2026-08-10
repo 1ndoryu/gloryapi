@@ -6,7 +6,7 @@ canary y cutover reversible posteriores.
 ## Siguiente bloque
 
 1. Mantener el snapshot real externo y protegido durante la ventana de rollback; ya fue verificado con `integrity_check=ok` y el importador versionado e idempotente migró 22/22 credenciales.
-2. Mantener el baseline `7812f00` y repetir `npm run task:check -- GLORY-BASELINE` después de cada bloque de cambios.
+2. Mantener el baseline `b6db7a8` y repetir `npm run task:check -- GLORY-BASELINE` después de cada bloque de cambios.
 3. Mantener la política de cambios del legado: sin modificaciones durante la migración; cualquier corrección operativa futura debe quedar registrada, probada y evaluada para portabilidad.
 4. Conservar el bootstrap sanitizado por `git archive` + overlay: el escaneo histórico de 518 commits/4.018 blobs y del overlay quedó documentado sin exponer valores.
 5. Mantener la revisión periódica de warnings informativos de Sentinel; el gate full actual pasa con 0 errores y 6 warnings
@@ -71,7 +71,7 @@ canary y cutover reversible posteriores.
   hints pendientes. Los selectores existentes se conservaron mediante el alias semántico `SelectDropdown`, sin
   introducir un componente duplicado ni cambiar su comportamiento.
 - El escaneo histórico/overlay y el guard de independencia de Git quedaron completados; el historial completo no se reutiliza porque el inventario contiene artefactos sensibles excluidos. La política del legado queda fijada: no modificar `freellmapi` durante la migración.
-- El gate coordinado ya cierra contra el `HEAD` propio `7812f00`: `task:check -- GLORY-BASELINE` devuelve PASS.
+- El gate coordinado ya cierra contra el `HEAD` propio `b6db7a8`: `task:check -- GLORY-BASELINE` devuelve PASS.
   Sentinel conserva 0 errores y 6 warnings no bloqueantes; un checkout sin historia seguiría fallando cerrado.
 - Fase 5 ya tiene un bootstrap de catálogo operativo: una base nueva usa el schema compacto sin ejecutar las 35
   migraciones históricas; una base existente se actualiza y queda normalizada a exactamente tres modelos, con fallback
