@@ -7,7 +7,7 @@ export function sentinelInvocation(workspace, args = []) {
     '.quality-tools',
     'sentinel',
     'versions',
-    '0.6.4',
+    '0.7.1',
     'out',
     'cli',
     'index.js',

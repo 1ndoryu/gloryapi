@@ -16,6 +16,8 @@ server/data/
 integrations/codex-bridge/bridge/bridge.*.log
 integrations/codex-bridge/bridge/bridge.pid
 integrations/codex-bridge/bridge/bridge.vision.json
+integrations/codex-bridge/bridge/bridge.reasoning.json
+integrations/codex-bridge/bridge/*.bak-*
 
 # Personal deployment scripts (contain keys/credentials — kept local)
 deploy-pi.sh

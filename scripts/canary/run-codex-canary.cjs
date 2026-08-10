@@ -16,6 +16,7 @@ const dbPath = path.join(dbDir, 'canary.db');
 const codexHome = path.join(dbDir, 'codex-home');
 const requestLog = path.join(dbDir, 'bridge.requests.log');
 const failedRequestLog = path.join(dbDir, 'failed_requests.log');
+const canaryAdminToken = 'gloryapi-canary-admin-token';
 const bridgeFile = path.join(root, 'integrations', 'codex-bridge', 'bridge', 'server.js');
 const prepareProfileScript = path.join(root, 'integrations', 'codex-bridge', 'mode', 'prepare-canary-profile.ps1');
 const authScript = path.join(root, 'integrations', 'codex-bridge', 'mode', 'get-codex-auth.ps1');
@@ -131,6 +132,7 @@ async function main() {
     GLORYAPI_DB_PATH: dbPath,
     ENCRYPTION_KEY: '0'.repeat(64),
     GLORYAPI_CANARY_MODE: '1',
+    GLORYAPI_ADMIN_AUTH_TOKEN: canaryAdminToken,
     GLORYAPI_CANARY_UPSTREAM_URL: `http://127.0.0.1:${upstream.port}/v1`,
     GLORYAPI_FAILED_REQUESTS_LOG: failedRequestLog,
   };
@@ -138,14 +140,15 @@ async function main() {
   await waitFor(`http://127.0.0.1:${serverPort}/api/ping`, (response, body) => response.ok && body?.status === 'ok');
 
   const serverBase = `http://127.0.0.1:${serverPort}`;
+  const adminHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${canaryAdminToken}` };
   await requestJson(`${serverBase}/api/keys`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: adminHeaders,
     body: JSON.stringify({ platform: 'andoryyu', key: 'canary-andoryyu-fail', label: 'isolated-canary-andoryyu' }),
   });
   const zenKey = await requestJson(`${serverBase}/api/keys`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: adminHeaders,
     body: JSON.stringify({ platform: 'opencode-zen', key: 'canary-zen', label: 'isolated-canary-zen' }),
   });
   const unifiedKey = getUnifiedKey();
@@ -234,7 +237,7 @@ async function main() {
   const foreignToolsetText = foreignToolsetResponse?.output?.[0]?.content?.[0]?.text;
   if (foreignToolsetText !== 'CANARY_OK') throw new Error('foreign toolset fallback response contract failed');
   const foreignTraces = await requestJson(`${serverBase}/api/fallback/traces`, {
-    headers: { Authorization: `Bearer ${unifiedKey}` },
+    headers: { Authorization: `Bearer ${canaryAdminToken}` },
   });
   const foreignTrace = foreignTraces?.traces?.find(trace => trace?.attempts?.some(attempt =>
     attempt.reason === 'foreign_toolset'));
@@ -255,7 +258,7 @@ async function main() {
     throw new Error('foreign toolset retry response contract failed');
   }
   const foreignRetryTraces = await requestJson(`${serverBase}/api/fallback/traces`, {
-    headers: { Authorization: `Bearer ${unifiedKey}` },
+    headers: { Authorization: `Bearer ${canaryAdminToken}` },
   });
   const foreignTraceCount = foreignRetryTraces?.traces?.filter(trace => trace?.attempts?.some(attempt =>
     attempt.reason === 'foreign_toolset')).length ?? 0;
@@ -273,7 +276,7 @@ async function main() {
   const fallbackText = fallbackResponse?.output?.[0]?.content?.[0]?.text;
   if (fallbackText !== 'CANARY_OK') throw new Error('fallback canary response contract failed');
   const traces = await requestJson(`${serverBase}/api/fallback/traces`, {
-    headers: { Authorization: `Bearer ${unifiedKey}` },
+    headers: { Authorization: `Bearer ${canaryAdminToken}` },
   });
   const fallbackTrace = traces?.traces?.find(trace => trace?.attempts?.some(attempt =>
     attempt.platform === 'andoryyu' && attempt.outcome === 'error'));

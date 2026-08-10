@@ -16,8 +16,12 @@
     "quality:analyze": "node scripts/quality/sentinel-analyze.mjs",
     "quality:test": "npm test",
     "task:check": "node scripts/quality/task-check.mjs",
+    "task:check:local": "node scripts/quality/task-check-local.mjs",
     "canary:codex": "node scripts/canary/run-codex-canary.cjs",
-    "recover:bundle": "npm run build:server && node server/dist/scripts/recover-bundle.js"
+    "canary:codex:guard": "node scripts/canary/codex-version-guard.cjs",
+    "bench:routing": "npm run build:server && node scripts/bench/routing-load.mjs",
+    "recover:bundle": "npm run build:server && node server/dist/scripts/recover-bundle.js",
+    "recover:profile": "npm run build:server && node server/dist/scripts/verify-recovery-profile.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
