@@ -54,7 +54,7 @@ tests rotos o hallazgos de seguridad sin resolver.
 - Sentinel 0.7.0 está fijado en GloryAPI con política, lock, herramientas y gate
   de proyecto. Compile y suite del checkout externo pasaron, el análisis/stage local
   está limpio y `quality:doctor` devuelve `ready: true`; el gate coordinado `GLORY-BASELINE`
-  ya pasa contra el `HEAD` propio `cd2a398`.
+  ya pasa contra el `HEAD` propio `613175e`.
 - VS Code funciona contra la superficie Chat Completions de FreeLLMAPI sin
   necesitar reconstruir el protocolo Responses. Codex Desktop, en cambio, usa
   un provider personalizado `wire_api = "responses"`; el bridge actual traduce
@@ -1321,7 +1321,7 @@ proteger FreeLLMAPI → derivar GloryAPI aislada → validar baseline/overlay
   `area-trabajo\gloryapi` antes de ejecutar la derivación. Esa afirmación no
   describe el estado actual y no autoriza repetir Fases 0–2 sobre el workspace.
 - Estado operativo al 2026-08-10: `gloryapi` ya está poblado, contiene su propio
-  `.git`, rama `gloryapi`, `HEAD` propio `cd2a398`, no tiene remoto y mantiene el árbol
+  `.git`, rama `gloryapi`, `HEAD` propio `613175e`, no tiene remoto y mantiene el árbol
   de trabajo limpio tras el commit del bloque actual. `roadmap.md` es la fuente del
   siguiente bloque; no se deben descartar cambios ajenos.
 - `supervisor_thinker`: `VIABLE CON RESERVAS`; las reservas aplicables fueron
