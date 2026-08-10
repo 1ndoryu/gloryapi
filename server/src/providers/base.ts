@@ -6,6 +6,7 @@ import type {
   ChatToolChoice,
   Platform,
 } from '@gloryapi/shared/types.js';
+import { assertSafeUpstreamUrl } from '../services/endpoint-security.js';
 
 export interface CompletionOptions {
   model?: string;
@@ -16,6 +17,8 @@ export interface CompletionOptions {
   tool_choice?: ChatToolChoice;
   parallel_tool_calls?: boolean;
   reasoning_effort?: 'low' | 'medium' | 'high' | 'max';
+  /** Bounded metadata-only correlation id propagated to compatible upstreams. */
+  requestId?: string;
   signal?: AbortSignal;
 }
 
@@ -45,13 +48,14 @@ export abstract class BaseProvider {
     timeoutMs = 15000,
     signal?: AbortSignal,
   ): Promise<Response> {
+    await assertSafeUpstreamUrl(url);
     const controller = new AbortController();
     const abortFromCaller = () => controller.abort(signal?.reason);
     if (signal?.aborted) abortFromCaller();
     else signal?.addEventListener('abort', abortFromCaller, { once: true });
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      return await fetch(url, { ...init, redirect: 'error', signal: controller.signal });
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener('abort', abortFromCaller);

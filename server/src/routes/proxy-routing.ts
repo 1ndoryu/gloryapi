@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { Router } from 'express'
 import type { ChatMessage } from '@gloryapi/shared/types.js'
-import { getDb } from '../db/index.js'
+import { getDb, getUnifiedApiKey } from '../db/index.js'
 import { getSettingNumber } from '../settings/registry.js'
 
 export const AUTO_MODEL_ID = 'auto'
@@ -19,7 +19,17 @@ export const PROVIDER_FAILURE_POLICY: Record<string, {
   recordPenalty: boolean
   recordProviderFailure: boolean
 }> = {
-  andoryyu: { cooldownMs: 60_000, recordPenalty: false, recordProviderFailure: false },
+  // Proveedores gratuitos (andoryyu, opencode-zen): vale la pena reintentarlos
+  // cada ~5 min. No acumulan penalty dinámico (recordPenalty:false) para que el
+  // reintento sea determinista en primera pasada; la cadencia de 5 min la dan el
+  // cooldown de key (cooldownMs) y el cooldown de proveedor (recordProviderFailure).
+  // Mientras están en cooldown, opencode-go sirve sin interrumpir la ejecución.
+  andoryyu: { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
+  'opencode-zen': { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
+  // Proveedor de pago (opencode-go): último recurso casi nunca falla. Nunca se
+  // penaliza (no se hunde en la cola) ni entra en cooldown de proveedor; solo
+  // un cooldown de key corto (15s) para reintento rápido entre requests.
+  'opencode-go': { cooldownMs: 15_000, recordPenalty: false, recordProviderFailure: false },
 }
 
 type VisibleModel = {
@@ -78,7 +88,12 @@ export function getStickyModel(messages: ChatMessage[]): number | undefined {
 }
 
 export function registerModelRoutes(router: Router): void {
-  router.get('/models', (_req, res) => {
+  router.get('/models', (req, res) => {
+    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '')
+    if (!token || !timingSafeStringEqual(token, getUnifiedApiKey())) {
+      res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } })
+      return
+    }
     const db = getDb()
     const models = db.prepare(`
       SELECT platform, model_id, display_name, context_window, intelligence_rank, speed_rank

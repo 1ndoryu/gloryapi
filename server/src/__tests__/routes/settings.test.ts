@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { createApp } from '../../app.js'
 import { getDb, getUnifiedApiKey, initDb } from '../../db/index.js'
 import { getSettingNumber } from '../../settings/registry.js'
+import { getAdminAuthToken } from '../../lib/admin-auth.js'
 import type { ProviderSettingsSnapshot, SettingsSnapshot } from '@gloryapi/shared/types.js'
 
 async function requestJson(
@@ -21,7 +22,7 @@ async function requestJson(
       method,
       headers: {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        ...(authorization ? { Authorization: `Bearer ${authorization}` } : {}),
+        Authorization: `Bearer ${authorization === undefined ? getAdminAuthToken() : authorization}`,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
@@ -77,7 +78,7 @@ describe('Settings API', () => {
     const unauthorized = await requestJson(app, 'PATCH', '/api/settings', {
       expectedRevision: 0,
       values: { 'routing.maxAttempts': 4 },
-    })
+    }, '')
     expect(unauthorized.status).toBe(401)
 
     const updated = await requestJson(app, 'PATCH', '/api/settings', {
@@ -171,6 +172,15 @@ describe('Settings API', () => {
       error: { code: 'settings_revision_conflict' },
       currentRevision: current.revision,
     })
-    expect(getSettingNumber('health.providerCooldownMs')).toBe(60_000)
+    expect(getSettingNumber('health.providerCooldownMs')).toBe(5 * 60_000)
+  })
+
+  it('exposes a bounded sanitized audit trail only with admin auth', async () => {
+    expect((await requestJson(app, 'GET', '/api/settings/audit', undefined, '')).status).toBe(401)
+    const response = await requestJson(app, 'GET', '/api/settings/audit?limit=10', undefined, getUnifiedApiKey())
+    expect(response.status).toBe(200)
+    expect(response.body).toMatchObject({ schemaVersion: 'glory-settings-audit-v1' })
+    expect((response.body as { entries: Array<{ keys: string[] }> }).entries.some(entry => entry.keys.includes('routing.maxAttempts'))).toBe(true)
+    expect(JSON.stringify(response.body)).not.toContain('apiKey')
   })
 })

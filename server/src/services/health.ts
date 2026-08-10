@@ -96,7 +96,9 @@ export function stopHealthChecker(): void {
  * across multiple keys, the whole provider gets a cooldown period. The router checks
  * this before routing to avoid wasting attempts on a known-down provider.
  *
- * Cooldown strategy: 3 consecutive failures → 60s cooldown. Recovery: 1 success → reset. */
+ * Cooldown strategy: 3 consecutive failures → 5 min cooldown (health.providerCooldownMs).
+ * Recovery: 1 success → reset. opencode-go (pago) tiene recordProviderFailure:false
+ * en PROVIDER_FAILURE_POLICY y nunca entra aquí: es el respaldo siempre disponible. */
 
 
 export function recordProviderFailure(platform: string): void {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
+import { getAdminAuthToken } from '../../lib/admin-auth.js';
 import type { AddressInfo } from 'node:net';
 
 type ArrayResponse = {
@@ -19,9 +20,12 @@ async function request<T = ArrayResponse>(app: Express, method: string, path: st
   const addr = address as AddressInfo;
   const url = `http://127.0.0.1:${addr.port}${path}`;
 
+  const managementHeaders = path.startsWith('/api/') && !Object.keys(headers).some((key) => key.toLowerCase() === 'authorization')
+    ? { Authorization: `Bearer ${getAdminAuthToken()}` }
+    : {};
   const res = await fetch(url, {
     method,
-    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...managementHeaders, ...headers },
     body: body ? JSON.stringify(body) : undefined,
   });
 

@@ -1,10 +1,9 @@
-import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initEncryptionKey } from '../lib/crypto.js';
+import { ensureUnifiedKey, getUnifiedApiKey as readUnifiedApiKey, regenerateUnifiedKey as rotateUnifiedKey } from './security/unified-key.js';
 import { migrateModelsV22, migrateModelsV23, migrateModelsV24 } from './migrations-v22-v23.js';
 import { migrateModelsV25, migrateModelsV26 } from './migrations-v25-v26.js';
 import { migrateModels, migrateModelsV2, migrateModelsV3Ranks, migrateModelsV4, migrateModelsV5, migrateModelsV6, migrateModelsV7, migrateModelsV8, migrateModelsV9, migrateModelsV10 } from './migrations-v1-v10.js';
@@ -199,6 +198,24 @@ function createTables(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS provider_model_drafts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      context_window INTEGER,
+      capabilities_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(platform, model_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_runtime_state (
+      platform TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS local_auth_tokens (
       name TEXT PRIMARY KEY,
       encrypted_token TEXT NOT NULL,
@@ -207,6 +224,13 @@ function createTables(db: Database.Database) {
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       rotated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS settings_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      revision INTEGER NOT NULL,
+      keys_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
   ensureApiKeyVaultColumns(db);
@@ -233,79 +257,10 @@ function ensureApiKeyVaultColumns(db: Database.Database): void {
   }
 }
 
-function ensureUnifiedKey(db: Database.Database) {
-  const existing = db.prepare("SELECT value FROM settings WHERE key = 'unified_api_key'").get() as { value: string } | undefined;
-  if (!existing) {
-    const key = `gloryapi-${crypto.randomBytes(24).toString('hex')}`;
-    db.prepare("INSERT INTO settings (key, value) VALUES ('unified_api_key', ?)").run(key);
-    console.log('Unified API key generated and stored securely.');
-  }
-}
-
 export function getUnifiedApiKey(): string {
-  const row = getDb().prepare("SELECT value FROM settings WHERE key = 'unified_api_key'").get() as { value: string };
-  return row.value;
+  return readUnifiedApiKey(getDb());
 }
 
 export function regenerateUnifiedKey(): string {
-  const key = `gloryapi-${crypto.randomBytes(24).toString('hex')}`;
-  getDb().prepare("UPDATE settings SET value = ? WHERE key = 'unified_api_key'").run(key);
-  return key;
-}
-
-export interface DatabaseBackupMetadata {
-  backupId: string;
-  filePath: string;
-  sizeBytes: number;
-  sha256: string;
-  createdAt: string;
-  durability: 'fsync' | 'rename-only';
-}
-
-function getBackupDirectory(): string {
-  const configured = process.env.GLORYAPI_BACKUP_DIR?.trim();
-  const directory = configured ? path.resolve(configured) : path.join(os.homedir(), '.gloryapi', 'backups');
-  const repositoryRoot = path.resolve(__dirname, '../..');
-  const relative = path.relative(repositoryRoot, directory);
-  if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
-    throw new Error('GLORYAPI_BACKUP_DIR must point outside the repository');
-  }
-  return directory;
-}
-
-export async function backupDatabase(): Promise<DatabaseBackupMetadata> {
-  const source = getDb();
-  const directory = getBackupDirectory();
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const createdAt = new Date().toISOString();
-  const backupId = `gloryapi-${createdAt.replace(/[^0-9]/g, '').slice(0, 17)}-${crypto.randomBytes(6).toString('hex')}`;
-  const filePath = path.join(directory, `${backupId}.db`);
-  const temporaryPath = `${filePath}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
-
-  try {
-    await source.backup(temporaryPath);
-    let durability: DatabaseBackupMetadata['durability'] = 'fsync';
-    const descriptor = fs.openSync(temporaryPath, 'r');
-    try {
-      try {
-        fs.fsyncSync(descriptor);
-      } catch (error) {
-        const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
-        if (code !== 'EPERM' && code !== 'ENOTSUP') throw error;
-        durability = 'rename-only';
-      }
-    } finally {
-      fs.closeSync(descriptor);
-    }
-
-    const hash = crypto.createHash('sha256');
-    for await (const chunk of fs.createReadStream(temporaryPath)) hash.update(chunk);
-    fs.renameSync(temporaryPath, filePath);
-    const stats = fs.statSync(filePath);
-    return { backupId, filePath, sizeBytes: stats.size, sha256: hash.digest('hex'), createdAt, durability };
-  } catch (error) {
-    fs.rmSync(temporaryPath, { force: true });
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`SQLite backup failed: ${message}`);
-  }
+  return rotateUnifiedKey(getDb());
 }

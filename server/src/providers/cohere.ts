@@ -34,6 +34,7 @@ export class CohereProvider extends BaseProvider {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
       },
       body: JSON.stringify(body),
     });
@@ -70,6 +71,7 @@ export class CohereProvider extends BaseProvider {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
       },
       body: JSON.stringify(body),
     });

@@ -5,6 +5,9 @@ import {
   recordRequest,
   recordTokens,
   getRateLimitStatus,
+  setCooldown,
+  getShortestCooldownRemainingMs,
+  resetCooldownsForTest,
 } from '../../services/ratelimit.js';
 
 describe('Rate Limiter', () => {
@@ -13,6 +16,7 @@ describe('Rate Limiter', () => {
 
   beforeEach(() => {
     testId = Math.floor(Math.random() * 1_000_000);
+    resetCooldownsForTest();
   });
 
   describe('canMakeRequest', () => {
@@ -75,6 +79,27 @@ describe('Rate Limiter', () => {
       expect(status.rpm.limit).toBe(30);
       expect(status.rpd.used).toBe(2);
       expect(status.tpm.used).toBe(500);
+    });
+  });
+
+  describe('getShortestCooldownRemainingMs', () => {
+    it('should return 0 when no cooldowns are set', () => {
+      expect(getShortestCooldownRemainingMs()).toBe(0);
+    });
+
+    it('should return the shortest remaining cooldown across platforms', () => {
+      setCooldown('andoryyu', 'deepseek-v4-flash', testId, 300_000);
+      setCooldown('opencode-go', 'deepseek-v4-flash', testId, 15_000);
+      const shortest = getShortestCooldownRemainingMs();
+      // 15s cooldown must be the shortest; allow small clock skew.
+      expect(shortest).toBeGreaterThan(0);
+      expect(shortest).toBeLessThanOrEqual(15_000);
+    });
+
+    it('should ignore already-expired cooldowns', async () => {
+      setCooldown('opencode-go', 'deepseek-v4-flash', testId, 5);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(getShortestCooldownRemainingMs()).toBe(0);
     });
   });
 });

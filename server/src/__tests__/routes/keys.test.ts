@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb } from '../../db/index.js';
+import { getAdminAuthToken } from '../../lib/admin-auth.js';
 import type { AddressInfo } from 'node:net';
 
 type KeyEntry = { id: number; platform: string; label: string; maskedKey: string };
@@ -16,7 +17,10 @@ async function request<T = KeyResponse>(app: Express, method: string, path: stri
 
   const res = await fetch(url, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers: {
+      Authorization: `Bearer ${getAdminAuthToken()}`,
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -56,6 +60,8 @@ describe('Keys API', () => {
     expect(body.platform).toBe('groq');
     expect(body.label).toBe('My Groq Key');
     expect(body.maskedKey).toContain('...');
+    expect(body.status).toBe('unknown');
+    expect(body.enabled).toBe(true);
 
     const row = getDb().prepare(
       'SELECT encrypted_key, iv, auth_tag, encryption_scheme, fingerprint FROM api_keys WHERE id = ?',
@@ -92,6 +98,31 @@ describe('Keys API', () => {
       key: 'test',
     });
     expect(status).toBe(400);
+  });
+
+  it('POST /api/keys accepts a credential for an explicit provider draft', async () => {
+    getDb().prepare(`
+      INSERT INTO provider_registry (
+        platform, display_name, lifecycle, adapter, endpoint, auth_scheme, capabilities_json,
+        health_verified_at, chat_verified_at, capabilities_verified_at
+      ) VALUES ('draft-provider', 'Draft provider', 'draft', 'openai-compatible',
+        'https://provider.example/v1', 'bearer', ?, NULL, NULL, NULL)
+    `).run(JSON.stringify({
+      streaming: true,
+      tools: false,
+      reasoning: false,
+      multimodal: false,
+      maxContextWindow: 32768,
+    }));
+
+    const { status, body } = await request(app, 'POST', '/api/keys', {
+      platform: 'draft-provider',
+      key: 'draft-secret-123',
+    });
+
+    expect(status).toBe(201);
+    expect(body.platform).toBe('draft-provider');
+    expect(body.status).toBe('unknown');
   });
 
   it('POST /api/keys rejects missing key', async () => {

@@ -1,11 +1,6 @@
 import {
-  AUTO_MODEL_ID,
-  MODEL_FALLBACK_OVERRIDES,
   PROVIDER_FAILURE_POLICY,
-  compareVisibleModels,
-  getStickyModel,
   registerModelRoutes,
-  isAutoModel,
   setStickyModel,
   timingSafeStringEqual,
 } from './proxy-routing.js';
@@ -19,9 +14,9 @@ import {
   type ProxyError,
 } from './proxy-contract.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
-import { recordRequest, recordTokens, setCooldown } from '../services/ratelimit.js';
+import { recordRequest, recordTokens, setCooldown, isOnCooldown, getShortestCooldownRemainingMs } from '../services/ratelimit.js';
 import { recordProviderFailure, recordProviderSuccess } from '../services/health.js';
-import { getDb, getUnifiedApiKey } from '../db/index.js';
+import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { logProxyRequest } from './proxy-log.js';
 import { getSettingNumber } from '../settings/registry.js';
@@ -33,6 +28,7 @@ import {
   recordRoutingTraceAttempt,
 } from '../services/routing-trace.js';
 import { classifyProxyError, type ProxyErrorClassification } from './proxy-errors.js';
+import { resolveProxyModelSelection } from './routing/proxy-selection.js';
 
 export const proxyRouter = Router();
 registerModelRoutes(proxyRouter);
@@ -62,8 +58,15 @@ function publicProxyError(classification: ProxyErrorClassification): {
   };
 }
 
+function safeRequestId(req: Request): string | undefined {
+  const value = req.header('x-glory-request-id');
+  return value && /^[A-Za-z0-9._:-]{1,96}$/.test(value) ? value : undefined;
+}
+
 proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const start = Date.now();
+  const requestId = safeRequestId(req);
+  if (requestId) res.setHeader('X-Glory-Request-Id', requestId);
   const requestAbortController = new AbortController();
   const abortOnDisconnect = () => {
     if (!res.writableEnded) requestAbortController.abort();
@@ -125,82 +128,14 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // matching the requested id, return 400 — silently auto-routing to a
   // different model would be surprising to OpenAI-compatible clients.
   // Sticky-session is the fallback when no `model` field was sent at all.
-  let preferredModel: number | undefined;
-  let restrictedChain: number[] | undefined;
-
-  if (isAutoModel(requestedModel)) {
-    // Explicit "auto" → pick the best model fresh WITHOUT sticky session.
-    // Sticky session (continuar con el ultimo modelo) solo aplica cuando
-    // el campo `model` se omite por completo. Si el usuario cambio de Flash
-    // a Pro explicitamente, no queremos que se quede pegado al modelo anterior.
-    preferredModel = undefined;
-  } else if (requestedModel) {
-    // Check for model-specific fallback overrides first
-    const overrideChain = MODEL_FALLBACK_OVERRIDES[requestedModel];
-    if (overrideChain) {
-      // Resolve override chain to DB IDs using (platform, model_id) pairs
-      // so the resolution is unambiguous even when model_id is shared across
-      // platforms (e.g. 'deepseek-v4-flash' on opencode-go and ollama).
-      const db = getDb();
-      const resolvedChain: number[] = [];
-      for (const entry of overrideChain) {
-        const row = db.prepare(
-          'SELECT id FROM models WHERE platform = ? AND model_id = ? AND enabled = 1'
-        ).get(entry.platform, entry.modelId) as { id: number } | undefined;
-        if (row) resolvedChain.push(row.id);
-      }
-      if (resolvedChain.length === 0) {
-        res.status(400).json({
-          error: {
-            message: `Model override chain for '${requestedModel}' resolved to no available models. Check that the catalog models are enabled.`,
-            type: 'invalid_request_error',
-            code: 'model_not_found',
-          },
-        });
-        return;
-      }
-      // Let the router use the restricted chain; no single preferred model.
-      preferredModel = undefined;
-      restrictedChain = resolvedChain;
-    } else {
-      const db = getDb();
-      // Get ALL enabled models with this ID (there may be multiple platforms),
-      // ordered by fallback priority so the highest-priority provider with a
-      // key wins (e.g. andoryyu before opencode-go for `deepseek-v4-flash`).
-      const enabledModels = db.prepare(`
-        SELECT m.id, m.platform
-        FROM models m
-        LEFT JOIN fallback_config fc ON fc.model_db_id = m.id
-        WHERE m.model_id = ? AND m.enabled = 1
-        ORDER BY COALESCE(fc.priority, 999999) ASC
-      `).all(requestedModel) as { id: number; platform: string }[];
-      if (enabledModels.length > 0) {
-        // Find the first one that has an available key
-        const keysByPlatform = db.prepare('SELECT platform FROM api_keys WHERE enabled = 1 AND status != ?').all('invalid') as { platform: string }[];
-        const platformsWithKeys = new Set(keysByPlatform.map(k => k.platform));
-        const modelWithKey = enabledModels.find(m => platformsWithKeys.has(m.platform));
-        if (modelWithKey) {
-          preferredModel = modelWithKey.id;
-        } else {
-          // All models with this ID have no keys — use first and let router handle fallback
-          preferredModel = enabledModels[0].id;
-        }
-      } else {
-        const disabled = db.prepare('SELECT id FROM models WHERE model_id = ?').get(requestedModel) as { id: number } | undefined;
-        const reason = disabled ? 'is disabled' : 'is not in the catalog';
-        res.status(400).json({
-          error: {
-            message: `Model '${requestedModel}' ${reason}. Use 'auto' (or omit the 'model' field) to auto-route, or call /v1/models for the available list.`,
-            type: 'invalid_request_error',
-            code: 'model_not_found',
-          },
-        });
-        return;
-      }
-    }
-  } else {
-    preferredModel = getStickyModel(messages);
+  const selection = resolveProxyModelSelection(requestedModel, messages);
+  if ('error' in selection) {
+    res.status(400).json({
+      error: { message: selection.error.message, type: 'invalid_request_error', code: selection.error.code },
+    });
+    return;
   }
+  const { preferredModel, restrictedChain } = selection;
 
   // Retry loop: on 429/rate limit, skip that model+key and try the next one
   const skipKeys = new Set<string>();
@@ -218,6 +153,25 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, restrictedChain);
     } catch (rawError: unknown) {
       const err = normalizeProxyError(rawError);
+      // No route available right now. If a short key cooldown is about to
+      // expire (e.g. the 15s paid-provider cooldown on opencode-go), wait
+      // for it and retry instead of failing fast — "everything should flow",
+      // and the paid fallback should be retried rather than skipped.
+      const waitMs = getShortestCooldownRemainingMs();
+      const maxCooldownWaitMs = 60_000;
+      if (waitMs > 0 && waitMs <= maxCooldownWaitMs && Date.now() + waitMs < routingDeadline) {
+        console.log(`[Proxy] All routes cooling; waiting ${waitMs}ms for nearest cooldown to expire...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
+        // Drop skip entries whose cooldown has expired so the next
+        // routeRequest can pick them up again (e.g. retry opencode-go
+        // after its short 15s cooldown instead of leaving it skipped).
+        for (const skipId of skipKeys) {
+          const [platform, modelId, keyIdStr] = skipId.split(':');
+          const keyId = Number(keyIdStr);
+          if (!isOnCooldown(platform, modelId, keyId)) skipKeys.delete(skipId);
+        }
+        continue;
+      }
       // No more models available
       if (lastError) {
         const exhaustedBySchemaMismatch = lastErrorKind === 'schema_mismatch';
@@ -265,7 +219,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         try {
           const gen = route.provider.streamChatCompletion(
             route.apiKey, messages, route.modelId,
-            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, signal: requestAbortController.signal },
+            { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, requestId, signal: requestAbortController.signal },
           );
 
           for await (const chunk of gen) {
@@ -325,7 +279,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       } else {
         const result = await route.provider.chatCompletion(
           route.apiKey, messages, route.modelId,
-          { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, signal: requestAbortController.signal },
+          { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, requestId, signal: requestAbortController.signal },
         );
 
         const totalTokens = result.usage?.total_tokens ?? 0;

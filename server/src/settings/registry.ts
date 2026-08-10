@@ -16,128 +16,21 @@ import type {
 import { getRegistrySnapshot, KNOWN_PROVIDER_PLATFORMS } from '../providers/registry.js';
 
 export { SETTINGS_SCHEMA_VERSION };
-const SETTINGS_REVISION_KEY = 'settings_revision';
+import { commitRawValues, getRevision } from './persistence.js';
 
-type NumericSettingDefinition = SettingDefinition & {
-  type: 'integer' | 'number' | 'duration-ms';
-  defaultValue: number;
-  min: number;
-  max: number;
-};
-
-export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
-  {
-    key: 'routing.maxAttempts',
-    type: 'integer',
-    defaultValue: 6,
-    min: 1,
-    max: 12,
-    description: 'Maximum provider attempts allowed for one inference request.',
-    scope: 'routing',
-    sensitive: false,
-    requiresRestart: false,
-  },
-  {
-    key: 'routing.maxDurationMs',
-    type: 'duration-ms',
-    defaultValue: 120_000,
-    min: 1_000,
-    max: 10 * 60 * 1_000,
-    description: 'Maximum total routing time before the request fails closed.',
-    scope: 'routing',
-    sensitive: false,
-    requiresRestart: false,
-  },
-  {
-    key: 'routing.nearLimitThreshold',
-    type: 'number',
-    defaultValue: 0.8,
-    min: 0.5,
-    max: 0.99,
-    description: 'Usage ratio at which a model is deprioritized before its hard limit.',
-    scope: 'routing',
-    sensitive: false,
-    requiresRestart: false,
-  },
-  {
-    key: 'routing.stickyTtlMs',
-    type: 'duration-ms',
-    defaultValue: 30 * 60 * 1000,
-    min: 60 * 1000,
-    max: 24 * 60 * 60 * 1000,
-    description: 'How long an inactive conversation keeps its preferred model.',
-    scope: 'routing',
-    sensitive: false,
-    requiresRestart: false,
-  },
-  {
-    key: 'routing.stickyRotationMs',
-    type: 'duration-ms',
-    defaultValue: 30 * 60 * 1000,
-    min: 60 * 1000,
-    max: 24 * 60 * 60 * 1000,
-    description: 'Maximum age of a sticky model assignment before it can rotate.',
-    scope: 'routing',
-    sensitive: false,
-    requiresRestart: false,
-  },
-  {
-    key: 'health.checkIntervalMs',
-    type: 'duration-ms',
-    defaultValue: 5 * 60 * 1000,
-    min: 60 * 1000,
-    max: 60 * 60 * 1000,
-    description: 'Interval between opt-in background provider health checks.',
-    scope: 'health',
-    sensitive: false,
-    requiresRestart: true,
-  },
-  {
-    key: 'health.providerFailureThreshold',
-    type: 'integer',
-    defaultValue: 3,
-    min: 1,
-    max: 10,
-    description: 'Consecutive provider failures required before cooldown.',
-    scope: 'health',
-    sensitive: false,
-    requiresRestart: false,
-  },
-  {
-    key: 'health.providerCooldownMs',
-    type: 'duration-ms',
-    defaultValue: 60 * 1000,
-    min: 1 * 1000,
-    max: 60 * 60 * 1000,
-    description: 'Provider cooldown after the failure threshold is reached.',
-    scope: 'health',
-    sensitive: false,
-    requiresRestart: false,
-  },
-] as const;
-
-const definitionsByKey = new Map(SETTING_DEFINITIONS.map(definition => [definition.key, definition]));
-
+import { getDefinition, SETTING_DEFINITIONS } from './definitions.js';
 export class SettingsValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'SettingsValidationError';
   }
 }
-
-export class SettingsRevisionConflictError extends Error {
-  constructor(public readonly currentRevision: number) {
-    super(`Settings revision conflict; current revision is ${currentRevision}`);
-    this.name = 'SettingsRevisionConflictError';
-  }
-}
-
-function getRevision(): number {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(SETTINGS_REVISION_KEY) as { value: string } | undefined;
-  if (!row) return 0;
-  const revision = Number.parseInt(row.value, 10);
-  return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
-}
+type NumericSettingDefinition = SettingDefinition & {
+  type: 'integer' | 'number' | 'duration-ms';
+  defaultValue: number;
+  min: number;
+  max: number;
+};
 
 function validateValue(definition: SettingDefinition, value: unknown): SettingPrimitive {
   if (definition.type === 'boolean') {
@@ -180,7 +73,7 @@ function readValue(definition: SettingDefinition): SettingPrimitive {
 }
 
 export function getSetting(key: string): SettingPrimitive {
-  const definition = definitionsByKey.get(key);
+  const definition = getDefinition(key);
   if (!definition) throw new SettingsValidationError(`Unknown setting: ${key}`);
   return readValue(definition);
 }
@@ -203,26 +96,6 @@ export function getSettingsSnapshot(): SettingsSnapshot {
   };
 }
 
-function commitRawValues(entries: Array<[string, string]>, expectedRevision?: number): number {
-  const db = getDb();
-  const currentRevision = getRevision();
-  if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
-    throw new SettingsRevisionConflictError(currentRevision);
-  }
-
-  const nextRevision = currentRevision + 1;
-  const transaction = db.transaction(() => {
-    const update = db.prepare(`
-      INSERT INTO settings (key, value) VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `);
-    for (const [key, value] of entries) update.run(key, value);
-    update.run(SETTINGS_REVISION_KEY, String(nextRevision));
-  });
-  transaction();
-  return nextRevision;
-}
-
 export function updateSettings(
   values: Record<string, unknown>,
   expectedRevision?: number,
@@ -231,7 +104,7 @@ export function updateSettings(
   if (entries.length === 0) throw new SettingsValidationError('At least one setting is required');
 
   const validated = entries.map(([key, value]) => {
-    const definition = definitionsByKey.get(key);
+    const definition = getDefinition(key);
     if (!definition) throw new SettingsValidationError(`Unknown setting: ${key}`);
     return [key, validateValue(definition, value)] as const;
   });

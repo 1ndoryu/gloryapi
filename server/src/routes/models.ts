@@ -3,8 +3,12 @@ import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
 import type { Platform } from '@gloryapi/shared/types.js';
+import { requireAdmin } from '../lib/admin-auth.js';
 
 export const modelsRouter = Router();
+modelsRouter.use((req, res, next) => {
+  if (requireAdmin(req, res)) next();
+});
 
 type ModelRow = {
   id: number;

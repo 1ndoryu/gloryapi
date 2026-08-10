@@ -16,6 +16,10 @@ import { requireAdmin } from '../lib/admin-auth.js';
 
 export const fallbackRouter = Router();
 
+fallbackRouter.get('/', (req: Request, res: Response, next) => {
+  if (requireAdmin(req, res)) next();
+});
+
 type FallbackRow = {
   model_db_id: number;
   priority: number;

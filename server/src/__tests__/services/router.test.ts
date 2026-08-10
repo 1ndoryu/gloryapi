@@ -37,6 +37,19 @@ describe('Router', () => {
     expect(result.apiKey).toBe('test-groq-key');
   });
 
+  it('should preserve the key onboarding contract: unknown enabled keys are eligible until checked', () => {
+    const db = getDb();
+    const { encrypted, iv, authTag } = encrypt('test-groq-key');
+    db.prepare(`
+      INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('groq', 'new', encrypted, iv, authTag, 'unknown', 1);
+
+    const result = routeRequest();
+    expect(result.platform).toBe('groq');
+    expect(result.apiKey).toBe('test-groq-key');
+  });
+
   it('should prefer higher-priority model when keys exist for multiple platforms', () => {
     const db = getDb();
 

@@ -72,6 +72,43 @@ describe('CohereProvider', () => {
     expect(result._routed_via?.platform).toBe('cohere');
   });
 
+  it('should propagate the bounded request id on chat and stream requests', async () => {
+    const capturedRequestIds: Array<string | null> = [];
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      capturedRequestIds.push(new Headers(init?.headers).get('X-Glory-Request-Id'));
+      if (capturedRequestIds.length === 1) {
+        return jsonResponse({
+          id: 'cohere-123',
+          object: 'chat.completion',
+          created: 123,
+          model: 'command-a-03-2025',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        });
+      }
+      return new Response('data: {"id":"cohere-stream","object":"chat.completion.chunk","choices":[]}\n\ndata: [DONE]\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    await provider.chatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Hi' }],
+      'command-r-plus-08-2024',
+      { requestId: 'req_cohere_01' },
+    );
+    for await (const _chunk of provider.streamChatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Hi' }],
+      'command-r-plus-08-2024',
+      { requestId: 'req_cohere_01' },
+    )) {
+      // Consume the stream so the second upstream request completes.
+    }
+
+    expect(capturedRequestIds).toEqual(['req_cohere_01', 'req_cohere_01']);
+  });
+
   it('should validate key', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce(new Response(null, { status: 200 }));
     expect(await provider.validateKey('valid')).toBe(true);

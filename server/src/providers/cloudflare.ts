@@ -44,6 +44,7 @@ export class CloudflareProvider extends BaseProvider {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
+        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
       },
       body: JSON.stringify({
         model: modelId,
@@ -81,6 +82,7 @@ export class CloudflareProvider extends BaseProvider {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
+        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
       },
       body: JSON.stringify({
         model: modelId,

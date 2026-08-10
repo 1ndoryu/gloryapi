@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
+import { getAdminAuthToken } from '../../lib/admin-auth.js';
 import type { AddressInfo } from 'node:net';
 
 type AutoModel = { id: string; object: string; owned_by: string };
@@ -19,9 +20,12 @@ async function request<T = AutoResponse>(app: Express, method: string, path: str
   const addr = address as AddressInfo;
   const url = `http://127.0.0.1:${addr.port}${path}`;
 
+  const managementHeaders = path.startsWith('/api/') && !Object.keys(headers).some((key) => key.toLowerCase() === 'authorization')
+    ? { Authorization: `Bearer ${getAdminAuthToken()}` }
+    : {};
   const res = await fetch(url, {
     method,
-    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
+    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...managementHeaders, ...headers },
     body: body ? JSON.stringify(body) : undefined,
   });
 
@@ -65,7 +69,7 @@ describe('Virtual "auto" model', () => {
   });
 
   it('lists "auto" as the first /v1/models entry', async () => {
-    const { status, body } = await request(app, 'GET', '/v1/models');
+    const { status, body } = await request(app, 'GET', '/v1/models', undefined, authHeaders());
     expect(status).toBe(200);
     expect(body.object).toBe('list');
     expect(body.data[0]).toMatchObject({

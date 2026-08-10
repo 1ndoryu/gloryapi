@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { getUnifiedApiKey, initDb } from '../../db/index.js';
+import { getAdminAuthToken } from '../../lib/admin-auth.js';
 import type { AddressInfo } from 'node:net';
 
 type FallbackEntry = {
@@ -28,7 +29,7 @@ async function request<T = { schemaVersion: string; revision: number; entries: F
     method,
     headers: {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
-      ...(authorization ? { Authorization: `Bearer ${authorization}` } : {}),
+      Authorization: `Bearer ${authorization === undefined ? getAdminAuthToken() : authorization}`,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -124,7 +125,7 @@ describe('Fallback API', () => {
     const { body: snapshot } = await request(app, 'GET', '/api/fallback');
     const payload = snapshot.entries.map(entry => ({ modelDbId: entry.modelDbId, priority: entry.priority, enabled: entry.enabled }));
 
-    const unauthorized = await request(app, 'PUT', '/api/fallback', { expectedRevision: snapshot.revision, entries: payload });
+    const unauthorized = await request(app, 'PUT', '/api/fallback', { expectedRevision: snapshot.revision, entries: payload }, '');
     expect(unauthorized.status).toBe(401);
 
     const duplicate = [...payload.slice(0, -1), { ...payload[0], priority: payload.length }];
@@ -140,7 +141,7 @@ describe('Fallback API', () => {
   });
 
   it('streams sanitized routing changes and closes unauthorized subscriptions', async () => {
-    const unauthorized = await request(app, 'GET', '/api/fallback/events');
+    const unauthorized = await request(app, 'GET', '/api/fallback/events', undefined, '');
     expect(unauthorized.status).toBe(401);
 
     const server = app.listen(0);
@@ -214,7 +215,7 @@ describe('Fallback API', () => {
   });
 
   it('exposes sanitized routing traces only to authenticated clients', async () => {
-    const unauthorized = await request(app, 'GET', '/api/fallback/traces');
+    const unauthorized = await request(app, 'GET', '/api/fallback/traces', undefined, '');
     expect(unauthorized.status).toBe(401);
 
     const authorized = await request(app, 'GET', '/api/fallback/traces', undefined, getUnifiedApiKey());

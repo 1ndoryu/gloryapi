@@ -11,6 +11,8 @@ import { analyticsRouter } from './routes/analytics/index.js';
 import { healthRouter } from './routes/health.js';
 import { settingsRouter } from './routes/settings.js';
 import { registryRouter } from './routes/control/registry.js';
+import { controlStatusRouter } from './routes/control/status.js';
+import { sessionRouter } from './routes/control/session.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -52,6 +54,8 @@ export function createApp() {
   app.use('/api/keys', keysRouter);
   app.use('/api/models', modelsRouter);
   app.use('/api/registry', registryRouter);
+  app.use('/api/control/status', controlStatusRouter);
+  app.use('/api/session', sessionRouter);
   app.use('/api/fallback', fallbackRouter);
   app.use('/api/analytics', analyticsRouter);
   app.use('/api/health', healthRouter);

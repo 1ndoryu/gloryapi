@@ -5,8 +5,12 @@ import { checkKeyHealth, checkAllKeys, getProviderHealthStatus } from '../servic
 import { hasProvider } from '../providers/index.js';
 import { getRateLimitStatus } from '../services/ratelimit.js';
 import type { Platform } from '@gloryapi/shared/types.js';
+import { requireAdmin } from '../lib/admin-auth.js';
 
 export const healthRouter = Router();
+healthRouter.use((req, res, next) => {
+  if (requireAdmin(req, res)) next();
+});
 
 type HealthPlatformRow = {
   platform: Platform;

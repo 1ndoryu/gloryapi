@@ -125,6 +125,28 @@ export function isOnCooldown(platform: string, modelId: string, keyId: number): 
   return true;
 }
 
+/**
+ * Shortest remaining cooldown (ms) among all currently-cooling model+keys,
+ * or 0 if none are cooling. Lets the proxy wait for the nearest cooldown to
+ * expire (e.g. a 15s paid-provider cooldown) and retry instead of failing
+ * fast with 429 when every candidate route is temporarily blocked.
+ */
+export function getShortestCooldownRemainingMs(): number {
+  const now = Date.now();
+  let shortest = 0;
+  for (const expiry of cooldowns.values()) {
+    if (expiry <= now) continue;
+    const remaining = expiry - now;
+    if (shortest === 0 || remaining < shortest) shortest = remaining;
+  }
+  return shortest;
+}
+
+/** Test-only helper: clears in-memory cooldowns between tests. */
+export function resetCooldownsForTest() {
+  cooldowns.clear();
+}
+
 export function getRateLimitStatus(
   platform: string,
   modelId: string,

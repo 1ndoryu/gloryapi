@@ -50,7 +50,10 @@ export class GoogleProvider extends BaseProvider {
     const url = `${API_BASE}/models/${modelId}:generateContent?key=${apiKey}`;
     const res = await this.fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
+      },
       body: JSON.stringify(body),
     });
 
@@ -113,7 +116,10 @@ export class GoogleProvider extends BaseProvider {
     const url = `${API_BASE}/models/${modelId}:streamGenerateContent?alt=sse&key=${apiKey}`;
     const res = await this.fetchWithTimeout(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
+      },
       body: JSON.stringify(body),
     });
 

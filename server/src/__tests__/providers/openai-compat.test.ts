@@ -52,11 +52,12 @@ describe('OpenAICompatProvider', () => {
       } as unknown as Response;
     });
 
-    await provider.chatCompletion('my-key', [{ role: 'user', content: 'test' }], 'test-model');
+    await provider.chatCompletion('my-key', [{ role: 'user', content: 'test' }], 'test-model', { requestId: 'req_bridge_01' });
 
     expect(capturedUrl).toBe('https://api.test.com/v1/chat/completions');
     expect(capturedHeaders.get('Authorization')).toBe('Bearer my-key');
     expect(capturedHeaders.get('X-Custom')).toBe('test');
+    expect(capturedHeaders.get('X-Glory-Request-Id')).toBe('req_bridge_01');
     expect(capturedBody.messages[0].role).toBe('user');
   });
 

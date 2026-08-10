@@ -61,6 +61,43 @@ describe('CloudflareProvider', () => {
     expect(result.choices[0].message.content).toBe('Hello from CF!');
   });
 
+  it('should propagate the bounded request id on chat and stream requests', async () => {
+    const capturedRequestIds: Array<string | null> = [];
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      capturedRequestIds.push(new Headers(init?.headers).get('X-Glory-Request-Id'));
+      if (capturedRequestIds.length === 1) {
+        return jsonResponse({
+          id: 'chatcmpl-cf',
+          object: 'chat.completion',
+          created: 123,
+          model: '@cf/meta/llama-3.1-70b-instruct',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        });
+      }
+      return new Response('data: {"id":"cf-stream","object":"chat.completion.chunk","choices":[]}\n\ndata: [DONE]\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    await provider.chatCompletion(
+      'abc123:token',
+      [{ role: 'user', content: 'Hi' }],
+      '@cf/meta/llama-3.1-70b-instruct',
+      { requestId: 'req_cloudflare_01' },
+    );
+    for await (const _chunk of provider.streamChatCompletion(
+      'abc123:token',
+      [{ role: 'user', content: 'Hi' }],
+      '@cf/meta/llama-3.1-70b-instruct',
+      { requestId: 'req_cloudflare_01' },
+    )) {
+      // Consume the stream so the second upstream request completes.
+    }
+
+    expect(capturedRequestIds).toEqual(['req_cloudflare_01', 'req_cloudflare_01']);
+  });
+
   it('should throw if key format is wrong', async () => {
     await expect(
       provider.chatCompletion('no-colon-here', [{ role: 'user', content: 'Hi' }], 'model')

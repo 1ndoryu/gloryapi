@@ -69,6 +69,7 @@ export interface ProviderDefinition {
   platform: Platform;
   displayName: string;
   lifecycle: ProviderLifecycle;
+  enabled: boolean;
   adapter: ProviderAdapterKind;
   endpoint: string;
   authScheme: 'bearer' | 'account-and-token';
@@ -297,166 +298,27 @@ export interface FallbackEntry {
   priority: number;
   enabled: boolean;
 }
+export type {
+  ChatCompletionChoice,
+  ChatCompletionChunk,
+  ChatCompletionOptions,
+  ChatCompletionRequest,
+  ChatCompletionResponse,
+  ChatContent,
+  ChatContentBlock,
+  ChatMessage,
+  ChatToolCall,
+  ChatToolCallFunction,
+  ChatToolChoice,
+  ChatToolDefinition,
+  ChatToolFunctionDefinition,
+  TokenUsage,
+} from './chat-types.js';
 
-// ---- OpenAI-Compatible Types ----
-
-export interface ChatToolCallFunction {
-  name: string;
-  arguments: string;
-}
-
-export interface ChatToolCall {
-  id: string;
-  type: 'function';
-  function: ChatToolCallFunction;
-  thought_signature?: string;
-}
-
-export interface ChatToolFunctionDefinition {
-  name: string;
-  description?: string;
-  parameters?: Record<string, unknown>;
-  strict?: boolean;
-}
-
-export interface ChatToolDefinition {
-  type: 'function';
-  function: ChatToolFunctionDefinition;
-}
-
-export type ChatToolChoice =
-  | 'none'
-  | 'auto'
-  | 'required'
-  | {
-    type: 'function';
-    function: {
-      name: string;
-    };
-  };
-
-// OpenAI's multimodal envelope: clients like opencode / continue.dev send
-// content as an array of typed blocks even for text-only messages. We accept
-// it on the wire and flatten to string for providers that don't support it
-// (Cohere, Cloudflare). See server/src/lib/content.ts.
-export type ChatContentBlock = { type: string; text?: string; [key: string]: unknown };
-export type ChatContent = string | null | ChatContentBlock[];
-
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: ChatContent;
-  name?: string;
-  tool_call_id?: string;
-  tool_calls?: ChatToolCall[];
-  reasoning_content?: string;
-  reasoning?: string;
-}
-
-export interface ChatCompletionOptions {
-  temperature?: number;
-  max_tokens?: number;
-  stream?: boolean;
-  top_p?: number;
-  tools?: ChatToolDefinition[];
-  tool_choice?: ChatToolChoice;
-  parallel_tool_calls?: boolean;
-}
-
-export interface ChatCompletionRequest extends ChatCompletionOptions {
-  model?: string;
-  messages: ChatMessage[];
-}
-
-export interface ChatCompletionChoice {
-  index: number;
-  message: ChatMessage;
-  finish_reason: string | null;
-}
-
-export interface TokenUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-}
-
-export type ChatCompletionResponse = {
-  id: string;
-  object: 'chat.completion';
-  created: number;
-  model: string;
-  choices: ChatCompletionChoice[];
-  usage: TokenUsage;
-  _routed_via?: {
-    platform: Platform;
-    model: string;
-  };
-};
-
-export type ChatCompletionChunk = {
-  id: string;
-  object: 'chat.completion.chunk';
-  created: number;
-  model: string;
-  choices: {
-    index: number;
-    delta: {
-      role?: 'assistant';
-      content?: string;
-      reasoning_content?: string;
-      reasoning?: string;
-      tool_calls?: ChatToolCall[];
-    };
-    finish_reason: string | null;
-  }[];
-};
-
-// ---- Analytics Types ----
-
-export interface AnalyticsSummary {
-  totalRequests: number;
-  successRate: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  avgLatencyMs: number;
-  estimatedCostSavings: number;
-}
-
-export interface PlatformStats {
-  platform: Platform;
-  requests: number;
-  successRate: number;
-  avgLatencyMs: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-}
-
-export interface TimelinePoint {
-  timestamp: string;
-  requests: number;
-  successCount: number;
-  failureCount: number;
-}
-
-export interface RequestLog {
-  id: number;
-  platform: Platform;
-  modelId: string;
-  status: 'success' | 'error';
-  inputTokens: number;
-  outputTokens: number;
-  latencyMs: number;
-  error: string | null;
-  createdAt: string;
-}
-
-// ---- Rate Limit Types ----
-
-export interface RateLimitStatus {
-  platform: Platform;
-  modelId: string;
-  rpm: { used: number; limit: number | null };
-  rpd: { used: number; limit: number | null };
-  tpm: { used: number; limit: number | null };
-  available: boolean;
-  nextResetAt: string | null;
-}
+export type {
+  AnalyticsSummary,
+  PlatformStats,
+  RateLimitStatus,
+  RequestLog,
+  TimelinePoint,
+} from './analytics-types.js';

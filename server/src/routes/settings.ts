@@ -1,19 +1,24 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
-import { backupDatabase, getUnifiedApiKey, regenerateUnifiedKey } from '../db/index.js';
+import { getUnifiedApiKey, regenerateUnifiedKey } from '../db/index.js';
+import { backupDatabase } from '../db/maintenance/backup.js';
 import {
   getProviderSettingsSnapshot,
   getSettingsSnapshot,
-  SettingsRevisionConflictError,
   SettingsValidationError,
   updateModelSettings,
   updateProviderSettings,
   updateSettings,
 } from '../settings/registry.js';
+import { SettingsRevisionConflictError, getSettingsAudit } from '../settings/persistence.js';
 import { z } from 'zod';
 import { requireAdmin } from '../lib/admin-auth.js';
 
 export const settingsRouter = Router();
+
+settingsRouter.use((req, res, next) => {
+  if (requireAdmin(req, res)) next();
+});
 
 const settingsUpdateSchema = z.object({
   expectedRevision: z.number().int().nonnegative().optional(),
@@ -33,6 +38,12 @@ settingsRouter.post('/api-key/regenerate', (_req: Request, res: Response) => {
 
 settingsRouter.get('/', (_req: Request, res: Response) => {
   res.json(getSettingsSnapshot());
+});
+
+settingsRouter.get('/audit', (req: Request, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+  const rawLimit = Number(req.query.limit ?? 50);
+  res.json({ schemaVersion: 'glory-settings-audit-v1', entries: getSettingsAudit(Number.isFinite(rawLimit) ? rawLimit : 50) });
 });
 
 settingsRouter.patch('/', (req: Request, res: Response) => {

@@ -5,8 +5,12 @@ import { getDb } from '../db/index.js';
 import { maskKey } from '../lib/crypto.js';
 import { credentialVault, DPAPI_ENCRYPTION_SCHEME, resolveStoredCredential } from '../lib/dpapi-vault.js';
 import { ACTIVE_PROVIDER_PLATFORMS, ARCHIVED_PROVIDER_PLATFORMS } from '../providers/registry.js';
+import { requireAdmin } from '../lib/admin-auth.js';
 
 export const keysRouter = Router();
+keysRouter.use((req, res, next) => {
+  if (requireAdmin(req, res)) next();
+});
 
 type ApiKeyRow = {
   id: number;
@@ -23,15 +27,20 @@ type ApiKeyRow = {
   last_checked_at: string | null;
 };
 
-const PLATFORMS = process.env.NODE_ENV === 'test'
-  ? [...ACTIVE_PROVIDER_PLATFORMS, ...ARCHIVED_PROVIDER_PLATFORMS] as const
-  : ACTIVE_PROVIDER_PLATFORMS;
-
 const addKeySchema = z.object({
-  platform: z.enum(PLATFORMS),
+  platform: z.string().trim().regex(/^[a-z][a-z0-9-]{1,63}$/, 'platform must be a stable lowercase slug'),
   key: z.string().min(1),
   label: z.string().optional(),
 });
+
+function canStoreCredential(platform: string): boolean {
+  if ((ACTIVE_PROVIDER_PLATFORMS as readonly string[]).includes(platform)) return true;
+  if (process.env.NODE_ENV === 'test' && (ARCHIVED_PROVIDER_PLATFORMS as readonly string[]).includes(platform)) return true;
+  const draft = getDb().prepare(
+    "SELECT 1 FROM provider_registry WHERE platform = ? AND lifecycle = 'draft'",
+  ).get(platform);
+  return Boolean(draft);
+}
 
 // List all keys (masked)
 keysRouter.get('/', (_req: Request, res: Response) => {
@@ -70,6 +79,10 @@ keysRouter.post('/', (req: Request, res: Response) => {
   }
 
   const { platform, key, label } = parsed.data;
+  if (!canStoreCredential(platform)) {
+    res.status(400).json({ error: { message: 'Provider is not registered or does not have an active draft' } });
+    return;
+  }
   const protectedCredential = credentialVault.protect(key);
 
   const db = getDb();

@@ -36,6 +36,7 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     platform: 'andoryyu',
     displayName: 'Andoryyu FreeBuff',
     lifecycle: 'active',
+    enabled: true,
     adapter: 'openai-compatible',
     endpoint: 'https://andoryyu-freebuff2api.andoryyu.workers.dev',
     authScheme: 'bearer',
@@ -45,6 +46,7 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     platform: 'opencode-zen',
     displayName: 'OpenCode Zen',
     lifecycle: 'active',
+    enabled: true,
     adapter: 'openai-compatible',
     endpoint: 'https://opencode.ai/zen/v1',
     authScheme: 'bearer',
@@ -54,6 +56,7 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     platform: 'opencode-go',
     displayName: 'OpenCode Go',
     lifecycle: 'active',
+    enabled: true,
     adapter: 'openai-compatible',
     endpoint: 'https://opencode.ai/zen/go/v1',
     authScheme: 'bearer',
@@ -76,12 +79,48 @@ function archivedCapabilities(): CapabilityProfile {
 }
 
 export interface ProviderDraftInput {
-  platform: Platform;
+  /** Draft slugs may be new; activation still requires a registered adapter. */
+  platform: string;
   displayName: string;
   adapter: ProviderAdapterKind;
   endpoint: string;
   authScheme: 'bearer' | 'account-and-token';
   capabilities: CapabilityProfile;
+}
+
+export interface ProviderModelDraftInput {
+  platform: string;
+  modelId: string;
+  displayName: string;
+  contextWindow: number | null;
+  capabilities: CapabilityProfile;
+}
+
+export function replaceProviderModelDrafts(platform: string, models: ProviderModelDraftInput[]): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare('DELETE FROM provider_model_drafts WHERE platform = ?').run(platform);
+    const insert = db.prepare(`
+      INSERT INTO provider_model_drafts (platform, model_id, display_name, context_window, capabilities_json)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    for (const model of models) {
+      insert.run(model.platform, model.modelId, model.displayName, model.contextWindow, JSON.stringify(model.capabilities));
+    }
+  })();
+}
+
+export function getProviderModelDrafts(platform: string): Array<Omit<ProviderModelDraftInput, 'platform'>> {
+  const rows = getDb().prepare(`
+    SELECT model_id, display_name, context_window, capabilities_json
+    FROM provider_model_drafts WHERE platform = ? ORDER BY display_name, model_id
+  `).all(platform) as Array<{ model_id: string; display_name: string; context_window: number | null; capabilities_json: string }>;
+  return rows.map(row => ({
+    modelId: row.model_id,
+    displayName: row.display_name,
+    contextWindow: row.context_window,
+    capabilities: JSON.parse(row.capabilities_json) as CapabilityProfile,
+  }));
 }
 
 export function isActiveProviderPlatform(platform: string): boolean {
@@ -90,6 +129,8 @@ export function isActiveProviderPlatform(platform: string): boolean {
 
 export function getRegistrySnapshot(): RegistrySnapshot {
   const db = getDb();
+  const runtimeRows = db.prepare('SELECT platform, enabled FROM provider_runtime_state').all() as Array<{ platform: string; enabled: number }>;
+  const runtimeMap = new Map(runtimeRows.map(row => [row.platform, row.enabled === 1]));
   const keyCounts = db.prepare(`
     SELECT platform, COUNT(*) AS count
     FROM api_keys
@@ -99,6 +140,7 @@ export function getRegistrySnapshot(): RegistrySnapshot {
 
   const providers: ProviderDefinition[] = ACTIVE_PROVIDER_DEFINITIONS.map(provider => ({
     ...provider,
+    enabled: runtimeMap.get(provider.platform) ?? true,
     credentialCount: keyCountMap.get(provider.platform) ?? 0,
   }));
   for (const platform of ARCHIVED_PROVIDER_PLATFORMS) {
@@ -108,6 +150,7 @@ export function getRegistrySnapshot(): RegistrySnapshot {
       platform,
       displayName: archivedDisplayName(platform),
       lifecycle: 'archived',
+      enabled: false,
       adapter: 'openai-compatible',
       endpoint: '',
       authScheme: 'bearer',
@@ -143,6 +186,7 @@ export function getRegistrySnapshot(): RegistrySnapshot {
       platform: draft.platform as Platform,
       displayName: draft.display_name,
       lifecycle: 'draft',
+      enabled: runtimeMap.get(draft.platform) ?? false,
       adapter: draft.adapter as ProviderAdapterKind,
       endpoint: draft.endpoint,
       authScheme: draft.auth_scheme as ProviderDefinition['authScheme'],
@@ -219,47 +263,26 @@ export function saveProviderDraft(input: ProviderDraftInput): void {
     input.authScheme,
     JSON.stringify(input.capabilities),
   );
+  db.prepare(`
+    INSERT INTO provider_runtime_state (platform, enabled, updated_at) VALUES (?, 0, datetime('now'))
+    ON CONFLICT(platform) DO UPDATE SET enabled = 0, updated_at = datetime('now')
+  `).run(input.platform);
+}
+
+export function setProviderEnabled(platform: string, enabled: boolean): void {
+  if (!isActiveProviderPlatform(platform)) throw new Error('Only an active provider can be toggled');
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare(`
+      INSERT INTO provider_runtime_state (platform, enabled, updated_at) VALUES (?, ?, datetime('now'))
+      ON CONFLICT(platform) DO UPDATE SET enabled = excluded.enabled, updated_at = datetime('now')
+    `).run(platform, enabled ? 1 : 0);
+    db.prepare(`UPDATE fallback_config SET enabled = ? WHERE model_db_id IN (SELECT id FROM models WHERE platform = ?)`)
+      .run(enabled ? 1 : 0, platform);
+  })();
 }
 
 export function removeProviderDraft(platform: string): boolean {
   const result = getDb().prepare("DELETE FROM provider_registry WHERE platform = ? AND lifecycle = 'draft'").run(platform);
   return result.changes > 0;
-}
-
-export type ProviderVerification = 'health' | 'chat' | 'capabilities';
-
-export function recordProviderVerification(platform: string, verification: ProviderVerification): void {
-  const column: Record<ProviderVerification, string> = {
-    health: 'health_verified_at',
-    chat: 'chat_verified_at',
-    capabilities: 'capabilities_verified_at',
-  };
-  const row = getDb().prepare("SELECT lifecycle FROM provider_registry WHERE platform = ? AND lifecycle = 'draft'").get(platform);
-  if (!row) throw new Error('Provider draft not found');
-  getDb().prepare(`UPDATE provider_registry SET ${column[verification]} = datetime('now'), updated_at = datetime('now') WHERE platform = ?`).run(platform);
-}
-
-export function activateProviderDraft(platform: string): void {
-  const row = getDb().prepare(`
-    SELECT lifecycle, health_verified_at, chat_verified_at, capabilities_verified_at
-    FROM provider_registry WHERE platform = ?
-  `).get(platform) as {
-    lifecycle: string;
-    health_verified_at: string | null;
-    chat_verified_at: string | null;
-    capabilities_verified_at: string | null;
-  } | undefined;
-  if (!row || row.lifecycle !== 'draft') throw new Error('Provider draft not found');
-  if (!row.health_verified_at || !row.chat_verified_at || !row.capabilities_verified_at) {
-    throw new Error('Provider activation requires health, chat, and capabilities verification');
-  }
-  if (!isActiveProviderPlatform(platform)) {
-    throw new Error('Provider adapter is not registered for operational activation');
-  }
-  const definition = ACTIVE_PROVIDER_DEFINITIONS.find(candidate => candidate.platform === platform);
-  const draft = getDb().prepare('SELECT adapter, endpoint FROM provider_registry WHERE platform = ?').get(platform) as { adapter: string; endpoint: string } | undefined;
-  if (!definition || !draft || draft.adapter !== definition.adapter || draft.endpoint !== definition.endpoint) {
-    throw new Error('Provider definition does not match the registered adapter');
-  }
-  getDb().prepare("UPDATE provider_registry SET lifecycle = 'active', updated_at = datetime('now') WHERE platform = ?").run(platform);
 }

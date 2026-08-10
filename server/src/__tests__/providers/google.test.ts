@@ -70,6 +70,39 @@ describe('GoogleProvider', () => {
     expect(result._routed_via?.platform).toBe('google');
   });
 
+  it('should propagate the bounded request id on chat and stream requests', async () => {
+    const capturedRequestIds: Array<string | null> = [];
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      capturedRequestIds.push(new Headers(init?.headers).get('X-Glory-Request-Id'));
+      if (capturedRequestIds.length === 1) {
+        return new Response(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 },
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\ndata: [DONE]\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    await provider.chatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Hi' }],
+      'gemini-2.5-pro',
+      { requestId: 'req_google_01' },
+    );
+    for await (const _chunk of provider.streamChatCompletion(
+      'test-key',
+      [{ role: 'user', content: 'Hi' }],
+      'gemini-2.5-pro',
+      { requestId: 'req_google_01' },
+    )) {
+      // Consume the stream so the second upstream request completes.
+    }
+
+    expect(capturedRequestIds).toEqual(['req_google_01', 'req_google_01']);
+  });
+
   it('should throw on API error', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: false,

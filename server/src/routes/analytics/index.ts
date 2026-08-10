@@ -11,9 +11,13 @@ import type {
   PlatformErrorRow,
   HistoryRow,
   RecentErrorRow,
-} from '../../lib/analytics-contract.js';
+} from '../../lib/analytics/contract.js';
+import { requireAdmin } from '../../lib/admin-auth.js';
 
 export const analyticsRouter = Router();
+analyticsRouter.use((req, res, next) => {
+  if (requireAdmin(req, res)) next();
+});
 
 const ERROR_CATEGORY_SQL = `
   CASE

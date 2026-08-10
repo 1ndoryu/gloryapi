@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
-import { initDb } from '../../db/index.js';
+import { getUnifiedApiKey, initDb } from '../../db/index.js';
 import type { AddressInfo } from 'node:net';
 
 type AuthResponse = { error: { type: string } };
@@ -62,5 +62,18 @@ describe('Proxy authentication and CORS', () => {
 
     expect(status).toBe(200);
     expect(headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+  });
+
+  it('echoes a bounded bridge request id without accepting arbitrary header content', async () => {
+    const { status, headers } = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'auto',
+      messages: [{ role: 'user', content: 'hello' }],
+    }, {
+      Authorization: `Bearer ${getUnifiedApiKey()}`,
+      'X-Glory-Request-Id': 'req_bridge_01',
+    });
+
+    expect(status).not.toBe(401);
+    expect(headers.get('x-glory-request-id')).toBe('req_bridge_01');
   });
 });

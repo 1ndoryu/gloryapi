@@ -6,7 +6,8 @@ import Database from 'better-sqlite3';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
-import { backupDatabase, getDb, getUnifiedApiKey, initDb } from '../../db/index.js';
+import { getDb, getUnifiedApiKey, initDb } from '../../db/index.js';
+import { backupDatabase } from '../../db/maintenance/backup.js';
 import { decrypt, encrypt } from '../../lib/crypto.js';
 
 async function request(
