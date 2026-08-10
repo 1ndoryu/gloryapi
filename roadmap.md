@@ -6,10 +6,12 @@ canary y cutover reversible posteriores.
 ## Siguiente bloque
 
 1. Mantener el snapshot real externo y protegido durante la ventana de rollback; ya fue verificado con `integrity_check=ok` y el importador versionado e idempotente migró 22/22 credenciales.
-2. Crear el primer commit propio del workspace y repetir `npm run task:check -- GLORY-BASELINE` contra `HEAD` válido.
+2. Mantener el baseline `51f91e3` y repetir `npm run task:check -- GLORY-BASELINE` después de cada bloque de cambios.
 3. Mantener la política de cambios del legado: sin modificaciones durante la migración; cualquier corrección operativa futura debe quedar registrada, probada y evaluada para portabilidad.
 4. Conservar el bootstrap sanitizado por `git archive` + overlay: el escaneo histórico de 518 commits/4.018 blobs y del overlay quedó documentado sin exponer valores.
-5. Mantener la revisión periódica de warnings informativos de Sentinel; los módulos de proxy y las suites grandes ya están separados sin cambiar contratos. Ya se extrajeron snapshots, V1–V35 y `server/src/db/index.ts` quedó como orquestador de inicialización y backup.
+5. Mantener la revisión periódica de warnings informativos de Sentinel; el gate full actual pasa con 0 errores y 5 warnings
+   de mantenimiento (transformación dinámica de dnd-kit y límites de tamaño en módulos heredados). Ya se extrajeron
+   snapshots, V1–V35 y `server/src/db/index.ts` quedó como orquestador de inicialización y backup.
 6. Probar ACL/recuperación del bundle portable bajo otro perfil; las 22 filas operativas ya usan ciphertext DPAPI `CurrentUser`, fingerprints y metadatos, y el bundle Argon2id + AES-256-GCM está probado con fixtures sintéticos.
 7. Cerrar el bloque local de Fase 6: el ciclo draft → verificación real de health/chat/capabilities → active ya es fail-closed y no activa catálogos remotos completos.
 8. Fase 8 queda cerrada en su bloque local: el contrato de orden, autosave, revisión, cola local, SSE autenticado,
@@ -52,11 +54,17 @@ canary y cutover reversible posteriores.
   local/global está provisionado y compile + suite del checkout externo pasaron (**557 passing, 1 pending**).
   `quality:doctor` ahora devuelve `ready: true`, con commit `a804c0d8...`, release `v0.7.0`, evidencia limpia y
   artefacto `18611cda...`; la herramienta externa permanece limpia.
-- El adaptador `scripts/quality/sentinel-stage.mjs` convierte el análisis en reporte estructurado. La última revalidación
-  conserva 0 findings; el aviso de `_generated` ausente es informativo. Tras extraer las migraciones V1–V35, componentes de UI, el hook del Playground, helpers de providers, contratos del proxy y suites grandes de tests, además de tipar respuestas nuevas, estabilizar keys de listas, cerrar un bloque de parsing de errores/streams en producción y tipar las filas SQL de las rutas, health/router y contratos de Analytics en UI, además de endurecer tres suites pequeñas de servicios/stream, los mocks de Cloudflare/Cohere, los contratos de Google/OpenAI-compatible, las suites HTTP de rutas y los contratos compartidos de chat, el análisis directo queda en **0 errores, 0 warnings y 0 hints**; no se añadieron exclusiones Sentinel. Producción, UI, tests y contratos compartidos ya no tienen avisos explícitos de `any` ni hints pendientes. Los selectores existentes se conservaron mediante el alias semántico `SelectDropdown`, sin introducir un componente duplicado ni cambiar su comportamiento.
+- El adaptador `scripts/quality/sentinel-stage.mjs` convierte el análisis en reporte estructurado. El análisis directo
+  queda sin findings accionables; el aviso de `_generated` ausente es informativo. El gate full `task:check` pasa con
+  0 errores y 5 warnings de mantenimiento: la transformación dinámica recomendada por dnd-kit y cuatro límites de
+  tamaño en módulos heredados. No se añadieron exclusiones Sentinel. Tras extraer las migraciones V1–V35, componentes
+  de UI, hooks, helpers de providers, contratos del proxy, rutas de Analytics y suites grandes de tests, además de
+  tipar respuestas nuevas, producción, UI, tests y contratos compartidos ya no tienen avisos explícitos de `any` ni
+  hints pendientes. Los selectores existentes se conservaron mediante el alias semántico `SelectDropdown`, sin
+  introducir un componente duplicado ni cambiar su comportamiento.
 - El escaneo histórico/overlay y el guard de independencia de Git quedaron completados; el historial completo no se reutiliza porque el inventario contiene artefactos sensibles excluidos. La política del legado queda fijada: no modificar `freellmapi` durante la migración.
-- El gate coordinado aún no puede cerrar porque este repositorio no tiene `HEAD` (no se crea un commit implícito en
-  el checkout compartido). `task:check` falla cerrado con error de alcance Git, sin declarar PASS.
+- El gate coordinado ya cierra contra el `HEAD` propio `51f91e3`: `task:check -- GLORY-BASELINE` devuelve PASS.
+  Sentinel conserva 0 errores y 5 warnings no bloqueantes; un checkout sin historia seguiría fallando cerrado.
 - Fase 5 ya tiene un bootstrap de catálogo operativo: una base nueva usa el schema compacto sin ejecutar las 35
   migraciones históricas; una base existente se actualiza y queda normalizada a exactamente tres modelos, con fallback
   1–3 y credenciales archivadas preservadas. El contrato está cubierto por `catalog-clean.test.ts`.
@@ -89,6 +97,8 @@ canary y cutover reversible posteriores.
   fallbackable y siguiente candidato OpenCode Zen; stream completado => sin fallback.
 - El runtime compilado ya incluye `@gloryapi/shared/dist/types.js`: `build:shared` se ejecuta antes del build del
   servidor y un smoke real en loopback confirmó que `server/dist/index.js` arranca sin `ERR_MODULE_NOT_FOUND`.
+- El bloque actual de UI/control separó hooks de `FallbackPage` y `SettingsPage`, movió Analytics y los contratos de
+  backup/registry a límites explícitos sin cambiar las rutas públicas; build, suite y bridge siguen verdes.
 - Fase 10.1 tiene el fixture `integrations/codex-bridge/fixtures/responses-contract-v1.json`, probado por el contrato
   estructural del bridge (texto, reasoning/tools, error, cancelación, custom tool, namespace y visión),
   `ADR-001-codex-responses-sidecar.md` y el parser incremental `bridge/responses-sse.js`; además el sidecar separa `BRIDGE_CLIENT_TOKEN` de

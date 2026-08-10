@@ -18,12 +18,12 @@ compartir con este workspace datos, SQLite/WAL, `.env`, puertos, PID, logs, brid
 - No añadir remoto heredado ni publicar desde este repositorio sin autorización explícita.
 - Los backups se solicitan con `POST /api/settings/backup`, usando `Authorization: Bearer <unified-key>` y una
   ruta absoluta externa en `GLORYAPI_BACKUP_DIR`; la respuesta nunca incluye la ruta ni secretos.
-- El gate usa Sentinel 0.6.4 fijado en `sentinel.lock.json` y ejecutado desde `.quality-tools/sentinel`.
+- El gate usa Sentinel 0.7.0 fijado en `sentinel.lock.json` y ejecutado desde `.quality-tools/sentinel`.
   `quality-tools.json` declara de forma explícita el checkout externo usado para provisionar el runtime;
   un clon limpio requiere sustituir esa fuente por un artefacto/checkout disponible antes de declarar
   reproducibilidad completa.
-- El gate no inventa `HEAD`: hasta crear el primer commit propio, `npm run task:check -- GLORY-BASELINE`
-  debe quedar bloqueado con error de alcance. El análisis baseline directo se conserva como evidencia, no como PASS.
+- El gate requiere un `HEAD` propio válido. `npm run task:check -- GLORY-BASELINE` ya pasa contra el
+  commit baseline actual; cualquier checkout sin historia debe quedar bloqueado de forma fail-closed.
 
 ## Comandos descubiertos
 

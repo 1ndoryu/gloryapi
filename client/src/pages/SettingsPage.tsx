@@ -1,162 +1,30 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/page-header'
-import type {
-  ModelSettingsOverrides,
-  ProviderSettingsOverrides,
-  ProviderSettingsSnapshot,
-  SettingPrimitive,
-  SettingScope,
-  SettingValue,
-  SettingsSnapshot,
-} from '../../../shared/types'
-
-type UnifiedKeyResponse = { apiKey: string }
-
-const scopeLabels: Record<SettingScope, string> = {
-  routing: 'Routing',
-  health: 'Health and retries',
-  provider: 'Providers',
-  logging: 'Logs',
-  security: 'Security',
-}
-
-function settingLabel(key: string): string {
-  const name = key.split('.').at(-1) ?? key
-  return name.replace(/[A-Z]/g, letter => ` ${letter.toLowerCase()}`).replace(/^./, letter => letter.toUpperCase())
-}
-
-function sameValues(left: Record<string, SettingPrimitive>, right: Record<string, SettingPrimitive>): boolean {
-  const keys = Object.keys(left)
-  return keys.length === Object.keys(right).length && keys.every(key => left[key] === right[key])
-}
+import { scopeLabels, settingLabel, useSettingsPage } from '@/hooks/useSettingsPage'
 
 export default function SettingsPage() {
-  const queryClient = useQueryClient()
-  const [draft, setDraft] = useState<Record<string, SettingPrimitive>>({})
-  const [providerDrafts, setProviderDrafts] = useState<Record<string, ProviderSettingsOverrides>>({})
-  const [modelDrafts, setModelDrafts] = useState<Record<string, ModelSettingsOverrides>>({})
-
-  const { data, isLoading, isError } = useQuery<SettingsSnapshot>({
-    queryKey: ['settings'],
-    queryFn: () => apiFetch('/api/settings'),
-  })
-  const { data: unifiedKey } = useQuery<UnifiedKeyResponse>({
-    queryKey: ['unified-key'],
-    queryFn: () => apiFetch('/api/settings/api-key'),
-  })
-  const { data: providerSettings } = useQuery<ProviderSettingsSnapshot>({
-    queryKey: ['provider-settings'],
-    queryFn: () => apiFetch('/api/settings/providers'),
-  })
-
-  useEffect(() => {
-    if (!data) return
-    setDraft(Object.fromEntries(data.settings.map(setting => [setting.key, setting.value])))
-  }, [data])
-
-  useEffect(() => {
-    if (!providerSettings) return
-    setProviderDrafts(Object.fromEntries(providerSettings.providers.map(provider => [provider.platform, provider.providerOverrides])))
-    setModelDrafts(Object.fromEntries(providerSettings.providers.flatMap(provider => provider.models.map(model => [
-      `${provider.platform}:${model.modelId}`,
-      model.overrides,
-    ]))))
-  }, [providerSettings])
-
-  const grouped = useMemo(() => {
-    const groups = new Map<SettingScope, SettingValue[]>()
-    for (const setting of data?.settings ?? []) {
-      const entries = groups.get(setting.scope) ?? []
-      entries.push(setting)
-      groups.set(setting.scope, entries)
-    }
-    return [...groups.entries()]
-  }, [data])
-
-  const save = useMutation({
-    mutationFn: (body: { expectedRevision: number; values: Record<string, SettingPrimitive> }) =>
-      apiFetch<SettingsSnapshot>('/api/settings', {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${unifiedKey?.apiKey ?? ''}` },
-        body: JSON.stringify(body),
-      }),
-    onSuccess: snapshot => {
-      queryClient.setQueryData(['settings'], snapshot)
-      setDraft(Object.fromEntries(snapshot.settings.map(setting => [setting.key, setting.value])))
-    },
-  })
-
-  const saveProviderOverride = useMutation({
-    mutationFn: (input: { platform: string; overrides: ProviderSettingsOverrides; revision: number }) =>
-      apiFetch<ProviderSettingsSnapshot>(`/api/settings/providers/${encodeURIComponent(input.platform)}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${unifiedKey?.apiKey ?? ''}` },
-        body: JSON.stringify({ expectedRevision: input.revision, values: { overrides: input.overrides } }),
-      }),
-    onSuccess: snapshot => {
-      queryClient.setQueryData(['provider-settings'], snapshot)
-      queryClient.setQueryData<SettingsSnapshot>(['settings'], current => current ? { ...current, revision: snapshot.revision } : current)
-    },
-  })
-
-  const saveModelOverride = useMutation({
-    mutationFn: (input: { platform: string; modelId: string; overrides: ModelSettingsOverrides; revision: number }) =>
-      apiFetch<ProviderSettingsSnapshot>(`/api/settings/providers/${encodeURIComponent(input.platform)}/models/${encodeURIComponent(input.modelId)}`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${unifiedKey?.apiKey ?? ''}` },
-        body: JSON.stringify({ expectedRevision: input.revision, values: { overrides: input.overrides } }),
-      }),
-    onSuccess: snapshot => {
-      queryClient.setQueryData(['provider-settings'], snapshot)
-      queryClient.setQueryData<SettingsSnapshot>(['settings'], current => current ? { ...current, revision: snapshot.revision } : current)
-    },
-  })
-
-  const hasChanges = Boolean(data && !sameValues(
-    draft,
-    Object.fromEntries(data.settings.map(setting => [setting.key, setting.value])),
-  ))
-
-  function updateValue(setting: SettingValue, raw: string | boolean) {
-    const value = setting.type === 'boolean'
-      ? raw
-      : setting.type === 'string'
-        ? raw
-        : Number(raw)
-    setDraft(current => ({ ...current, [setting.key]: value }))
-  }
-
-  function saveChanges() {
-    if (!data || !unifiedKey?.apiKey || !hasChanges) return
-    save.mutate({ expectedRevision: data.revision, values: draft })
-  }
-
-  function updateProviderOverride(platform: string, key: keyof ProviderSettingsOverrides, value: string) {
-    setProviderDrafts(current => {
-      const next = { ...current[platform] }
-      if (value === '') delete next[key]
-      else if (key === 'timeoutMs') next[key] = Number(value)
-      else if (key === 'baseUrl') next[key] = value
-      return { ...current, [platform]: next }
-    })
-  }
-
-  function updateModelOverride(platform: string, modelId: string, key: keyof ModelSettingsOverrides, value: string) {
-    const identity = `${platform}:${modelId}`
-    setModelDrafts(current => {
-      const next = { ...current[identity] }
-      if (value === '') delete next[key]
-      else if (key === 'timeoutMs') next[key] = Number(value)
-      else if (key === 'alias') next[key] = value
-      return { ...current, [identity]: next }
-    })
-  }
+  const {
+    data,
+    isLoading,
+    isError,
+    providerSettings,
+    providerDrafts,
+    modelDrafts,
+    grouped,
+    hasChanges,
+    save,
+    saveProviderOverride,
+    saveModelOverride,
+    unifiedKey,
+    updateValue,
+    saveChanges,
+    discardChanges,
+    updateProviderOverride,
+    updateModelOverride,
+  } = useSettingsPage()
 
   return (
     <div>
@@ -165,7 +33,7 @@ export default function SettingsPage() {
         description="Validated operational controls. Security invariants remain in code."
         actions={
           <div className="flex items-center gap-2">
-            {hasChanges && <Button variant="ghost" size="sm" onClick={() => data && setDraft(Object.fromEntries(data.settings.map(setting => [setting.key, setting.value])))}>Discard</Button>}
+            {hasChanges && <Button variant="ghost" size="sm" onClick={discardChanges}>Discard</Button>}
             <Button size="sm" onClick={saveChanges} disabled={!hasChanges || save.isPending || !unifiedKey?.apiKey}>
               {save.isPending ? 'Saving…' : 'Save changes'}
             </Button>
@@ -184,7 +52,7 @@ export default function SettingsPage() {
               <h2 className="text-sm font-medium mb-3">{scopeLabels[scope]}</h2>
               <div className="rounded-lg border divide-y bg-card">
                 {settings.map(setting => {
-                  const value = draft[setting.key] ?? setting.defaultValue
+                  const value = data?.settings.find(item => item.key === setting.key)?.value ?? setting.defaultValue
                   return (
                     <div key={setting.key} className="flex flex-wrap items-center gap-4 px-4 py-3">
                       <div className="min-w-[240px] flex-1">
@@ -198,12 +66,7 @@ export default function SettingsPage() {
                       <div className="w-[180px]">
                         {setting.type === 'boolean' ? (
                           <label className="flex items-center gap-2 text-sm">
-                            <input
-                              id={setting.key}
-                              type="checkbox"
-                              checked={Boolean(value)}
-                              onChange={event => updateValue(setting, event.target.checked)}
-                            />
+                            <input id={setting.key} type="checkbox" checked={Boolean(value)} onChange={event => updateValue(setting, event.target.checked)} />
                             {value ? 'Enabled' : 'Disabled'}
                           </label>
                         ) : (
@@ -218,9 +81,7 @@ export default function SettingsPage() {
                             className="font-mono text-xs"
                           />
                         )}
-                        {typeof setting.min === 'number' && typeof setting.max === 'number' && (
-                          <p className="text-[11px] text-muted-foreground mt-1">Allowed: {setting.min}–{setting.max}</p>
-                        )}
+                        {typeof setting.min === 'number' && typeof setting.max === 'number' && <p className="text-[11px] text-muted-foreground mt-1">Allowed: {setting.min}–{setting.max}</p>}
                       </div>
                     </div>
                   )
@@ -250,37 +111,17 @@ export default function SettingsPage() {
                       <h3 className="text-sm font-medium">{provider.platform}</h3>
                       <p className="text-xs text-muted-foreground">Provider settings and inherited capabilities</p>
                     </div>
-                    <Button
-                      size="xs"
-                      onClick={() => providerSettings && saveProviderOverride.mutate({ platform: provider.platform, overrides: providerDraft, revision: providerSettings.revision })}
-                      disabled={saveProviderOverride.isPending || !unifiedKey?.apiKey}
-                    >
-                      Save provider
-                    </Button>
+                    <Button size="xs" onClick={() => saveProviderOverride.mutate({ platform: provider.platform, overrides: providerDraft, revision: providerSettings.revision })} disabled={saveProviderOverride.isPending || !unifiedKey?.apiKey}>Save provider</Button>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor={`base-url-${provider.platform}`} className="text-xs">Base URL</Label>
-                      <Input
-                        id={`base-url-${provider.platform}`}
-                        value={providerDraft.baseUrl ?? provider.effective.baseUrl}
-                        onChange={event => updateProviderOverride(provider.platform, 'baseUrl', event.target.value)}
-                        className="font-mono text-xs"
-                      />
+                      <Input id={`base-url-${provider.platform}`} value={providerDraft.baseUrl ?? provider.effective.baseUrl} onChange={event => updateProviderOverride(provider.platform, 'baseUrl', event.target.value)} className="font-mono text-xs" />
                       <p className="text-[11px] text-muted-foreground">{provider.effective.sources.baseUrl === 'default' ? 'Inherited' : 'Provider override'}</p>
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor={`timeout-${provider.platform}`} className="text-xs">Timeout (ms)</Label>
-                      <Input
-                        id={`timeout-${provider.platform}`}
-                        type="number"
-                        min={1000}
-                        max={120000}
-                        step={1000}
-                        value={providerDraft.timeoutMs ?? provider.effective.timeoutMs}
-                        onChange={event => updateProviderOverride(provider.platform, 'timeoutMs', event.target.value)}
-                        className="font-mono text-xs"
-                      />
+                      <Input id={`timeout-${provider.platform}`} type="number" min={1000} max={120000} step={1000} value={providerDraft.timeoutMs ?? provider.effective.timeoutMs} onChange={event => updateProviderOverride(provider.platform, 'timeoutMs', event.target.value)} className="font-mono text-xs" />
                       <p className="text-[11px] text-muted-foreground">{provider.effective.sources.timeoutMs === 'default' ? 'Inherited' : 'Provider override'}</p>
                     </div>
                   </div>
@@ -294,37 +135,15 @@ export default function SettingsPage() {
                           <div key={identity} className="grid gap-2 sm:grid-cols-[1fr_180px_auto] items-end rounded-md bg-muted/30 p-3">
                             <div className="space-y-1">
                               <Label htmlFor={`alias-${identity}`} className="text-xs">{model.displayName}</Label>
-                              <Input
-                                id={`alias-${identity}`}
-                                value={modelDraft.alias ?? model.effective.alias ?? ''}
-                                placeholder="Inherited model ID"
-                                onChange={event => updateModelOverride(provider.platform, model.modelId, 'alias', event.target.value)}
-                                className="font-mono text-xs"
-                              />
+                              <Input id={`alias-${identity}`} value={modelDraft.alias ?? model.effective.alias ?? ''} placeholder="Inherited model ID" onChange={event => updateModelOverride(provider.platform, model.modelId, 'alias', event.target.value)} className="font-mono text-xs" />
                               <p className="text-[11px] text-muted-foreground">Alias: {model.effective.sources.alias}</p>
                             </div>
                             <div className="space-y-1">
                               <Label htmlFor={`model-timeout-${identity}`} className="text-xs">Timeout (ms)</Label>
-                              <Input
-                                id={`model-timeout-${identity}`}
-                                type="number"
-                                min={1000}
-                                max={120000}
-                                step={1000}
-                                value={modelDraft.timeoutMs ?? model.effective.timeoutMs}
-                                onChange={event => updateModelOverride(provider.platform, model.modelId, 'timeoutMs', event.target.value)}
-                                className="font-mono text-xs"
-                              />
+                              <Input id={`model-timeout-${identity}`} type="number" min={1000} max={120000} step={1000} value={modelDraft.timeoutMs ?? model.effective.timeoutMs} onChange={event => updateModelOverride(provider.platform, model.modelId, 'timeoutMs', event.target.value)} className="font-mono text-xs" />
                               <p className="text-[11px] text-muted-foreground">Timeout: {model.effective.sources.timeoutMs}</p>
                             </div>
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              onClick={() => providerSettings && saveModelOverride.mutate({ platform: provider.platform, modelId: model.modelId, overrides: modelDraft, revision: providerSettings.revision })}
-                              disabled={saveModelOverride.isPending || !unifiedKey?.apiKey}
-                            >
-                              Save model
-                            </Button>
+                            <Button size="xs" variant="outline" onClick={() => saveModelOverride.mutate({ platform: provider.platform, modelId: model.modelId, overrides: modelDraft, revision: providerSettings.revision })} disabled={saveModelOverride.isPending || !unifiedKey?.apiKey}>Save model</Button>
                           </div>
                         )
                       })}

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { getDb } from '../db/index.js';
+import { getDb } from '../../db/index.js';
 import type {
   SummaryRow,
   ModelStatsRow,
@@ -11,7 +11,7 @@ import type {
   PlatformErrorRow,
   HistoryRow,
   RecentErrorRow,
-} from '../lib/analytics-contract.js';
+} from '../../lib/analytics-contract.js';
 
 export const analyticsRouter = Router();
 

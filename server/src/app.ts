@@ -7,7 +7,7 @@ import { keysRouter } from './routes/keys.js';
 import { modelsRouter } from './routes/models.js';
 import { proxyRouter } from './routes/proxy.js';
 import { fallbackRouter } from './routes/fallback.js';
-import { analyticsRouter } from './routes/analytics.js';
+import { analyticsRouter } from './routes/analytics/index.js';
 import { healthRouter } from './routes/health.js';
 import { settingsRouter } from './routes/settings.js';
 import { registryRouter } from './routes/control/registry.js';

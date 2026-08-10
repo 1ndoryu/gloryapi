@@ -1,7 +1,7 @@
 # Plan maestro: migración de FreeLLMAPI a GloryAPI
 
 > Fecha: 2026-08-10
-> Estado: EN EJECUCIÓN — Fases 0–3 y 5–9 local verificadas; Fase 10 tiene contratos/readiness y canary CLI determinista verificado, mientras Fase 4, E2E Desktop, bandeja y canary/cutover operativo siguen abiertos
+> Estado: EN EJECUCIÓN — Fases 0–3 y 5–9 local verificadas; el baseline tiene `HEAD` propio y gate coordinado PASS. Fase 10 tiene contratos/readiness y canary CLI determinista verificado, mientras Fase 4, E2E Desktop, bandeja y canary/cutover operativo siguen abiertos
 > Alcance de este documento: repositorio, secretos, gate, limpieza funcional,
 > arquitectura, compatibilidad, configuración, ordenamiento y aplicación de bandeja.
 
@@ -53,8 +53,8 @@ tests rotos o hallazgos de seguridad sin resolver.
   automático que ya no pertenecen al producto deseado.
 - Sentinel 0.7.0 está fijado en GloryAPI con política, lock, herramientas y gate
   de proyecto. Compile y suite del checkout externo pasaron, el análisis/stage local
-  está limpio y `quality:doctor` ahora devuelve `ready: true`; el gate coordinado
-  solo sigue necesitando un `HEAD` propio.
+  está limpio y `quality:doctor` devuelve `ready: true`; el gate coordinado `GLORY-BASELINE`
+  ya pasa contra el `HEAD` propio `51f91e3`.
 - VS Code funciona contra la superficie Chat Completions de FreeLLMAPI sin
   necesitar reconstruir el protocolo Responses. Codex Desktop, en cambio, usa
   un provider personalizado `wire_api = "responses"`; el bridge actual traduce
@@ -444,9 +444,11 @@ Objetivo: hacer que cada fase siguiente tenga una autoridad de cierre reproducib
 - [x] Fijar Sentinel 0.7.0 por commit/hash/capacidades y verificar el lock con `quality:doctor`; la fuente actual es
   el checkout hermano declarado, con evidencia compile+suita limpia y runtime local provisionado.
 - [x] Declarar `npm run task:check -- <ID>` y `quality:doctor`/`quality:analyze` como interfaces canónicas del gate.
-- [ ] Ejecutar el gate baseline coordinado: queda bloqueado con código 2 hasta crear el primer `HEAD` propio; el
-  stage directo produjo un baseline estructurado de 2 errores, 25 warnings y 170 hints.
-- [ ] Clasificar y corregir todos los defectos válidos antes de cerrar el bootstrap; no ocultar deuda con exclusiones.
+- [x] Ejecutar el gate baseline coordinado contra el primer `HEAD` propio: `npm run task:check -- GLORY-BASELINE`
+  devuelve PASS. La revalidación actual reporta 0 errores y 5 warnings de mantenimiento no bloqueantes.
+- [x] Clasificar y corregir los defectos válidos del baseline antes de cerrar el bootstrap; no se añadieron
+  exclusiones Sentinel. Los warnings restantes son la transformación dinámica recomendada por dnd-kit y cuatro
+  límites de tamaño en módulos heredados que quedan como refactorización local separada.
 - [ ] Exigir gate local-light por fase y `--full`/CI al cierre del rediseño.
 
 Política de cierre: cero `FAIL`, cero errores de herramienta y cero hallazgos
@@ -1314,9 +1316,9 @@ proteger FreeLLMAPI → derivar GloryAPI aislada → validar baseline/overlay
   `area-trabajo\gloryapi` antes de ejecutar la derivación. Esa afirmación no
   describe el estado actual y no autoriza repetir Fases 0–2 sobre el workspace.
 - Estado operativo al 2026-08-10: `gloryapi` ya está poblado, contiene su propio
-  `.git`, rama `gloryapi`, aún no tiene `HEAD` ni remoto y mantiene el árbol de la
-  derivación sin rastrear. `roadmap.md` es la fuente del siguiente bloque; todo ese
-  contenido es trabajo preexistente/ajeno a esta investigación y debe preservarse.
+  `.git`, rama `gloryapi`, `HEAD` propio `51f91e3`, no tiene remoto y mantiene el árbol
+  de trabajo del bloque actual pendiente de commit. `roadmap.md` es la fuente del
+  siguiente bloque; no se deben descartar cambios ajenos.
 - `supervisor_thinker`: `VIABLE CON RESERVAS`; las reservas aplicables fueron
   incorporadas (consumidores del rename, DPAPI/restore, SQLite, seguridad, UI y
   semántica de modelo actual).
@@ -1345,9 +1347,10 @@ del legado fuera del workspace y preparar la migración de la bóveda de la Fase
 Se conserva como rastro de la secuencia ejecutada, no como orden vigente.
 
 **SIGUIENTE ACCIÓN OPERATIVA:** seguir `roadmap.md`: conservar snapshot/rollback,
-crear el primer commit propio antes de repetir el gate coordinado, continuar Fase
-6 con health/chat/capabilities reales e iniciar en paralelo la caracterización de
-Fase 4. Esta investigación no adelanta la implementación de Fase 10.7.
+revalidar el gate después de cada bloque, probar ACL/recuperación del bundle bajo
+otro perfil y continuar Fase 6 con health/chat/capabilities reales mientras se
+inicia la caracterización de Fase 4. Esta investigación no adelanta la implementación
+ de Fase 10.7.
 
 ## Evidencia 2026-08-10 — cierre del incidente 429 (foreign_toolset)
 
@@ -1370,6 +1373,7 @@ Fase 4. Esta investigación no adelanta la implementación de Fase 10.7.
 - Consecuencia para el plan: este incidente entra como fixture de entrada de la
   Fase 9 (clase `foreign_toolset`), no como bloqueo. No se detiene ninguna fase;
   la siguiente acción operativa sigue siendo la del `roadmap.md`.
-- Estado del repo del worker: `C:\temp\freebuff2api` queda `ahead 1, behind 42`
-  con `worker.js` y `wrangler.toml` modificados sin commitear (repo ajeno; el push
-  requiere autorización explícita).
+- Estado del repo del worker: `area-trabajo\freebuff2api` (movido desde
+  `C:\temp\freebuff2api` el 2026-08-10) queda `ahead 1, behind 42` con `worker.js`
+  y `wrangler.toml` modificados sin commitear (repo ajeno; el push requiere
+  autorización explícita).
