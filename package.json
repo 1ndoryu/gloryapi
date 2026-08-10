@@ -1,0 +1,24 @@
+{
+  "name": "gloryapi",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
+    "test": "npm run test -w server && npm run build:shared && npm run build -w client",
+    "build": "npm run build:shared && npm run build -w server && npm run build -w client",
+    "build:shared": "npm run build -w shared",
+    "build:server": "npm run build:shared && npm run build -w server",
+    "quality:doctor": "node scripts/quality/quality-doctor.mjs",
+    "quality:analyze": "node scripts/quality/sentinel-analyze.mjs",
+    "quality:test": "npm test",
+    "task:check": "node scripts/quality/task-check.mjs",
+    "canary:codex": "node scripts/canary/run-codex-canary.cjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

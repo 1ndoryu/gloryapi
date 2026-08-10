@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 2,
+  "mode": "enforce",
+  "project": {
+    "primaryBranch": "gloryapi"
+  },
+  "gate": {
+    "command": ["sentinel", "check", "--"],
+    "taskIdRequired": true
+  },
+  "guard": {
+    "directCommands": {
+      "npmScripts": ["test", "build", "build:server", "test:watch", "quality:test", "task:check"],
+      "npxTools": ["vitest", "tsc", "eslint", "prettier"],
+      "cargoSubcommands": [],
+      "tools": ["vitest", "tsc", "eslint", "prettier"]
+    }
+  },
+  "runtime": {
+    "minimumVersion": "0.7.0",
+    "protocolVersion": 1,
+    "lockFile": "sentinel.lock.json"
+  },
+  "analyzers": {
+    "sentinel": {
+      "enabled": true,
+      "profile": "project-default",
+      "config": {
+        "includePatterns": [
+          "client/**/*.ts",
+          "client/**/*.tsx",
+          "client/**/*.css",
+          "server/**/*.ts",
+          "shared/**/*.ts",
+          "integrations/**/*.js",
+          "integrations/**/*.cjs"
+        ],
+        "excludePatterns": [
+          "**/node_modules/**",
+          "**/dist/**",
+          "**/build/**",
+          "**/server/data/**",
+          "**/.quality-reports/**",
+          "**/.quality-tools/**",
+          "**/.sentinel/**"
+        ],
+        "directoryExceptions": ["scripts"],
+        "portableBoundaries": {
+          "dom": ["/client/src/", "/client/"],
+          "window": ["/client/src/", "/client/"],
+          "services": ["/server/src/", "/client/src/lib/", "/client/src/"],
+          "loggerModules": ["/server/src/", "/client/src/lib/"]
+        },
+        "rules": {
+          "hardcoded-secret": { "severidad": "error" },
+          "catch-vacio": { "severidad": "error" },
+          "innerhtml-variable": { "severidad": "error" },
+          "unsafe-process-shell": { "severidad": "error" },
+          "git-add-all": { "severidad": "error" },
+          "default-export": { "habilitada": false }
+        }
+      }
+    }
+  }
+}

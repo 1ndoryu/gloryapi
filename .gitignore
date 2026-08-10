@@ -1,0 +1,22 @@
+node_modules/
+dist/
+server/data/
+.quality-reports/
+.quality-tools/
+.sentinel/
+*.db
+*.db-wal
+*.db-shm
+*.bak
+.env
+.env.local
+.DS_Store
+
+# Artefactos runtime del bridge local (la fuente queda lista para el futuro fork).
+integrations/codex-bridge/bridge/bridge.*.log
+integrations/codex-bridge/bridge/bridge.pid
+integrations/codex-bridge/bridge/bridge.vision.json
+
+# Personal deployment scripts (contain keys/credentials — kept local)
+deploy-pi.sh
+update-hermes.sh

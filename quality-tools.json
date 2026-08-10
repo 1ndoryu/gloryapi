@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "installRoot": ".quality-tools",
+  "tools": {
+    "sentinel": {
+      "repository": "https://github.com/1ndoryu/glory-sentinel.git",
+      "sourcePath": "../glory-rs-rest/tools/sentinel",
+      "provisionPath": ".quality-tools/sentinel/versions/0.7.0",
+      "commit": "a804c0d8bb55b2f44406aab4112d528150df05aa",
+      "version": "0.7.0",
+      "outputSchemaVersion": "1",
+      "buildScript": "compile",
+      "testScript": "test:unit",
+      "requiredCapabilities": ["guard", "doctor", "task", "recover"],
+      "releaseRefs": ["refs/remotes/origin/main", "refs/tags/v*"],
+      "cli": "out/cli/index.js"
+    }
+  }
+}

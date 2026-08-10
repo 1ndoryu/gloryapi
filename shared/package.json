@@ -1,0 +1,18 @@
+{
+  "name": "@gloryapi/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/types.js",
+  "types": "./types.ts",
+  "exports": {
+    "./types.js": {
+      "types": "./types.ts",
+      "import": "./dist/types.js",
+      "default": "./dist/types.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  }
+}

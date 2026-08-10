@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "maxFindings": 3,
+  "maxReminders": 4,
+  "maxTerminalLines": 20,
+  "roadmapMaxLines": 700,
+  "lockWaitMs": 0,
+  "maxConcurrentStages": 1,
+  "timeoutsMs": {
+    "sentinel": 120000,
+    "frontend": 120000,
+    "server": 120000
+  },
+  "stageTimeBudgets": {
+    "sentinel": 120000,
+    "frontend": 120000,
+    "server": 120000
+  },
+  "heavyRun": {
+    "cooldownMinutes": 180,
+    "maxConcurrent": 1
+  },
+  "reportRetention": {
+    "maxAgeDays": 7,
+    "maxWorkspaceMiB": 512
+  },
+  "fullPatterns": [
+    "package.json",
+    "package-lock.json",
+    "sentinel.config.json",
+    "quality.config.json",
+    "sentinel.lock.json",
+    "scripts/quality/"
+  ],
+  "profiles": {
+    "frontend": ["client/"],
+    "server": ["server/"],
+    "docs": [".md", "AGENTS.md", "roadmap.md", "Agente/"]
+  }
+}

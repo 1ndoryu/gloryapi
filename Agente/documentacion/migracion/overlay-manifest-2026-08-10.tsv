@@ -1,0 +1,49 @@
+# path	tipo	sha256-origen	motivo
+.gitignore	tracked-overlay	f6820b4b050f2b84d31af16075919ae7044595787d3a394ac5699eef2498b368	reglas de runtime del bridge
+README.md	tracked-overlay	b27517447acdff5b96ec1cd69473c93e2186682300cb20fba1fad7e3c05be897	baseline funcional/documentación recibida
+client/src/pages/AnalyticsPage.tsx	tracked-overlay	34ed6082f21280ed61c8778c41fab6683731deba1a7adaedbbbccbec2b6f8141	cambio local recibido
+client/src/pages/FallbackPage.tsx	tracked-overlay	52d8e89354a4fd8dd6f54c07544293daee49247a10ba87e7ea07d7a5a63100d2	cambio local recibido
+client/src/pages/KeysPage.tsx	tracked-overlay	c363b29a64a4fe3f3d88b8cc480217b9940374fe72c0ae404748822abab40e93	cambio local recibido
+package-lock.json	tracked-overlay	3b359f91ee8b8d060210c954e4550cea8d98656bd292e26b1aef4ca06694a580	lock recibido; regenerado para @gloryapi
+server/src/__tests__/db/idempotency.test.ts	tracked-overlay	2a9728e04f33b64563ec349926872b317a30ebdece2693fcc635328d6d652fb465	test de migraciones recibido
+server/src/__tests__/integration/full-flow.test.ts	tracked-overlay	4bccdbb4377ed63be55b6e72bef4220417080bed332573821618c8f640c06be3	test de integración recibido
+server/src/__tests__/providers/google-schema.test.ts	tracked-overlay	095cdcc09595452bc54fb2cca6cecddba5e997ebb751d62e6e091311617eb440	test de contrato recibido
+server/src/__tests__/providers/google.test.ts	tracked-overlay	1db716bb641c9a010e8b7fb362bf95577ff137c154ef75d57f409d1e74b8b9f3	test de proveedor recibido
+server/src/__tests__/providers/openai-compat.test.ts	tracked-overlay	64f0934760241ca75e9edd6f3cb65ab1e58990b9dff4ed16b210a315b8ef2dae	test de proveedor recibido
+server/src/__tests__/routes/proxy-array-content.test.ts	tracked-overlay	7aee72c6342132a7c955747a25020693b2ae8040a329f6a12c659a1227670304	regresión de contenido recibido
+server/src/__tests__/routes/proxy-auto-model.test.ts	tracked-overlay	fcd83f492a398f7b7aed09206a6160b8cf5e00e18c206e307cace868084f870b	regresión de routing recibido
+server/src/__tests__/routes/proxy-retry.test.ts	tracked-overlay	acf50557fddaedb72468694ade81d8ee97e67db6420079ad5fd73287ceb4e8b4	regresión de retry recibido
+server/src/__tests__/routes/proxy-tools.test.ts	tracked-overlay	0f72d2dc1345cff68e673026d217301b34c61510bbc9fbef0e69bc823a806380	regresión de tools recibido
+server/src/__tests__/services/router.test.ts	tracked-overlay	f9e895a726003e1515fd47b17d0e973cc83f908ab3656cb0df57865d25af9c1e	regresión de router recibido
+server/src/db/benchmark-snapshot.ts	tracked-overlay	93368f78408637e689913010a5ab9ee773ff73f22216ba536ec7c2befb1d381d	catálogo recibido
+server/src/db/index.ts	tracked-overlay	36e80fdf1cd550ea9c2c00a5092e079272c6ac017defe9ce6c5ce931b4a3611e	catálogo y migraciones recibidos
+server/src/db/ranking-snapshot.ts	tracked-overlay	d67b2ba718d0aeeb62f88a56675f336ab4d57bd1702105aa5a5444cff0435743	catálogo recibido
+server/src/providers/base.ts	tracked-overlay	1311b5a1a7458990364f77da7ec70a566bc821893a2aca07402b6327d6f26d4c	adapter recibido
+server/src/providers/google.ts	tracked-overlay	87eb402f93445952bc311540fe2287ab6735db5c92670e009cef0779507cdde1	adapter recibido
+server/src/providers/index.ts	tracked-overlay	8d01457d31309d8fd10faf0651b3cd752352b3b206dda0beed1e7be4e369bf24	registro recibido
+server/src/providers/openai-compat.ts	tracked-overlay	a9e665e37c0aeda4a2edf8941f449db6e528c1a860730258d5dda51df4ce067e	adapter recibido
+server/src/routes/analytics.ts	tracked-overlay	04c5c2013f9c64e60f91bc63fbea7f508987c688eeaebde733e78987269df678	ruta recibida
+server/src/routes/fallback.ts	tracked-overlay	4487380cfa872b83ffdb92ff094e2aa24f5b48c5a4e7f58369b90cbaff46c904	ruta recibida
+server/src/routes/health.ts	tracked-overlay	fca63259e1a08c2328cef24a1e11a41551928fbbfda35657d5243c8cf7a401a3	ruta recibida
+server/src/routes/keys.ts	tracked-overlay	0115948bd95916000c04cbd0822d1f1a1c0f939ed5dba8214f3ff520a058f38d	ruta recibida
+server/src/routes/models.ts	tracked-overlay	ffa410ffceb30fc53b026701f5df5db389d57e9cf47a910d4fcf8f6f43719534	ruta recibida
+server/src/routes/proxy.ts	tracked-overlay	75c67a1ba64f7be7b0f07da62afc879f14579cc477e69d572527f6946c6f24b7	ruta y routing recibidos
+server/src/services/health.ts	tracked-overlay	631d1848f2f070ca260b275ea9341f983ab28af67a79302f0b76f17b59ab8102	salud recibida
+server/src/services/ratelimit.ts	tracked-overlay	49d189990ea350a28e583ac86eac227d83b564aacc45c0dea3a9d5c6af306c8a	límites recibidos
+server/src/services/router.ts	tracked-overlay	2feda899573df36e5464ada7096e75a84850309dee761b12f78b4e55c3d88cb5	routing recibido
+shared/types.ts	tracked-overlay	e47bd0030a82d9e2b85550ae5296df771336465e7d4973480aac77b22b06ae52	contratos recibidos
+integrations/codex-bridge/README.md	allowlisted-untracked	ba3b3db7c0b17e3316e4cb6b946dfda9b126d7656464a644d446445faf19ac22	bridge y límites documentados
+integrations/codex-bridge/bridge/server.js	allowlisted-untracked	83af6e81c9ad0844ef7b2c36413854b77fbdb96532b54d16ffab4c24f5ab4b56	fuente única del bridge
+integrations/codex-bridge/bridge/start-bridge.ps1	allowlisted-untracked	4c6d55182c08715a207189412cd9239f32afebe74cdf152428dff355a87fb015	arranque seguro
+integrations/codex-bridge/bridge/stop-bridge.ps1	allowlisted-untracked	f0edac41164fc2fd8d7b402a40395a50234e2411bfcf8e0c869abe186413209a	apagado con identidad
+integrations/codex-bridge/mode/codex-mode.ps1	allowlisted-untracked	40333031ddb6a2562fa5e37079086fba187f9631d62b91fe373723071a04bfe2	control reversible
+integrations/codex-bridge/mode/switch-chatgpt.ps1	allowlisted-untracked	544ce4c068f87dfcc7f804ea871f0ce60e4dcad5df268ba05968101174e39e3c	wrapper reversible
+integrations/codex-bridge/mode/switch-deepseek.ps1	allowlisted-untracked	a26fc5e22e5ee967c161f49f8e8b721d4f37ae10cc8f27ae632c9d2993ef37c6	wrapper reversible
+integrations/codex-bridge/test/mock-http-contract.test.cjs	allowlisted-untracked	32279d1299d7359bcfd1c0a8eec3c399febafbd28cc129310b5a09ea3aacf731	contrato mock
+integrations/codex-bridge/test/static-contract.test.cjs	allowlisted-untracked	ca448dbd7c6eb236ce73ca07ac756f0125026fbb6c4b7e74ce7319a939bb6351	contrato estático
+PLAN-CODEX-BRIDGE.md	allowlisted-untracked	fdbbc1b495954d4e49e21927987facb37c0a6a38aefefd33d5b3ccc91e40009f	procedencia del bridge
+PLAN-GLORYAPI.md	allowlisted-untracked	4e28d7ea1067b90ed6c37724190c60b10d33e15a7a621e96eaac1d2d52cbc117	plan maestro
+# exclusiones duras
+.env*,server/data/**,*.db*,*.log,*.pid,node_modules/**,dist/**,build/**,cache/**	policy	-	no transferir runtime/secretos
+USAR-COMO-AGENTE.md	excluded	-	contiene credenciales literales
+server/go-definitive-test.mjs; server/go-hypothesis-test.mjs; server/go-roundtrip-test.mjs; server/provider-health.mjs; server/recent-requests.mjs; server/replay-failing.mjs; server/roundtrip-test.mjs; temp_query.js	excluded	-	utilidades temporales y material sensible; preservar solo en legado

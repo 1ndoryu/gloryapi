@@ -1,0 +1,71 @@
+import { describe, expect, it } from 'vitest'
+import { getDb, initDb } from '../../db/index.js'
+import { normalizeGloryCatalog } from '../../db/catalog/normalize.js'
+
+describe('clean GloryAPI catalog', () => {
+  it('keeps exactly the three target models in persisted order', () => {
+    initDb(':memory:')
+    const db = getDb()
+    normalizeGloryCatalog(db)
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 3 })
+    expect(db.prepare(`
+      SELECT m.platform, m.model_id, m.display_name, fc.priority
+      FROM models m JOIN fallback_config fc ON fc.model_db_id = m.id
+      ORDER BY fc.priority
+    `).all()).toEqual([
+      {
+        platform: 'andoryyu',
+        model_id: 'deepseek-v4-flash',
+        display_name: 'DeepSeek V4 Flash (Andoryyu)',
+        priority: 1,
+      },
+      {
+        platform: 'opencode-zen',
+        model_id: 'deepseek-v4-flash-free',
+        display_name: 'DeepSeek V4 Flash (Zen)',
+        priority: 2,
+      },
+      {
+        platform: 'opencode-go',
+        model_id: 'deepseek-v4-flash',
+        display_name: 'DeepSeek V4 Flash (Go)',
+        priority: 3,
+      },
+    ])
+  })
+
+  it('starts a fresh operational database without the legacy catalog migrations', () => {
+    initDb(':memory:', { catalogMode: 'operational' })
+    const db = getDb()
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 3 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM fallback_config').get()).toEqual({ count: 3 })
+    expect(db.prepare("SELECT value FROM settings WHERE key = 'catalog_schema_version'").get()).toEqual({ value: 'glory-v1' })
+    expect(db.prepare("SELECT name FROM pragma_table_info('models') WHERE name = 'monthly_token_budget'").get()).toBeUndefined()
+    expect(db.prepare("SELECT name FROM pragma_table_info('requests') WHERE name = 'api_key_id'").get()).toEqual({ name: 'api_key_id' })
+  })
+
+  it('is idempotent, removes legacy rows, and preserves the vault', () => {
+    const db = getDb()
+    db.prepare(`
+      INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, size_label)
+      VALUES ('legacy-provider', 'legacy-model', 'Legacy model', 99, 99, 'Legacy')
+    `).run()
+    db.prepare(`
+      INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, encryption_scheme, fingerprint)
+      VALUES ('legacy-provider', 'archived credential', 'ciphertext', 'iv', 'tag', 'dpapi-current-user', 'fingerprint')
+    `).run()
+
+    normalizeGloryCatalog(db)
+    normalizeGloryCatalog(db)
+
+    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 3 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM fallback_config').get()).toEqual({ count: 3 })
+    expect(db.prepare("SELECT COUNT(*) AS count FROM models WHERE platform = 'legacy-provider'").get()).toEqual({ count: 0 })
+    expect(db.prepare('SELECT platform, label, fingerprint FROM api_keys').all()).toEqual([
+      { platform: 'legacy-provider', label: 'archived credential', fingerprint: 'fingerprint' },
+    ])
+    expect(db.prepare("SELECT value FROM settings WHERE key = 'catalog_schema_version'").get()).toEqual({ value: 'glory-v1' })
+  })
+})

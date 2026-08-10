@@ -1,0 +1,217 @@
+{
+  "fixtureSchema": "glory-codex-responses-fixture-v1",
+  "adapterVersion": "gloryapi-codex-bridge-v1",
+  "gloryApiContract": "chat-completions-v1",
+  "quirkSet": "deepseek-thinking-tools-v1",
+  "cases": [
+    {
+      "id": "text-stream",
+      "request": {
+        "model": "deepseek-v4-flash",
+        "stream": true,
+        "instructions": "Fixture instruction: answer briefly.",
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fixture question: what is ready?" }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "terminal": "response.completed",
+        "eventsInOrder": [
+          "response.created",
+          "response.output_item.added",
+          "response.output_text.delta",
+          "response.output_item.done",
+          "response.completed",
+          "[DONE]"
+        ],
+        "mustNotContain": ["function_call_output"]
+      }
+    },
+    {
+      "id": "reasoning-and-tool-call",
+      "request": {
+        "model": "deepseek-v4-flash",
+        "stream": true,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fixture question requiring a tool." }
+            ]
+          },
+          {
+            "type": "reasoning",
+            "summary": [
+              { "type": "summary_text", "text": "Fixture reasoning only." }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "name": "fixture_lookup",
+            "description": "Read a deterministic fixture value.",
+            "parameters": {
+              "type": "object",
+              "properties": { "key": { "type": "string" } },
+              "required": ["key"]
+            }
+          }
+        ]
+      },
+      "expected": {
+        "terminal": "response.completed",
+        "eventsInOrder": [
+          "response.created",
+          "response.output_item.added:reasoning",
+          "response.reasoning_text.delta",
+          "response.output_item.done:function_call",
+          "response.completed",
+          "[DONE]"
+        ],
+        "mustNotContain": ["function_call_output"],
+        "invariants": [
+          "reasoning_item_precedes_reasoning_delta",
+          "tool_result_is_consumed_on_followup_request"
+        ]
+      }
+    },
+    {
+      "id": "upstream-error",
+      "request": {
+        "model": "deepseek-v4-flash",
+        "stream": false,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fixture error request." }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "terminal": "response.failed",
+        "status": 502,
+        "eventsInOrder": ["response.failed", "[DONE]"],
+        "mustNotContain": ["Authorization", "apiKey", "secret", "prompt"]
+      }
+    },
+    {
+      "id": "client-cancel",
+      "request": {
+        "model": "deepseek-v4-flash",
+        "stream": true,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fixture cancellation request." }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "terminal": "connection.closed",
+        "upstreamAbort": true,
+        "mustNotEmit": ["response.completed"]
+      }
+    },
+    {
+      "id": "custom-tool",
+      "request": {
+        "model": "deepseek-v4-flash",
+        "stream": true,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fixture custom tool request." }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "type": "custom",
+            "name": "apply_patch",
+            "description": "Apply a fixture patch payload without JSON schema."
+          }
+        ]
+      },
+      "expected": {
+        "terminal": "response.completed",
+        "outputItemType": "custom_tool_call",
+        "mustNotContain": ["function_call_output"],
+        "invariants": ["custom_payload_remains_freeform"]
+      }
+    },
+    {
+      "id": "namespaced-tool",
+      "request": {
+        "model": "deepseek-v4-flash",
+        "stream": true,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fixture namespaced tool request." }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "type": "namespace",
+            "name": "mcp",
+            "tools": [
+              {
+                "name": "node_repl__js",
+                "description": "Run fixture JavaScript.",
+                "parameters": { "type": "object", "properties": {} }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "terminal": "response.completed",
+        "outputNamespace": "mcp",
+        "outputName": "node_repl__js",
+        "invariants": ["namespace_is_restored_before_codex_dispatch"]
+      }
+    },
+    {
+      "id": "vision-lossy-adaptation",
+      "request": {
+        "model": "deepseek-v4-flash",
+        "stream": false,
+        "input": [
+          {
+            "type": "message",
+            "role": "user",
+            "content": [
+              { "type": "input_text", "text": "Fixture image description request." },
+              { "type": "input_image", "image_url": "https://fixture.invalid/image.png" }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "terminal": "response.completed",
+        "visionMode": "lossy-text-adaptation",
+        "mustNotForwardInputImage": true,
+        "invariants": ["vision_requires_explicit_configuration"]
+      }
+    }
+  ]
+}
