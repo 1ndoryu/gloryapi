@@ -27,9 +27,11 @@ export const PROVIDER_FAILURE_POLICY: Record<string, {
   andoryyu: { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
   'opencode-zen': { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
   // Proveedor de pago (opencode-go): último recurso casi nunca falla. Nunca se
-  // penaliza (no se hunde en la cola) ni entra en cooldown de proveedor; solo
-  // un cooldown de key corto (15s) para reintento rápido entre requests.
-  'opencode-go': { cooldownMs: 15_000, recordPenalty: false, recordProviderFailure: false },
+  // penaliza (no se hunde en la cola), no entra en cooldown de proveedor y su
+  // cooldown de key es 0: tras un fallo puntual se vuelve a intentar de inmediato
+  // en el mismo request (la purga de skipKeys en el catch de routeRequest lo
+  // rehabilita) para que la ejecución nunca se interrumpa por un fallo ajeno.
+  'opencode-go': { cooldownMs: 0, recordPenalty: false, recordProviderFailure: false },
 }
 
 type VisibleModel = {

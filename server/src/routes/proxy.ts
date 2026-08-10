@@ -153,23 +153,36 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, restrictedChain);
     } catch (rawError: unknown) {
       const err = normalizeProxyError(rawError);
-      // No route available right now. If a short key cooldown is about to
-      // expire (e.g. the 15s paid-provider cooldown on opencode-go), wait
-      // for it and retry instead of failing fast — "everything should flow",
-      // and the paid fallback should be retried rather than skipped.
+      // No route available right now. First purge every skip entry whose
+      // cooldown has already expired (or that has no cooldown at all, e.g.
+      // opencode-go with cooldownMs:0 or a model that was only skip-listed
+      // without a cooldown). This MUST run even when there is nothing to
+      // wait for: otherwise a provider that only had a short/zero cooldown
+      // would stay blocked in skipKeys for the whole request and the proxy
+      // would answer 429 "All candidate models are temporarily unavailable"
+      // even though opencode-go is healthy and available again.
+      let purged = false;
+      for (const skipId of [...skipKeys]) {
+        const [platform, modelId, keyIdStr] = skipId.split(':');
+        const keyId = Number(keyIdStr);
+        if (!isOnCooldown(platform, modelId, keyId)) {
+          skipKeys.delete(skipId);
+          purged = true;
+        }
+      }
+      // Purging re-opened at least one route: retry immediately instead of
+      // failing. Bounded by maxAttempts/routingDeadline above.
+      if (purged) continue;
+
+      // Everything still cooling: if a short key cooldown is about to expire
+      // (e.g. the 15s paid-provider cooldown on opencode-go), wait for it and
+      // retry instead of failing fast — "everything should flow", and the
+      // paid fallback should be retried rather than skipped.
       const waitMs = getShortestCooldownRemainingMs();
       const maxCooldownWaitMs = 60_000;
       if (waitMs > 0 && waitMs <= maxCooldownWaitMs && Date.now() + waitMs < routingDeadline) {
         console.log(`[Proxy] All routes cooling; waiting ${waitMs}ms for nearest cooldown to expire...`);
         await new Promise(resolve => setTimeout(resolve, waitMs));
-        // Drop skip entries whose cooldown has expired so the next
-        // routeRequest can pick them up again (e.g. retry opencode-go
-        // after its short 15s cooldown instead of leaving it skipped).
-        for (const skipId of skipKeys) {
-          const [platform, modelId, keyIdStr] = skipId.split(':');
-          const keyId = Number(keyIdStr);
-          if (!isOnCooldown(platform, modelId, keyId)) skipKeys.delete(skipId);
-        }
         continue;
       }
       // No more models available

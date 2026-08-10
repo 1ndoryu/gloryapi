@@ -101,5 +101,14 @@ describe('Rate Limiter', () => {
       await new Promise(resolve => setTimeout(resolve, 20));
       expect(getShortestCooldownRemainingMs()).toBe(0);
     });
+
+    it('should not block routes when cooldown is 0ms (e.g. opencode-go paid fallback)', () => {
+      // opencode-go has cooldownMs: 0 in PROVIDER_FAILURE_POLICY: after a
+      // transient failure it must be immediately eligible again so the same
+      // request can retry it instead of failing with "All candidate models
+      // are temporarily unavailable".
+      setCooldown('opencode-go', 'deepseek-v4-flash', testId, 0);
+      expect(getShortestCooldownRemainingMs()).toBe(0);
+    });
   });
 });
