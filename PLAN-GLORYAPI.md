@@ -422,9 +422,11 @@ de scripts que imprimen secretos.
 - [x] No importar a GloryAPI las utilidades locales que imprimen claves descifradas;
   el overlay las excluye y el secret scan no encontró producción sensible. Su
   retirada del legado queda reservada para una tarea posterior al cutover.
-- [ ] Definir recuperación: importar bundle → desbloquear bóveda → validar
-  fingerprints → health check opt-in. Nunca ejecutar health checks externos
-  durante una restauración sin indicarlo.
+- [x] Implementar recuperación desde archivo mediante `importCredentialBundleFileIntoDatabase`:
+  descifra el bundle portable, valida fingerprints, re-protege cada secreto con DPAPI `CurrentUser`
+  y escribe de forma idempotente; la prueba determinista cubre 22/22 dos veces sin health externo.
+- [ ] Añadir health check opt-in y documentar la recuperación bajo otro perfil Windows; nunca ejecutar
+  tráfico externo durante una restauración sin indicarlo.
 
 Aceptación:
 

@@ -12,7 +12,7 @@ canary y cutover reversible posteriores.
 5. Mantener la revisión periódica de warnings informativos de Sentinel; el gate full actual pasa con 0 errores y 5 warnings
    de mantenimiento (transformación dinámica de dnd-kit y límites de tamaño en módulos heredados). Ya se extrajeron
    snapshots, V1–V35 y `server/src/db/index.ts` quedó como orquestador de inicialización y backup.
-6. Probar ACL/recuperación del bundle portable bajo otro perfil; `portable-bundle-file.ts` ya escribe con fsync/rename, límite de 16 MiB y ACL sin herencia para el usuario actual, y los tests cubren round-trip/tamaño. Las 22 filas operativas usan ciphertext DPAPI `CurrentUser`, fingerprints y metadatos, y el bundle Argon2id + AES-256-GCM está probado con fixtures sintéticos.
+6. Probar ACL/recuperación del bundle portable bajo otro perfil; `portable-bundle-file.ts` ya escribe con fsync/rename, límite de 16 MiB y ACL sin herencia para el usuario actual, y `importCredentialBundleFileIntoDatabase` re-protege 22/22 filas de forma idempotente sin health externo. Los tests cubren round-trip/tamaño/recuperación; queda probar otro perfil Windows.
 7. Cerrar el bloque local de Fase 6: el ciclo draft → verificación real de health/chat/capabilities → active ya es fail-closed y no activa catálogos remotos completos.
 8. Fase 8 queda cerrada en su bloque local: el contrato de orden, autosave, revisión, cola local, SSE autenticado,
    separación entre política configurada y runtime de modelos, y conflicto concurrente ya están cubiertos.
@@ -49,6 +49,7 @@ canary y cutover reversible posteriores.
   y `server/src/lib/portable-bundle-file.ts` lo persiste atómicamente con límite de tamaño y ACL local fail-closed;
   fingerprints SHA-256 y pruebas de round-trip/tampering para 22 credenciales sintéticas. El importador específico
   `server/src/lib/credential-import.ts` y `server/src/scripts/import-legacy-snapshot.ts` ya cubren idempotencia,
+  incluida la recuperación desde archivo portable y re-protección DPAPI sin health externo;
   snapshot externo y migración 22/22. El adapter DPAPI `CurrentUser` fail-closed está integrado en nuevas altas;
   el target real tiene 22 filas DPAPI y ninguna `settings.encryption_key`.
 - `backup.test.ts` restaura 22/22 credenciales cifradas sintéticas, comprueba `integrity_check`, SHA-256 y ausencia

@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import { credentialVault, DPAPI_ENCRYPTION_SCHEME } from './dpapi-vault.js'
+import { importCredentialBundleFile } from './portable-bundle-file.js'
 import { importCredentialBundle, type CredentialBundleEntry } from './vault-bundle.js'
 
 export interface CredentialImportReport {
@@ -90,4 +91,12 @@ export function importCredentialBundleIntoDatabase(
   passphrase: string,
 ): CredentialImportReport {
   return importCredentialEntriesIntoDatabase(db, importCredentialBundle(serializedBundle, passphrase))
+}
+
+export function importCredentialBundleFileIntoDatabase(
+  db: Database.Database,
+  filePath: string,
+  passphrase: string,
+): CredentialImportReport {
+  return importCredentialEntriesIntoDatabase(db, importCredentialBundleFile(filePath, passphrase))
 }
