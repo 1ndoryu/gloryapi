@@ -31,7 +31,7 @@ canary y cutover reversible posteriores.
     temporal `gloryapi-canary` con `model_providers.<id>.auth.command`, sin `experimental_bearer_token` y sin tocar
     `config.toml`. El sidecar y el gateway publican discovery compatible bajo `data`/`models` y `slug`, detectado
     con Codex CLI `0.146.1`. El canary determinista `npm run canary:codex` ya completó Codex→sidecar→GloryAPI→mock
-    con readiness autenticada, respuesta no-stream `CANARY_OK`, bucle interno `CANARY_TOOL_OK` sin
+    con readiness autenticada, lifecycle `ready`, capabilities v2, respuesta no-stream `CANARY_OK`, bucle interno `CANARY_TOOL_OK` sin
     `function_call_output`, fallo trazable de Andoryyu con fallback a Zen y respuesta SSE `CANARY_OK`, usando SQLite
     temporal, puertos loopback y cleanup; la matriz del endpoint `/capabilities` ahora marca explícitamente
     `supported`/`adapted`/`unsupported`/`unverified` por cliente/adapter/modelo sin sobreanunciar Desktop o proveedor

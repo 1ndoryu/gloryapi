@@ -8,6 +8,7 @@ const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 const server = read('bridge', 'server.js');
 const responsesFixture = JSON.parse(read('fixtures', 'responses-contract-v1.json'));
 const deterministicUpstream = read('test', 'deterministic-upstream.cjs');
+const canaryScript = fs.readFileSync(path.join(root, '..', '..', 'scripts', 'canary', 'run-codex-canary.cjs'), 'utf8');
 
 test('the deterministic canary upstream is local-only and response-shaped', () => {
   assert.match(deterministicUpstream, /CANARY_OK/);
@@ -52,6 +53,9 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(server, /url\.pathname === ['"]\/ready['"]/);
   assert.match(server, /url\.pathname === ['"]\/capabilities['"]/);
   assert.match(server, /models: modelList/);
+  assert.match(canaryScript, /\/lifecycle/);
+  assert.match(canaryScript, /glory-codex-lifecycle-v1/);
+  assert.match(canaryScript, /glory-codex-capabilities-v2/);
 });
 
 test('the versioned Responses fixture covers lifecycle and tool invariants', () => {

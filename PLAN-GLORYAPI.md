@@ -888,8 +888,9 @@ Matriz E2E mínima por cada uno de los tres modelos:
 - [x] Ejecutar E2E determinista en perfil/config temporal y conversación nueva:
   `npm run canary:codex` usa Codex CLI `0.146.1`, DPAPI `auth.command`, SQLite
   temporal, puertos loopback aislados y el recorrido Codex→sidecar→GloryAPI→mock;
-  obtuvo `CANARY_OK` por stream, verificó tool loop y fallback trazable Andoryyu→Zen,
-  con readiness autenticada y cleanup. La matriz completa, el control ChatGPT/VS Code
+  obtuvo `CANARY_OK` por stream, verificó readiness autenticada, lifecycle `ready`,
+  capabilities v2 fail-closed, tool loop y fallback trazable Andoryyu→Zen, con cleanup.
+  La matriz completa, el control ChatGPT/VS Code
   directo y una inferencia contra proveedor real siguen pendientes y el perfil principal no cambia.
 - [x] Ejecutar la regresión determinista de Unicode fragmentado, truncamiento y cancelación:
   `node --test integrations/codex-bridge/test/*.cjs` terminó **17/17 PASS** junto con

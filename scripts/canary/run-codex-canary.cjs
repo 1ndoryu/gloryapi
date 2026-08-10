@@ -171,12 +171,30 @@ async function main() {
     VISION_DISABLE: '1',
   }, 'bridge');
   await waitFor(`http://127.0.0.1:${bridgePort}/health`, (response, body) => response.ok && body?.service === 'gloryapi-codex-bridge');
-  const ready = await requestJson(`http://127.0.0.1:${bridgePort}/ready`, {
-    headers: { Authorization: `Bearer ${localToken}` },
-  });
+  const bridgeBase = `http://127.0.0.1:${bridgePort}`;
+  const authHeaders = { Authorization: `Bearer ${localToken}` };
+  const ready = await requestJson(`${bridgeBase}/ready`, { headers: authHeaders });
   if (ready.ready !== true) throw new Error(`bridge readiness failed: ${JSON.stringify(ready)}`);
+  const lifecycle = await requestJson(`${bridgeBase}/lifecycle`, { headers: authHeaders });
+  if (
+    lifecycle.schema !== 'glory-codex-lifecycle-v1'
+    || lifecycle.state !== 'ready'
+    || lifecycle.acceptingRequests !== true
+    || !lifecycle.transitions.includes('draining')
+  ) {
+    throw new Error(`bridge lifecycle contract failed: ${JSON.stringify(lifecycle)}`);
+  }
+  const capabilities = await requestJson(`${bridgeBase}/capabilities`, { headers: authHeaders });
+  if (
+    capabilities.schema !== 'glory-codex-capabilities-v2'
+    || capabilities.lifecycle?.state !== 'ready'
+    || capabilities.matrix?.[0]?.capabilities?.codexDesktopE2E?.status !== 'unverified'
+    || capabilities.matrix?.[0]?.capabilities?.providerInference?.status !== 'unverified'
+  ) {
+    throw new Error(`bridge capability contract failed: ${JSON.stringify(capabilities)}`);
+  }
 
-  const nonStreaming = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+  const nonStreaming = await requestJson(`${bridgeBase}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
     body: JSON.stringify({
@@ -188,7 +206,7 @@ async function main() {
   const nonStreamingText = nonStreaming?.output?.[0]?.content?.[0]?.text;
   if (nonStreamingText !== 'CANARY_OK') throw new Error('non-stream canary response contract failed');
 
-  const toolLoop = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+  const toolLoop = await requestJson(`${bridgeBase}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
     body: JSON.stringify({
@@ -203,7 +221,7 @@ async function main() {
     throw new Error('internal tool loop canary response contract failed');
   }
 
-  const foreignToolsetResponse = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+  const foreignToolsetResponse = await requestJson(`${bridgeBase}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
     body: JSON.stringify({
@@ -223,7 +241,7 @@ async function main() {
   if (foreignTrace?.finalModel?.platform !== 'opencode-zen') {
     throw new Error(`foreign toolset trace contract failed: ${JSON.stringify(foreignTrace)}`);
   }
-  const foreignRetryResponse = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+  const foreignRetryResponse = await requestJson(`${bridgeBase}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
     body: JSON.stringify({
@@ -243,7 +261,7 @@ async function main() {
     attempt.reason === 'foreign_toolset')).length ?? 0;
   if (foreignTraceCount < 2) throw new Error('foreign toolset unexpectedly entered cooldown');
 
-  const fallbackResponse = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+  const fallbackResponse = await requestJson(`${bridgeBase}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
     body: JSON.stringify({
@@ -310,6 +328,8 @@ async function main() {
     codexVersion: '0.146.1',
     response: 'CANARY_OK',
     readiness: true,
+    lifecycle: true,
+    capabilities: true,
     nonStreaming: true,
     internalToolLoop: true,
     fallback: true,
