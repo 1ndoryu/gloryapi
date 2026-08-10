@@ -68,6 +68,14 @@ test('compatible readiness exposes a fail-closed capability matrix', async (t) =
   assert.equal(body.matrix[0].capabilities.codexDesktopE2E.status, 'unverified');
   assert.equal(body.matrix[0].capabilities.providerInference.status, 'unverified');
   assert.equal(body.matrix[0].capabilities.contextCompaction.status, 'unsupported');
+  assert.equal(body.matrix[0].capabilities.toolOnlyTurns.status, 'adapted');
+  assert.equal(body.matrix[0].capabilities.standaloneWebSearch.status, 'unsupported');
+  assert.equal(body.matrix[0].capabilities.mcp.status, 'adapted');
+  assert.equal(body.matrix[0].capabilities.browser.status, 'adapted');
+  assert.equal(body.matrix[0].capabilities.computerUse.status, 'unsupported');
+  assert.equal(body.matrix[0].capabilities.automation.status, 'adapted');
+  assert.equal(body.matrix[0].capabilities.multiAgent.status, 'adapted');
+  assert.equal(body.matrix[0].capabilities.longContext.status, 'unverified');
   assert.deepEqual(body.matrix[0].evidence, [
     'glory-codex-responses-fixture-v1',
     'bridge-http-contract',

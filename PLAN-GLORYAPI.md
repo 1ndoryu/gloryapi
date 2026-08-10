@@ -770,15 +770,16 @@ funciones de Codex que no estén cubiertas por contrato.
 - [x] Versionar la matriz declarativa por combinación cliente/adapter/modelo y el lifecycle del sidecar:
   `glory-codex-capabilities-v2` incorpora estados `supported`, `adapted`, `unsupported` y `unverified`,
   mientras `glory-codex-lifecycle-v1` limita la inferencia al estado `ready` y documenta el drenaje acotado.
-- [ ] Declarar capabilities reales por combinación cliente/adapter/modelo:
-  texto, stream, reasoning, functions, custom tools, tools paralelas, namespaces,
-  descubrimiento diferido, web, imagen, MCP, browser/computer use, automatización,
-  multiagente, cancelación y contexto largo.
+- [x] Declarar de forma explícita y fail-closed las capabilities por combinación cliente/adapter/modelo:
+  la matriz v2 cubre texto, stream, reasoning, functions, custom tools, tools paralelas, namespaces,
+  descubrimiento diferido, web, imagen, MCP, browser/computer use, automatización, multiagente,
+  turnos tool-only, cancelación y contexto largo; cada entrada queda como `supported`, `adapted`,
+  `unsupported` o `unverified` con evidencia y motivo. La validación E2E de Desktop/proveedor real sigue pendiente.
 - [ ] No anunciar imágenes si el adapter de visión no está configurado y healthy.
   La transformación “imagen → descripción → texto” se mostrará como adaptación
   con pérdida, no como visión nativa equivalente.
-- [ ] No activar `supports_standalone_web_search` mientras la referencia oficial
-  lo marque en desarrollo y las pruebas del cliente no definan su contrato.
+- [x] No activar `supports_standalone_web_search`: la matriz lo publica como `unsupported`
+  mientras la referencia oficial lo marque en desarrollo y las pruebas del cliente no definan su contrato.
 - [x] Tratar `apply_patch` y otras custom tools como tipos explícitos; preservar su
   payload freeform como `custom_tool_call` sin disfrazarlo como function call JSON
   ordinario. El fixture contractual cubre la forma y la prueba E2E del cliente sigue
@@ -820,9 +821,9 @@ Matriz E2E mínima por cada uno de los tres modelos:
   DPAPI `CurrentUser` y nunca se escribe en TOML o logs. `prepare-canary-profile.ps1`
   genera un perfil temporal que usa `auth.command` y elimina la dependencia de
   `experimental_bearer_token`; no modifica el perfil principal.
-- [ ] Mantener `/health` mínimo y no autenticado solo para identidad/liveness; no
-  revelar URL upstream, filesystem, providers ni configuración. Readiness,
-  capabilities y diagnóstico detallado exigirán autenticación.
+- [x] Mantener `/health` mínimo y no autenticado solo para identidad/liveness; no
+  revela URL upstream, filesystem, providers ni configuración. Readiness,
+  capabilities y diagnóstico detallado exigen autenticación y la prueba HTTP lo verifica.
 - [ ] Añadir límites por request, item, tool, imagen, profundidad, respuesta y cola;
   rechazar content types, métodos y paths no admitidos antes de parsear el body.
 - [ ] Aplicar redacción estructurada a headers, query, errores upstream, tool args,

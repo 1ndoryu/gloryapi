@@ -35,7 +35,9 @@ canary y cutover reversible posteriores.
     `function_call_output`, fallo trazable de Andoryyu con fallback a Zen y respuesta SSE `CANARY_OK`, usando SQLite
     temporal, puertos loopback y cleanup; la matriz del endpoint `/capabilities` ahora marca explícitamente
     `supported`/`adapted`/`unsupported`/`unverified` por cliente/adapter/modelo sin sobreanunciar Desktop o proveedor
-    real. El contrato se versionó a `glory-codex-capabilities-v2` y añade
+    real. `/health` queda limitado a identidad/liveness sin auth y readiness/capabilities mantienen auth; la matriz explicita también
+    tool-only, standalone web search, MCP, browser, computer use, automation,
+    multi-agent y long-context con estados fail-closed. El contrato se versionó a `glory-codex-capabilities-v2` y añade
     `glory-codex-lifecycle-v1`: `starting`/`ready`/`blocked`/`draining`/`stopped`,
     inferencia solo en `ready` y shutdown con drenaje acotado. El proveedor real,
     la matriz completa, bandeja y cutover siguen abiertos; el bridge permanece detenido.

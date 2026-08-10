@@ -2221,6 +2221,14 @@ function getCapabilityMatrix() {
       contextCompaction: { status: 'unsupported', reason: 'native_codex_compaction_only' },
       codexDesktopE2E: { status: 'unverified', reason: 'desktop_fixture_pending' },
       providerInference: { status: 'unverified', reason: 'real_provider_fixture_pending' },
+      toolOnlyTurns: { status: 'adapted', reason: 'deterministic_tool_loop_contract' },
+      standaloneWebSearch: { status: 'unsupported', reason: 'not_advertised_by_client_contract' },
+      mcp: { status: 'adapted', reason: 'namespace_translation_contract' },
+      browser: { status: 'adapted', reason: 'local_tool_contract_only' },
+      computerUse: { status: 'unsupported', reason: 'no_local_adapter' },
+      automation: { status: 'adapted', reason: 'local_tool_contract_only' },
+      multiAgent: { status: 'adapted', reason: 'namespace_translation_contract' },
+      longContext: { status: 'unverified', reason: 'desktop_soak_pending' },
     },
   }];
 }
