@@ -47,7 +47,13 @@ const ADAPTER_VERSION = 'gloryapi-codex-bridge-v1';
 const FIXTURE_SCHEMA = 'glory-codex-responses-fixture-v1';
 const EXPECTED_GLORY_API_CONTRACT = 'chat-completions-v1';
 const GLORY_API_CONTRACT = process.env.GLORY_API_CONTRACT || EXPECTED_GLORY_API_CONTRACT;
-const CAPABILITIES_SCHEMA = 'glory-codex-capabilities-v1';
+const CAPABILITIES_SCHEMA = 'glory-codex-capabilities-v2';
+const LIFECYCLE_SCHEMA = 'glory-codex-lifecycle-v1';
+const LIFECYCLE_STATES = ['starting', 'ready', 'blocked', 'draining', 'stopped'];
+let lifecyclePhase = 'starting';
+let lifecycleStartedAt = null;
+let shutdownRequested = false;
+let activeRequests = 0;
 
 // Metadata-only diagnostics by default. Prompt bodies can contain credentials,
 // private files and conversation content, so full logging is explicit opt-in.
@@ -2176,6 +2182,22 @@ function getReadiness() {
   };
 }
 
+function getLifecycle() {
+  if (shutdownRequested) lifecyclePhase = 'draining';
+  else if (!lifecycleStartedAt) lifecyclePhase = 'starting';
+  else lifecyclePhase = Object.values(readinessChecks()).every(Boolean) ? 'ready' : 'blocked';
+  return {
+    schema: LIFECYCLE_SCHEMA,
+    state: lifecyclePhase,
+    acceptingRequests: lifecyclePhase === 'ready',
+    activeRequests,
+    startedAt: lifecycleStartedAt,
+    transitions: LIFECYCLE_STATES,
+    shutdown: 'graceful',
+    recovery: 'restart_sidecar',
+  };
+}
+
 function getCapabilityMatrix() {
   const visionSupported = Boolean(VISION_API_KEY) && !VISION_DISABLE;
   return [{
@@ -2183,6 +2205,7 @@ function getCapabilityMatrix() {
     adapterVersion: ADAPTER_VERSION,
     model: MODEL,
     evidence: ['glory-codex-responses-fixture-v1', 'bridge-http-contract', 'deterministic-canary-v1'],
+    lifecycle: getLifecycle(),
     capabilities: {
       text: { status: 'supported' },
       streaming: { status: 'supported' },
@@ -2227,6 +2250,15 @@ function readBody(req, maxBytes = MAX_BODY_BYTES) {
 }
 
 const server = http.createServer(async (req, res) => {
+  activeRequests += 1;
+  let requestReleased = false;
+  const releaseRequest = () => {
+    if (requestReleased) return;
+    requestReleased = true;
+    activeRequests = Math.max(0, activeRequests - 1);
+  };
+  res.once('finish', releaseRequest);
+  res.once('close', releaseRequest);
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   if (req.method === 'OPTIONS') {
@@ -2253,6 +2285,18 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && (url.pathname === '/lifecycle' || url.pathname === '/v1/lifecycle')) {
+    if (!clientAuthorized(req)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: { code: 'invalid_bridge_authorization' } }));
+      return;
+    }
+    const lifecycle = getLifecycle();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: lifecycle.state === 'ready', service: BRIDGE_ID, ...lifecycle }));
+    return;
+  }
+
   if (req.method === 'GET' && (url.pathname === '/capabilities' || url.pathname === '/v1/capabilities')) {
     if (!clientAuthorized(req)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -2274,6 +2318,7 @@ const server = http.createServer(async (req, res) => {
       fixtureSchema: FIXTURE_SCHEMA,
       gloryApiContract: GLORY_API_CONTRACT,
       model: MODEL,
+      lifecycle: getLifecycle(),
       matrix: getCapabilityMatrix(),
       capabilities: {
         text: true,
@@ -2332,6 +2377,12 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ type: 'error', error: { message: 'invalid bridge authorization' } }));
       return;
     }
+    const lifecycle = getLifecycle();
+    if (!lifecycle.acceptingRequests) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ type: 'error', error: { code: 'bridge_lifecycle_not_ready' }, lifecycle }));
+      return;
+    }
     const authorization = upstreamAuthHeader();
     if (!authorization) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -2384,7 +2435,29 @@ const server = http.createServer(async (req, res) => {
   res.end(JSON.stringify({ type: 'error', error: { message: `not found: ${req.method} ${url.pathname}` } }));
 });
 
+function requestShutdown(signal) {
+  if (shutdownRequested) return;
+  shutdownRequested = true;
+  lifecyclePhase = 'draining';
+  log(`bridge ${signal}: draining ${activeRequests} active request(s)`);
+  server.close(() => {
+    lifecyclePhase = 'stopped';
+    process.exit(0);
+  });
+  const forceClose = setTimeout(() => {
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    lifecyclePhase = 'stopped';
+    process.exit(0);
+  }, 5000);
+  forceClose.unref();
+}
+
+process.once('SIGINT', () => requestShutdown('SIGINT'));
+process.once('SIGTERM', () => requestShutdown('SIGTERM'));
+
 server.listen(PORT, HOST, () => {
-  log(`bridge listening on http://${HOST}:${PORT} -> ${UPSTREAM} (model=${MODEL})`);
+  lifecycleStartedAt = new Date().toISOString();
+  lifecyclePhase = Object.values(readinessChecks()).every(Boolean) ? 'ready' : 'blocked';
+  log(`bridge listening on http://${HOST}:${PORT} -> ${UPSTREAM} (model=${MODEL}, lifecycle=${lifecyclePhase})`);
   log(`compaction: ${COMPACTION_ENABLED ? 'ENABLED (bridge, CONTEXT_LIMIT=' + CONTEXT_LIMIT + ' real tokens)' : 'DISABLED (native Codex auto_compact_token_limit=120000 handles it)'}`);
 });

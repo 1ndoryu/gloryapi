@@ -1,7 +1,7 @@
 # Plan maestro: migración de FreeLLMAPI a GloryAPI
 
 > Fecha: 2026-08-10
-> Estado: EN EJECUCIÓN — Fases 0–3 y 5–9 local verificadas; el baseline tiene `HEAD` propio y gate coordinado PASS. Fase 10 tiene contratos/readiness y canary CLI determinista verificado, mientras Fase 4, E2E Desktop, bandeja y canary/cutover operativo siguen abiertos
+> Estado: EN EJECUCIÓN — Fases 0–3 y 5–9 local verificadas; el baseline tiene `HEAD` propio y gate coordinado PASS. Fase 10 tiene contratos/readiness, capabilities v2 y lifecycle fail-closed determinista verificados, mientras Fase 4, E2E Desktop, bandeja y canary/cutover operativo siguen abiertos
 > Alcance de este documento: repositorio, secretos, gate, limpieza funcional,
 > arquitectura, compatibilidad, configuración, ordenamiento y aplicación de bandeja.
 
@@ -759,6 +759,9 @@ funciones de Codex que no estén cubiertas por contrato.
 - [ ] Emitir `response.completed` solo después de validar la terminación upstream.
   Un timeout, cancelación o stream truncado termina como fallo explícito; nunca se
   convierte silenciosamente en respuesta completa.
+- [x] Versionar la matriz declarativa por combinación cliente/adapter/modelo y el lifecycle del sidecar:
+  `glory-codex-capabilities-v2` incorpora estados `supported`, `adapted`, `unsupported` y `unverified`,
+  mientras `glory-codex-lifecycle-v1` limita la inferencia al estado `ready` y documenta el drenaje acotado.
 - [ ] Declarar capabilities reales por combinación cliente/adapter/modelo:
   texto, stream, reasoning, functions, custom tools, tools paralelas, namespaces,
   descubrimiento diferido, web, imagen, MCP, browser/computer use, automatización,
@@ -775,11 +778,12 @@ funciones de Codex que no estén cubiertas por contrato.
 - [ ] Determinar mediante E2E la semántica correcta de turnos tool-only y de
   `last_agent_message`; conservar respuestas tool-only válidas y no fabricar texto
   para satisfacer una heurística de cierre.
-- [x] Crear endpoints autenticados `/ready` y `/capabilities` que muestran solo
+- [x] Crear endpoints autenticados `/ready`, `/lifecycle` y `/capabilities` que muestran solo
   versiones, estado, capabilities declaradas y motivos de no soporte, sin prompts,
-  respuestas, URL upstream ni secretos.
+  respuestas, URL upstream ni secretos. El lifecycle usa estados `starting`, `ready`,
+  `blocked`, `draining` y `stopped`, y solo `ready` acepta inferencia.
 - [x] Publicar una matriz explícita y fail-closed por cliente/adapter/modelo en
-  `/capabilities`: distingue `supported`, `adapted`, `unsupported` y `unverified`,
+  `/capabilities` bajo `glory-codex-capabilities-v2`: distingue `supported`, `adapted`, `unsupported` y `unverified`,
   incluye evidencia contractual y marca como no verificadas la inferencia real y
   Codex Desktop E2E. La matriz no anuncia capacidades desconocidas por inferencia.
 - [x] Hacer compatible el descubrimiento de modelos Codex 0.146.x sin romper el
@@ -888,7 +892,7 @@ Matriz E2E mínima por cada uno de los tres modelos:
   con readiness autenticada y cleanup. La matriz completa, el control ChatGPT/VS Code
   directo y una inferencia contra proveedor real siguen pendientes y el perfil principal no cambia.
 - [x] Ejecutar la regresión determinista de Unicode fragmentado, truncamiento y cancelación:
-  `node --test integrations/codex-bridge/test/*.cjs` terminó **16/16 PASS** junto con
+  `node --test integrations/codex-bridge/test/*.cjs` terminó **17/17 PASS** junto con
   la validación estructural del perfil canary. Esto amplía la evidencia local, pero no
   sustituye el E2E de Codex Desktop ni la matriz de capacidades reales.
 - [ ] Añadir una canary manual por actualización de Codex. Una versión desconocida

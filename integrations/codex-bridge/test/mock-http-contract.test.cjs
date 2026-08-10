@@ -135,7 +135,11 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   });
   assert.equal(capabilities.status, 200);
   const capabilitiesBody = await capabilities.json();
-  assert.equal(capabilitiesBody.schema, 'glory-codex-capabilities-v1');
+  assert.equal(capabilitiesBody.schema, 'glory-codex-capabilities-v2');
+  assert.equal(capabilitiesBody.lifecycle.schema, 'glory-codex-lifecycle-v1');
+  assert.equal(capabilitiesBody.lifecycle.state, 'ready');
+  assert.equal(capabilitiesBody.lifecycle.acceptingRequests, true);
+  assert.deepEqual(capabilitiesBody.lifecycle.transitions, ['starting', 'ready', 'blocked', 'draining', 'stopped']);
   assert.equal(capabilitiesBody.capabilities.customTools, true);
   assert.equal(capabilitiesBody.capabilities.vision, false);
   assert.equal(capabilitiesBody.upstream, undefined);

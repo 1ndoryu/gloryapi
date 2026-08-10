@@ -45,6 +45,10 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(server, /codexDesktopE2E: \{ status: 'unverified'/);
   assert.match(server, /providerInference: \{ status: 'unverified'/);
   assert.match(server, /CAPABILITIES_SCHEMA/);
+  assert.match(server, /LIFECYCLE_SCHEMA/);
+  assert.match(server, /function getLifecycle/);
+  assert.match(server, /bridge_lifecycle_not_ready/);
+  assert.match(server, /requestShutdown/);
   assert.match(server, /url\.pathname === ['"]\/ready['"]/);
   assert.match(server, /url\.pathname === ['"]\/capabilities['"]/);
   assert.match(server, /models: modelList/);
@@ -52,6 +56,12 @@ test('the local HTTP boundary is constrained', () => {
 
 test('the versioned Responses fixture covers lifecycle and tool invariants', () => {
   assert.equal(responsesFixture.fixtureSchema, 'glory-codex-responses-fixture-v1');
+  assert.equal(responsesFixture.capabilitiesSchema, 'glory-codex-capabilities-v2');
+  assert.equal(responsesFixture.lifecycleSchema, 'glory-codex-lifecycle-v1');
+  assert.deepEqual(responsesFixture.lifecycle.states, ['starting', 'ready', 'blocked', 'draining', 'stopped']);
+  assert.deepEqual(responsesFixture.lifecycle.readyRequires, ['clientAuthConfigured', 'upstreamAuthConfigured', 'contractCompatible']);
+  assert.deepEqual(responsesFixture.lifecycle.drainGuarantees, ['reject_new_requests', 'allow_active_request_to_finish', 'force_close_after_bounded_timeout']);
+  assert.equal(responsesFixture.lifecycle.recovery, 'restart_sidecar');
   assert.equal(responsesFixture.adapterVersion, 'gloryapi-codex-bridge-v1');
   assert.equal(responsesFixture.gloryApiContract, 'chat-completions-v1');
   assert.deepEqual(

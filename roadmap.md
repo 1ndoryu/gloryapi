@@ -35,8 +35,10 @@ canary y cutover reversible posteriores.
     `function_call_output`, fallo trazable de Andoryyu con fallback a Zen y respuesta SSE `CANARY_OK`, usando SQLite
     temporal, puertos loopback y cleanup; la matriz del endpoint `/capabilities` ahora marca explícitamente
     `supported`/`adapted`/`unsupported`/`unverified` por cliente/adapter/modelo sin sobreanunciar Desktop o proveedor
-    real. El proveedor real, la matriz completa, bandeja y cutover siguen abiertos;
-    el bridge permanece detenido.
+    real. El contrato se versionó a `glory-codex-capabilities-v2` y añade
+    `glory-codex-lifecycle-v1`: `starting`/`ready`/`blocked`/`draining`/`stopped`,
+    inferencia solo en `ready` y shutdown con drenaje acotado. El proveedor real,
+    la matriz completa, bandeja y cutover siguen abiertos; el bridge permanece detenido.
 
 ## Estado verificado
 
@@ -111,7 +113,8 @@ canary y cutover reversible posteriores.
   `prepare-canary-profile.ps1` prepara un perfil Codex temporal con `auth.command`, sin `experimental_bearer_token` y
   sin modificar `config.toml`. El mock determinista y `npm run canary:codex` ya validan Codex CLI `0.146.1` → sidecar
   → GloryAPI → SSE `CANARY_OK` con SQLite temporal, puertos loopback y cleanup. La prueba HTTP real del sidecar cubre
-  UTF-8 fragmentado, stream sin `[DONE]`, abort al cerrar el cliente y readiness/capabilities; el bridge continúa
+  UTF-8 fragmentado, stream sin `[DONE]`, abort al cerrar el cliente y readiness/capabilities; el contrato HTTP
+  también verifica `/lifecycle`, estado `blocked` fail-closed y la transición documentada de shutdown; el bridge continúa
   detenido y no se anuncia compatibilidad completa de Codex Desktop ni de proveedores reales.
 
 
@@ -127,7 +130,7 @@ canary y cutover reversible posteriores.
 - La revalidación del 2026-08-10 ejecutó `npm run canary:codex` con PASS para texto, tool loop,
   fallback Andoryyu→Zen, `foreign_toolset`/downgrade repetible sin cooldown, SSE y el upstream determinista de Unicode
   fragmentado, truncamiento y cancelación.
-  La suite del bridge terminó 16/16, `npm run build` y `npm test` terminaron PASS, y no quedaron temporales
+  La suite del bridge terminó 17/17, `npm run build` y `npm test` terminaron PASS, y no quedaron temporales
   propios. La compatibilidad E2E completa de Codex Desktop sigue pendiente: el canary validado es Codex CLI `0.146.1` aislado
   contra un upstream determinista sanitizado. Falta probar Desktop real, control VS Code, capabilities completas y
   proveedor real; el perfil principal y el bridge operativo no se activaron.

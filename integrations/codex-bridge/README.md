@@ -20,6 +20,11 @@ sin commit por indicación del usuario.
 - `/ready` y `/capabilities` requieren el token local y validan el contrato
   `chat-completions-v1`, credenciales y versiones antes de aceptar tráfico. Su
   respuesta es metadata-only y no incluye prompts, URL upstream ni secretos.
+- `/lifecycle` expone el contrato versionado `glory-codex-lifecycle-v1`: `starting`,
+  `ready`, `blocked`, `draining` y `stopped`. Solo `ready` acepta inferencia; el
+  shutdown rechaza solicitudes nuevas, drena las activas y fuerza el cierre tras
+  un límite acotado. `/capabilities` publica el mismo estado por combinación
+  cliente/adapter/modelo bajo `glory-codex-capabilities-v2`.
 - La búsqueda web se resuelve mediante un bucle interno conforme al patrón de function
   calling: llamada upstream, `assistant.tool_calls`, búsqueda, mensaje `role=tool` y
   segunda llamada upstream. Codex Desktop recibe la respuesta final; el bridge no
@@ -52,7 +57,8 @@ GLORY_API_KEY=<clave unificada de GloryAPI>
 
 La ausencia de cualquiera produce un fallo cerrado: `/v1/responses` devuelve `401`
 si el token del cliente no coincide y `503` si no existe credencial configurada para
-GloryAPI. `/health` sigue siendo una comprobación mínima de identidad/liveness.
+GloryAPI o el lifecycle no está en `ready`. `/health` sigue siendo una comprobación
+mínima de identidad/liveness; `/lifecycle` requiere auth para exponer estado operativo.
 
 El token local se crea/rota dentro de la bóveda DPAPI de GloryAPI:
 

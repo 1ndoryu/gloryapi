@@ -1,8 +1,16 @@
 {
   "fixtureSchema": "glory-codex-responses-fixture-v1",
+  "capabilitiesSchema": "glory-codex-capabilities-v2",
+  "lifecycleSchema": "glory-codex-lifecycle-v1",
   "adapterVersion": "gloryapi-codex-bridge-v1",
   "gloryApiContract": "chat-completions-v1",
   "quirkSet": "deepseek-thinking-tools-v1",
+  "lifecycle": {
+    "states": ["starting", "ready", "blocked", "draining", "stopped"],
+    "readyRequires": ["clientAuthConfigured", "upstreamAuthConfigured", "contractCompatible"],
+    "drainGuarantees": ["reject_new_requests", "allow_active_request_to_finish", "force_close_after_bounded_timeout"],
+    "recovery": "restart_sidecar"
+  },
   "cases": [
     {
       "id": "text-stream",

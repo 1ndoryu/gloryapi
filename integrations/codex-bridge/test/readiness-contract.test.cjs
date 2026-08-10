@@ -76,6 +76,50 @@ test('compatible readiness exposes a fail-closed capability matrix', async (t) =
   assert.doesNotMatch(JSON.stringify(body), /Authorization|Bearer|https?:\/\//i);
 });
 
+test('blocked lifecycle is observable and rejects inference without upstream auth', async (t) => {
+  const port = await reservePort();
+  const requestLog = path.join(os.tmpdir(), `glory-bridge-lifecycle-${process.pid}-${Date.now()}.log`);
+  const child = spawn(process.execPath, [bridgeFile], {
+    env: {
+      ...process.env,
+      BRIDGE_PORT: String(port),
+      BRIDGE_CLIENT_TOKEN: 'test',
+      GLORY_API_KEY: '',
+      BRIDGE_REQUEST_LOG: requestLog,
+      VISION_DISABLE: '1',
+    },
+    stdio: 'ignore',
+  });
+  t.after(async () => {
+    if (child.exitCode == null) {
+      const exited = new Promise((resolve) => child.once('exit', resolve));
+      child.kill();
+      await exited;
+    }
+    fs.rmSync(requestLog, { force: true });
+  });
+
+  const base = `http://127.0.0.1:${port}`;
+  await waitForHealth(`${base}/health`, child);
+  const lifecycle = await fetch(`${base}/lifecycle`, { headers: { Authorization: 'Bearer test' } });
+  assert.equal(lifecycle.status, 200);
+  const lifecycleBody = await lifecycle.json();
+  assert.equal(lifecycleBody.ok, false);
+  assert.equal(lifecycleBody.state, 'blocked');
+  assert.equal(lifecycleBody.schema, 'glory-codex-lifecycle-v1');
+  assert.equal(lifecycleBody.acceptingRequests, false);
+  assert.deepEqual(lifecycleBody.transitions, ['starting', 'ready', 'blocked', 'draining', 'stopped']);
+
+  const response = await fetch(`${base}/v1/responses`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer test', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'deepseek-v4-flash', input: [] }),
+  });
+  assert.equal(response.status, 503);
+  const responseBody = await response.json();
+  assert.equal(responseBody.error.code, 'bridge_lifecycle_not_ready');
+});
+
 test('incompatible GloryAPI contract blocks readiness and capabilities', async (t) => {
   const port = await reservePort();
   const requestLog = path.join(os.tmpdir(), `glory-bridge-ready-${process.pid}-${Date.now()}.log`);

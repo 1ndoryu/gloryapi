@@ -177,6 +177,10 @@ Se adopta la siguiente solución:
 - [x] Publicar una matriz fail-closed por cliente/adapter/modelo en `/capabilities`, con estados
   `supported`, `adapted`, `unsupported` y `unverified`; la matriz no anuncia Codex Desktop E2E
   ni inferencia de proveedor real sin evidencia.
+- [x] Versionar la matriz como `glory-codex-capabilities-v2` y exponer `/lifecycle` con
+  `glory-codex-lifecycle-v1`: `starting`, `ready`, `blocked`, `draining` y `stopped`.
+  Solo `ready` acepta `/v1/responses`; SIGINT/SIGTERM rechaza requests nuevas, drena las
+  activas y fuerza cierre tras 5 s. El estado `blocked` y sus causas siguen siendo metadata-only.
 - [x] Ejecutar canary determinista Codex CLI `0.146.1` con `auth.command`, SQLite temporal,
   upstream OpenAI-compatible sanitizado y recorrido completo Codex→sidecar→GloryAPI→mock;
   el smoke obtuvo `CANARY_OK` por SSE, verificó `CANARY_TOOL_OK`, fallback Andoryyu→Zen,
@@ -191,10 +195,10 @@ Se adopta la siguiente solución:
 
 - `npm run build`: PASS. TypeScript servidor/cliente y Vite completan. Queda un warning
   no bloqueante por un chunk JS de 885.62 kB.
-- `npm test`: PASS, 38 archivos y 220 pruebas del servidor; el build compartido y
+- `npm test`: PASS, 39 archivos y 223 pruebas del servidor; el build compartido y
   cliente también completan. El smoke nominalmente live de OpenCode Zen recibió 401 y
   se auto-omitió; no aporta cobertura real del proveedor en esta ejecución.
-- `node --test integrations/codex-bridge/test/*.cjs`: PASS, 16/16. Incluye upstream
+- `node --test integrations/codex-bridge/test/*.cjs`: PASS, 17/17. Incluye upstream
   local simulado con dos llamadas por flujo, `role=tool` y respuesta final tanto en SSE
   como en no streaming; además Unicode UTF-8 fragmentado, truncamiento sin `[DONE]`,
   cancelación observada, identidad health, falta de auth, límite 413, URL directa
@@ -213,9 +217,12 @@ Se adopta la siguiente solución:
 - `switch-chatgpt.ps1`: `544CE4C068F87DFCC7F804EA871F0CE60E4DCAD5DF268BA05968101174E39E3C`.
 - `switch-deepseek.ps1`: `A26FC5E22E5EE967C161F49F8E8B721D4F37AE10CC8F27AE632C9D2993EF37C6`.
 
+La revalidación del contrato de lifecycle añadió una prueba determinista para el estado `blocked`,
+rechazo fail-closed de inferencia sin credencial upstream y la matriz versionada de transiciones.
+
 Un PASS local no sustituye la prueba E2E del cliente mientras el bridge esté
-desactivado. No se creó commit porque el workspace todavía no tiene `HEAD` propio y el flujo de commit/publicación no forma
-parte de este bloque. Tampoco se hizo stage, push ni publicación externa.
+ desactivado. Este bloque queda listo para commit local; no se hará push ni publicación externa.
+
 
 ### Revisión de supervisor
 
