@@ -795,24 +795,9 @@ funciones de Codex que no estén cubiertas por contrato.
 - [ ] Mantener web y visión como capacidades opcionales. Evaluar en ADR si deben
   residir en GloryAPI como servicios compartidos; mientras sigan en el sidecar no
   podrán contaminar el traductor de protocolo.
-- [ ] No reactivar la compactación propia del bridge salvo red de seguridad. Codex conserva su compactación
+- [x] No reactivar la compactación propia del bridge. Codex conserva su compactación
   nativa; el adapter no acepta override de entorno y deja el contexto intacto. El
-  test estático comprueba que no existe una vía `COMPACTION_ENABLED`. (2026-08-10:
-  añadida red de seguridad opt-in `BRIDGE_COMPACTION_SAFETY_FACTOR` default 2: si la
-  nativa no dispara y el contexto real supera `CONTEXT_LIMIT × factor`, el bridge
-  compacta el historial por su cuenta sin tocar los resúmenes nativos que quedan
-  bajo el límite. Riesgo registrado: `realTokens()` puede sobreestimar si la
-  calibración está descalibrada — ver hallazgo de 2026-08-10. 2026-08-10: cerrado
-  con clamp de calibración: `CALIB_MIN_HEUR` (ignora probes sin contexto, heur<500)
-  y `CALIB_OBSERVED_MIN/MAX` (0.05/8) acotan el ratio; un outlier ya no puede
-  inflar `realTokens()` x100 y disparar la red en conversaciones nuevas.)
-- [x] Inyectar tools diferidas de forma condicional y deduplicada. Codex Desktop
-  (builds nuevos) expone `mcp__node_repl` (js, js_reset, js_add_node_module_dir)
-  directamente en `body.tools`; la inyección incondicional de `NODE_REPL_JS_TOOL`
-  generaba `mcp__node_repl__js` 2× → upstream 400 `Tool names must be unique` →
-  “Provider rejected the request”. `translateTools()` ahora solo inyecta si el
-  nombre wire no existe y deduplica al final por nombre. (2026-08-10, Fix D; test
-  de regresión en `static-contract.test.cjs`, suite 36/36.)
+  test estático comprueba que no existe una vía `COMPACTION_ENABLED`.
 
 #### 10.3 Contratos y matriz de capacidades
 
@@ -826,10 +811,6 @@ funciones de Codex que no estén cubiertas por contrato.
 - [x] Emitir `response.completed` solo después de validar la terminación upstream.
   Un timeout, cancelación o stream truncado termina como `response.failed` explícito;
   la suite 31/31 cubre EOF sin `[DONE]`, cancelación, UTF-8 fragmentado, redacción metadata-only y rotación acotada.
-  (2026-08-10: suite ampliada a **36/36** con `browser-stall-regression.test.cjs`
-  —respuesta vacía → `response.failed empty_upstream_response`, system gigante
-  recortado por `BRIDGE_MAX_SYSTEM_CHARS`, red de seguridad de compactación— y el
-  test de dedupe de tools inyectadas en `static-contract.test.cjs`.)
 - [x] Versionar la matriz declarativa por combinación cliente/adapter/modelo y el lifecycle del sidecar:
   `glory-codex-capabilities-v2` incorpora estados `supported`, `adapted`, `unsupported` y `unverified`,
   mientras `glory-codex-lifecycle-v1` limita la inferencia al estado `ready` y documenta el drenaje acotado.
@@ -898,14 +879,6 @@ Matriz E2E mínima por cada uno de los tres modelos:
   visión y verifica que no llega a stderr; el escritor serializado rota el log y
   conserva una retención acotada. El cuerpo completo continúa siendo opt-in mediante
   `BRIDGE_REQUEST_LOG_FULL=1`.
-- [ ] Proteger la calibración `realTokens()` contra outliers. Hallazgo 2026-08-10: un
-  único request patológico (heur=9, real=2559 → observed=284) disparó `calibRatio` a
-  113.8 y el log reportó «context 1.742.521 real tokens» para una petición cuyo
-  upstream real reportó 33.307 prompt tokens; el ratio convergió lentamente hacia
-  ~2 petición a petición (los «1.7M» waren el ratio descalibrado multiplicando una
-  heurística, no consumo real). Añadir clamp o mínimo de observaciones antes de
-  alejarse del default; el comentario del código (ratio ≈ 0.15) quedó obsoleto en
-  este setup (heur × 2 ≈ tokens reales).
 - [ ] Prohibir fetch de URL arbitraria para web o visión. Validar esquema, resolver
   y volver a comprobar IP tras redirects, bloquear rangos internos/metadata y
   acotar DNS, redirects, bytes y tiempo para impedir SSRF/rebinding.
@@ -1064,15 +1037,11 @@ bóveda, routing y UI.
   namespaces y nombres escapados serán reversibles. No sintetizar tool calls u
   outputs con efectos para “reparar” una historia; una reparación segura deberá
   declarar degradación y tener fixture.
-- [x] Dar a un único `terminal boundary` la propiedad del stream cliente. Debe
+- [ ] Dar a un único `terminal boundary` la propiedad del stream cliente. Debe
   cortar tras el primer terminal Responses válido, añadir `[DONE]` solo como
   compatibilidad posterior a ese terminal y transformar un corte ya comprometido
   en `response.failed`, sin reenviar el turno. Heartbeats no contarán como progreso
-  upstream ni ocultarán un stall. (2026-08-10: la respuesta vacía del upstream —sin
-  texto, razonamiento ni tool_calls— ya emite `response.failed`
-  `empty_upstream_response` en los tres caminos: streaming, web loop interno y
-  no-streaming; antes producía un `response.completed` vacío que colgaba a Codex
-  Desktop. Cubierto por `browser-stall-regression.test.cjs`.)
+  upstream ni ocultarán un stall.
 - [ ] Presupuestar memoria por turno, argumento de tool, frame SSE, colección de
   items y estado retenido. Cada reserva deberá liberarse en éxito, fallo,
   cancelación y desconexión; el diagnóstico expondrá high-water marks y overflows

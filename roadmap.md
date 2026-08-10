@@ -1,19 +1,18 @@
 # Roadmap GloryAPI
 
-GloryAPI se construye como workspace hermano aislado de FreeLLMAPI. El legado permanece operativo hasta un
-canary y cutover reversible posteriores.
+GloryAPI se construye como workspace hermano aislado de FreeLLMAPI. El legado permanece intacto como rollback
+durante la validación posterior al cutover reversible.
 
 ## Siguiente bloque
 
 1. Mantener el snapshot real externo y protegido durante la ventana de rollback; ya fue verificado con `integrity_check=ok` y el importador versionado e idempotente migró 22/22 credenciales.
-2. Mantener el baseline `b6db7a8` y repetir `npm run task:check -- GLORY-BASELINE` después de cada bloque de cambios.
+2. Ejecutar `npm run task:check:local -- <ID>` como preflight de cada bloque y repetir `npm run task:check -- GLORY-BASELINE` después de cada bloque de cambios; el cierre conserva el perfil full/CI.
 3. Mantener la política de cambios del legado: sin modificaciones durante la migración; cualquier corrección operativa futura debe quedar registrada, probada y evaluada para portabilidad.
 4. Conservar el bootstrap sanitizado por `git archive` + overlay: el escaneo histórico de 518 commits/4.018 blobs y del overlay quedó documentado sin exponer valores.
-5. Mantener la revisión periódica de warnings informativos de Sentinel; el gate full actual pasa con 0 errores y 6 warnings
-   de mantenimiento (transformación dinámica de dnd-kit y límites de tamaño en módulos heredados). Ya se extrajeron
-   snapshots, V1–V35 y `server/src/db/index.ts` quedó como orquestador de inicialización y backup.
-6. Probar ACL/recuperación del bundle portable bajo otro perfil; `portable-bundle-file.ts` ya escribe con fsync/rename, límite de 16 MiB y ACL sin herencia para el usuario actual, y `recover:bundle` re-protege 22/22 filas de forma idempotente sin health externo. `--dry-run` valida sin escribir; `--health-check` es opt-in explícito; queda probar otro perfil Windows.
-7. Cerrar el bloque local de Fase 6: el ciclo draft → verificación real de health/chat/capabilities → active ya es fail-closed y no activa catálogos remotos completos.
+5. Mantener la revisión periódica de Sentinel; el gate local actual pasa con 0 errores y 0 warnings después de extraer
+   snapshots, V1–V35 y dejar `server/src/db/index.ts` como orquestador de inicialización y backup.
+6. Probar ACL/recuperación del bundle portable bajo otro perfil; `portable-bundle-file.ts` ya escribe con fsync/rename, límite de 16 MiB y ACL sin herencia para el usuario actual, y `recover:bundle` re-protege 22/22 filas de forma idempotente sin health externo. `--dry-run` valida sin escribir; `--health-check` es opt-in explícito; `recover:profile` deja el ensayo sintético reproducible y queda probar otro perfil Windows con ventana administrativa controlada.
+7. Cerrar el bloque local de Fase 6: el ciclo draft → discovery acotado → verificación real de health/chat/capabilities → active ya es fail-closed y no activa catálogos remotos completos; el wizard visual ahora cubre proveedor → endpoint/auth para drafts nuevos → credencial → health check opcional, y la API solo acepta credenciales de proveedores activos o drafts explícitos. El smoke DOM comprobó el orden sin transmitir secreto antes del draft; queda automatizarlo y extenderlo a modelos, revisión y activación. Prevención: `Agente/prevencion/prevencion-provider-wizard-order-2026-08-10.md`.
 8. Fase 8 queda cerrada en su bloque local: el contrato de orden, autosave, revisión, cola local, SSE autenticado,
    separación entre política configurada y runtime de modelos, y conflicto concurrente ya están cubiertos.
 9. Fase 9 local queda cerrada en su bloque de compatibilidad Chat Completions: el request se normaliza a un contrato
@@ -39,8 +38,43 @@ canary y cutover reversible posteriores.
     tool-only, standalone web search, MCP, browser, computer use, automation,
     multi-agent y long-context con estados fail-closed. El contrato se versionó a `glory-codex-capabilities-v2` y añade
     `glory-codex-lifecycle-v1`: `starting`/`ready`/`blocked`/`draining`/`stopped`,
-    inferencia solo en `ready` y shutdown con drenaje acotado. El proveedor real,
-    la matriz completa, bandeja y cutover siguen abiertos; el bridge permanece detenido.
+    inferencia solo en `ready` y shutdown con drenaje acotado. El proveedor real Andoryyu,
+    el runtime local y el bridge ya pasan readiness; la matriz completa, bandeja y E2E Desktop
+    siguen abiertos.
+11. La investigación de OpenCodex se incorporó aditivamente a Fase 10.7: control-plane/data-plane separados,
+    catálogo distinto de routing, afinidad de hilo, límites HTTP explícitos y recuperación/journal como trabajo
+    aplicado selectivamente a `codex-mode.ps1` con lock, journal y hashes; no se copió código ni se instaló OpenCodex.
+12. El bridge ahora reduce errores remotos a metadata, evita hashes deterministas de consultas y rota
+    `bridge.requests.log` con límite/retención configurables; faltan todavía headers/tool args/SSE/dumps y el bundle
+    de diagnóstico revisable. La cola de escritura tiene capacidad bounded y drops contabilizados; una entrada
+    sobredimensionada se degrada a metadata. La evidencia local es 31/31 tests del bridge y Sentinel local 0/0.
+13. El preflight de activación de Codex/ChatGPT quedó preparado como comprobación de solo lectura:
+    `integrations/codex-bridge/mode/codex-activation-preflight.ps1`. Verifica que los enlaces reales de
+    `%USERPROFILE%\\.codex` apunten a GloryAPI, que el perfil DeepSeek use Responses en 4100 sin bearer literal,
+    y que el health corresponda al bridge nuevo. El preflight no modifica el perfil ni repunta enlaces por sí mismo;
+    la operación reversible separada del 2026-08-10 repuntó los cuatro enlaces a GloryAPI y dejó el perfil activo
+    en Responses 4100.
+    `codex-mode.ps1` ahora bloquea el arranque/copia si ese contrato falla y ofrece `-Preview` sin mutación.
+14. Prevención registrada en `Agente/prevencion/prevencion-codex-legacy-link-2026-08-10.md`:
+    mientras los enlaces `.codex` sean legacy, solo se invoca la fuente GloryAPI y se bloquea cualquier
+    canary/cutover; no se modifica `freellmapi` para corregirlo. El registro de recuperación conserva
+    fingerprints del perfil restaurado y deja revisión manual pendiente porque el hash previo no tiene
+    copia local recuperable.
+15. El preflight de activación ahora valida también, sin revelar valores, que exista el helper compilado
+    `server/dist/scripts/bridge-auth.js` y que exista una credencial upstream en el proceso o en la bóveda
+    local mediante `bridge-upstream-auth.js`; así el `-SkipHealth` previo al arranque no permite avanzar con
+    un runtime incompleto.
+    El caso repetible queda documentado en `Agente/prevencion/prevencion-codex-runtime-incompleto-2026-08-10.md`.
+16. `start-bridge.ps1` ya inicia de forma acotada el runtime local en 3101 (`start-gloryapi.ps1`) si no está
+    listo; el PID/log son propios de GloryAPI y el bridge sigue separado del perfil ChatGPT. El runtime
+    arranca con entorno aislado y el bridge con allowlist explícita de variables; `environment-isolation.test.cjs`
+    captura el proceso hijo y confirma que no hereda ningún token.
+17. Cutover local ejecutado: `config.toml` coincide con `config.deepseek.toml`, los cuatro enlaces `.codex`
+    apuntan a GloryAPI y el preflight con health devuelve `ready=true`; la prueba Node → bridge → Andoryyu
+    devolvió HTTP 200. Falta E2E desde la aplicación Desktop y validar rollback desde ChatGPT.
+18. `unified_api_key` migrada a `local_auth_tokens` con DPAPI `CurrentUser`; `settings` ya no conserva el
+    plaintext. El helper upstream solo resuelve la fila DPAPI en readonly y falla cerrado si falta. Se mantiene
+    además ACL sin herencia para Owner, SYSTEM y Administrators como defensa en profundidad.
 
 ## Estado verificado
 
@@ -56,23 +90,28 @@ canary y cutover reversible posteriores.
   ejecutar health, y no puede combinarse con `--health-check`;
   snapshot externo y migración 22/22. El adapter DPAPI `CurrentUser` fail-closed está integrado en nuevas altas;
   el target real tiene 22 filas DPAPI y ninguna `settings.encryption_key`.
+- La fixture `recover:profile` se ejecutó con datos sintéticos fuera del repositorio: dry-run dejó 0 filas,
+  importó 22/22, repitió 22 sin cambios y confirmó `dpapiRoundTrip=true`; se limpiaron bundle y SQLite temporales.
 - `backup.test.ts` restaura 22/22 credenciales cifradas sintéticas, comprueba `integrity_check`, SHA-256 y ausencia
   de plaintext; la migración real verificó 22/22 resoluciones DPAPI y fingerprint-set coincidente.
-- Sentinel 0.7.0 está fijado en `sentinel.config.json`, `quality-tools.json` y `sentinel.lock.json`; el runtime
+- Sentinel 0.7.1 está fijado en `quality-tools.json` y `sentinel.lock.json`; el runtime
   local/global está provisionado y compile + suite del checkout externo pasaron (**557 passing, 1 pending**).
-  `quality:doctor` ahora devuelve `ready: true`, con commit `a804c0d8...`, release `v0.7.0`, evidencia limpia y
+  `quality:doctor` ahora devuelve `ready: true`, con commit `7d18a755...`, release `v0.7.1`, evidencia limpia y
   artefacto `18611cda...`; la herramienta externa permanece limpia.
-- El adaptador `scripts/quality/sentinel-stage.mjs` convierte el análisis en reporte estructurado. El análisis directo
-  queda sin findings accionables; el aviso de `_generated` ausente es informativo. El gate full `task:check` pasa con
-  0 errores y 6 warnings de mantenimiento: la transformación dinámica recomendada por dnd-kit y cuatro límites de
-  tamaño en módulos heredados. No se añadieron exclusiones Sentinel. Tras extraer las migraciones V1–V35, componentes
+- El adaptador `scripts/quality/sentinel-stage.mjs` convierte el análisis en reporte estructurado. El análisis directo y
+  `task:check:local` quedan sin findings accionables: 0 errores y 0 warnings. No se añadieron exclusiones Sentinel.
+  Tras extraer las migraciones V1–V35, componentes
   de UI, hooks, helpers de providers, contratos del proxy, rutas de Analytics y suites grandes de tests, además de
   tipar respuestas nuevas, producción, UI, tests y contratos compartidos ya no tienen avisos explícitos de `any` ni
   hints pendientes. Los selectores existentes se conservaron mediante el alias semántico `SelectDropdown`, sin
   introducir un componente duplicado ni cambiar su comportamiento.
 - El escaneo histórico/overlay y el guard de independencia de Git quedaron completados; el historial completo no se reutiliza porque el inventario contiene artefactos sensibles excluidos. La política del legado queda fijada: no modificar `freellmapi` durante la migración.
-- El gate coordinado ya cierra contra el `HEAD` propio `b6db7a8`: `task:check -- GLORY-BASELINE` devuelve PASS.
-  Sentinel conserva 0 errores y 6 warnings no bloqueantes; un checkout sin historia seguiría fallando cerrado.
+- El preflight coordinado conserva `task:check:local -- GLORY-BASELINE` en PASS, con 0 errores y 0 warnings;
+  `quality:doctor` confirma Sentinel 0.7.1, política `enforce`, lock/provisionado alineados y `readyForGate: true`.
+  El informe completo ya conserva `policyIdentity` y `npm run task:check -- GLORY-REQUEST-ID-ALL` pasa con política
+  `enforce`, hash y ruta verificables. La reparación está fijada al commit Sentinel
+  `7d18a755f12751ae9fd1ac67827f5a6dad8be631`, con tag local `v0.7.1`, lock y artefacto provisionado alineados.
+  La publicación del tag en el remoto upstream queda fuera de esta sesión, pero el checkout y la evidencia local son reproducibles.
 - Fase 5 ya tiene un bootstrap de catálogo operativo: una base nueva usa el schema compacto sin ejecutar las 35
   migraciones históricas; una base existente se actualiza y queda normalizada a exactamente tres modelos, con fallback
   1–3 y credenciales archivadas preservadas. El contrato está cubierto por `catalog-clean.test.ts`.
@@ -80,18 +119,47 @@ canary y cutover reversible posteriores.
   el schema nuevo no contiene `monthly_token_budget`, y el registry de producción solo expone Andoryyu, OpenCode Zen
   y OpenCode Go. Los adapters heredados quedan disponibles únicamente para tests/upgrades aislados.
 - Fase 6 ya tiene contratos compartidos versionados (`glory-registry-v1`), snapshot sanitizado en `GET /api/registry`
-  y Keys consume el backend en lugar de duplicar la lista de providers. `registry.test.ts` cubre catálogo activo,
+  y Keys consume el backend en lugar de duplicar la lista de providers. Todo `/api/registry/**` exige ahora la clave
+  administrativa local; `registry.test.ts` cubre catálogo activo,
   credenciales archivadas, drafts, rechazo de endpoints inseguros, activación sin verificación y ausencia de material
   secreto. El draft se guarda en SQLite y nunca pasa a active automáticamente. El endpoint de verificación ejecuta
   health mediante `validateKey`, chat mediante un ping mínimo y capabilities mediante el contrato declarativo; los
   errores upstream se reducen a respuestas sanitizadas y la activación requiere las tres marcas más un adapter
   operativo coincidente.
+- `GET /api/registry/templates` publica plantillas declarativas versionadas para Chat Completions, reasoning y Gemini;
+  los drafts aceptan slugs nuevos como estado inerte, pero la activación continúa exigiendo un adapter registrado.
+- La selección explícita de modelos se guarda en `provider_model_drafts` mediante un reemplazo transaccional y
+  permanece separada del catálogo operativo de tres modelos. El discovery remoto `/models` ya está acotado,
+  exige credencial elegida, usa cache TTL de 30 s con stale diagnóstico acotado y devuelve solo drafts; el wizard
+  visual y la prueba contra proveedor real siguen pendientes.
+- `integrations/glory-tray/GloryApiTray.ps1` ya ofrece un prototipo de bandeja que muestra el último modelo, abre
+  el dashboard y permite activar/desactivar o reordenar entradas mediante la Control API autenticada con revisión
+  esperada; usa solo loopback y no toca perfiles Codex, bridge ni FreeLLMAPI. La decisión Tauri/Electron, startup
+  policy y E2E Windows siguen pendientes.
+- El guard `endpoint-security.ts` bloquea HTTPS con credenciales, hosts locales y rangos privados antes de los
+  fetch de proveedores; los transportes y el bridge rechazan redirects automáticos. En tests cubre IPv4/IPv6 privados
+  y URLs inseguras; el anclaje de IP frente a DNS rebinding E2E sigue pendiente.
+- El data-plane exige ahora el mismo token de admisión para `POST /v1/chat/completions` y `GET /v1/models`; la
+  prueba de descubrimiento confirma `401` sin credencial y conserva el contrato dual `data`/`models` con credencial válida.
+- `/api/control/status` ofrece un plano de gestión mínimo autenticado para la bandeja, con routing/runtime/modelos
+  sin secretos. El resto de la Control API exige la credencial administrativa local; el dashboard obtiene una sesión
+  efímera loopback ligada a origen y CSRF, sin guardar la clave unificada en el navegador.
+- El bridge aplica un límite fijo de 32 solicitudes activas y responde `429 bridge_busy` sin aceptar una cola ilimitada;
+  además rechaza paths largos, métodos no permitidos, content types no JSON y referencias de imagen con MIME/magic
+  inválidos antes de traducir. Los tests HTTP/contrato y fuzz SSE pasan en la suite actual. El guard de versión invoca el intérprete fijo de Windows con un launcher
+  allowlisted (sin `shell:true` ni concatenación de `CODEX_BIN`), valida Codex CLI `0.146.1` y permanece fail-closed.
 - Fase 7 tiene un registro tipado y versionado como `glory-settings-v1`, con defaults/rangos/alcance/
   `requiresRestart`, revisión optimista y escritura SQLite transaccional en `GET/PATCH /api/settings`. La UI ya
-  expone `Settings` agrupado por alcance. `GET/PATCH /api/settings/providers` y el endpoint de modelos muestran y
+  expone `Settings` en pestañas por alcance, reset por sección y auditoría sanitizada. `GET/PATCH /api/settings/providers` y el endpoint de modelos muestran y
   persisten overrides validados de base URL HTTPS, timeout, auth, alias y capabilities, indicando herencia
   default/provider/model. Los tests cubren autenticación, valores desconocidos, rangos, atomicidad, conflictos,
   herencia y rechazo de URLs inseguras; los límites absolutos y la criptografía siguen en código.
+- La verificación de este bloque terminó con `npm test` en 44 archivos/255 tests PASS, build de shared/client/server,
+  bridge 31/31 PASS, `npm run bench:routing` con 128/128 requests, p95 68.87 ms y presupuesto de 100 ms aprobado,
+  y canary Codex aislado PASS.
+  `task:check:local` y el gate full pasan con 0 errores y 0 warnings; el gate full además conserva identidad/hash de
+  política `enforce`. La publicación del tag en el remoto upstream queda como pendiente de distribución,
+  no como fallo oculto del consumidor.
 - Fase 8 tiene `glory-routing-v1`, snapshots con revisión, escritura atómica del conjunto completo y validación de
   prioridades/IDs. Routing guarda automáticamente tras drag/toggle, muestra estado de guardado y revierte ante error;
   la UI encola la última intención mientras una escritura está en vuelo y el backend rechaza conflictos obsoletos.
@@ -129,17 +197,22 @@ canary y cutover reversible posteriores.
 - El snapshot externo del legado y sus credenciales de cifrado deben conservarse durante la ventana de rollback;
   no se copia al workspace ni se modifica `freellmapi`.
 - La fuente de Sentinel sigue siendo el checkout hermano `../glory-rs-rest/tools/sentinel`, pero ya quedó alineada
-  y validada como release `0.7.0`: compile, suite y evidencia de staging limpio pasan; `quality:doctor` está en
+  y validada como release `0.7.1`: compile, suite y evidencia de staging limpio pasan; `quality:doctor` está en
   `ready: true` y no hay drift entre source, provisionado, lock y config. La independencia para un clon limpio
   sigue siendo una mejora futura de distribución, no un bloqueo del checkout actual.
 - El nuevo workspace aún no tiene remoto externo; no se crea ni se publica como parte de esta fase.
 - La revalidación del 2026-08-10 ejecutó `npm run canary:codex` con PASS para texto, tool loop,
   fallback Andoryyu→Zen, `foreign_toolset`/downgrade repetible sin cooldown, SSE y el upstream determinista de Unicode
   fragmentado, truncamiento y cancelación.
-  La suite del bridge terminó 17/17, `npm run build` y `npm test` terminaron PASS, y no quedaron temporales
+  La suite del bridge terminó 31/31, `npm test` terminó con 44 archivos y 255 tests PASS, `npm run build:server`
+  y el build del cliente terminaron PASS, y no quedaron temporales
   propios. La compatibilidad E2E completa de Codex Desktop sigue pendiente: el canary validado es Codex CLI `0.146.1` aislado
-  contra un upstream determinista sanitizado. Falta probar Desktop real, control VS Code, capabilities completas y
-  proveedor real; el perfil principal y el bridge operativo no se activaron.
+  contra un upstream determinista sanitizado. La prueba local real Node → bridge → Andoryyu pasó HTTP 200;
+  falta probar Desktop real, control VS Code, capabilities completas y rollback desde la aplicación.
+
+- Distribución de Sentinel: el gate full ya fue verificado con el commit fijado `7d18a755...`, tag `v0.7.1`, lock,
+  evidencia de release y artefacto `85ba836d...`; devuelve identidad/hash `enforce`. Falta publicar el tag en upstream.
+  El caso reproducible y la detección esperada están en `Agente/prevencion/prevencion-sentinel-policy-identity-2026-08-10.md`.
 
 ## Planes activos
 
