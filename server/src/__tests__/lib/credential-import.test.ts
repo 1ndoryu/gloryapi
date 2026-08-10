@@ -5,10 +5,8 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDb, initDb } from '../../db/index.js'
 import { credentialVault } from '../../lib/dpapi-vault.js'
-import {
-  importCredentialBundleFileIntoDatabase,
-  importCredentialBundleIntoDatabase,
-} from '../../lib/credential-import.js'
+import { importCredentialBundleIntoDatabase } from '../../lib/credential-import.js'
+import { recoverCredentialBundleFile } from '../../lib/credential-recovery.js'
 import { exportCredentialBundleFile } from '../../lib/portable-bundle-file.js'
 import { exportCredentialBundle } from '../../lib/vault-bundle.js'
 
@@ -50,17 +48,68 @@ describe('credential bundle importer', () => {
     ).get()).toEqual({ count: 22 })
   })
 
-  it('imports 22 credentials from an encrypted bundle file and is idempotent', () => {
+  it('imports 22 credentials from an encrypted bundle file and is idempotent without health checks', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gloryapi-recovery-'))
     temporaryDirectories.push(directory)
     const filePath = path.join(directory, 'credentials.glorybundle')
     exportCredentialBundleFile(filePath, migrationCredentials(), passphrase)
     const db = getDb()
 
-    expect(importCredentialBundleFileIntoDatabase(db, filePath, passphrase)).toEqual({ imported: 22, unchanged: 0 })
-    expect(importCredentialBundleFileIntoDatabase(db, filePath, passphrase)).toEqual({ imported: 0, unchanged: 22 })
+    await expect(recoverCredentialBundleFile(db, filePath, passphrase)).resolves.toMatchObject({
+      imported: 22,
+      unchanged: 0,
+      healthCheckRequested: false,
+      health: [],
+    })
+    await expect(recoverCredentialBundleFile(db, filePath, passphrase)).resolves.toMatchObject({
+      imported: 0,
+      unchanged: 22,
+      healthCheckRequested: false,
+      health: [],
+    })
     expect(db.prepare('SELECT COUNT(*) AS count FROM api_keys').get()).toEqual({ count: 22 })
     expect(fs.readFileSync(filePath, 'utf8')).not.toContain('snapshot-fixture-secret-0')
+  })
+
+  it('validates a dry run without writing or performing health checks', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gloryapi-recovery-'))
+    temporaryDirectories.push(directory)
+    const filePath = path.join(directory, 'credentials.glorybundle')
+    exportCredentialBundleFile(filePath, migrationCredentials(), passphrase)
+    const checkKeyHealth = vi.fn(async () => 'healthy' as const)
+
+    await expect(recoverCredentialBundleFile(getDb(), filePath, passphrase, {
+      dryRun: true,
+      checkKeyHealth,
+    })).resolves.toMatchObject({
+      imported: 0,
+      unchanged: 0,
+      dryRun: true,
+      healthCheckRequested: false,
+      health: [],
+    })
+    expect(checkKeyHealth).not.toHaveBeenCalled()
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM api_keys').get()).toEqual({ count: 0 })
+  })
+
+  it('performs health checks only when the caller opts in', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gloryapi-recovery-'))
+    temporaryDirectories.push(directory)
+    const filePath = path.join(directory, 'credentials.glorybundle')
+    exportCredentialBundleFile(filePath, migrationCredentials(), passphrase)
+    const checkedIds: number[] = []
+
+    const report = await recoverCredentialBundleFile(getDb(), filePath, passphrase, {
+      checkKeyHealth: async (id) => {
+        checkedIds.push(id)
+        return 'healthy'
+      },
+    })
+
+    expect(report.healthCheckRequested).toBe(true)
+    expect(report.health).toHaveLength(22)
+    expect(report.health.every(entry => entry.status === 'healthy')).toBe(true)
+    expect(checkedIds).toHaveLength(22)
   })
 
   it('rejects duplicate platform/fingerprint identities before writing', () => {

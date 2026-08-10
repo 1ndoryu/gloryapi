@@ -19,7 +19,7 @@ interface PreparedCredential {
   ciphertext: string
 }
 
-function assertUniqueCredentials(credentials: CredentialBundleEntry[]): void {
+export function validateCredentialEntries(credentials: CredentialBundleEntry[]): void {
   const seen = new Set<string>()
   for (const credential of credentials) {
     const identity = `${credential.platform}:${credential.fingerprint}`
@@ -37,7 +37,7 @@ export function importCredentialEntriesIntoDatabase(
   db: Database.Database,
   credentials: CredentialBundleEntry[],
 ): CredentialImportReport {
-  assertUniqueCredentials(credentials)
+  validateCredentialEntries(credentials)
 
   const findExisting = db.prepare(
     'SELECT id FROM api_keys WHERE platform = ? AND fingerprint = ? LIMIT 1',

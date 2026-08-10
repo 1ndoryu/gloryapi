@@ -16,7 +16,8 @@
     "quality:analyze": "node scripts/quality/sentinel-analyze.mjs",
     "quality:test": "npm test",
     "task:check": "node scripts/quality/task-check.mjs",
-    "canary:codex": "node scripts/canary/run-codex-canary.cjs"
+    "canary:codex": "node scripts/canary/run-codex-canary.cjs",
+    "recover:bundle": "npm run build:server && node server/dist/scripts/recover-bundle.js"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

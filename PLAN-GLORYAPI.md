@@ -425,8 +425,11 @@ de scripts que imprimen secretos.
 - [x] Implementar recuperación desde archivo mediante `importCredentialBundleFileIntoDatabase`:
   descifra el bundle portable, valida fingerprints, re-protege cada secreto con DPAPI `CurrentUser`
   y escribe de forma idempotente; la prueba determinista cubre 22/22 dos veces sin health externo.
-- [ ] Añadir health check opt-in y documentar la recuperación bajo otro perfil Windows; nunca ejecutar
-  tráfico externo durante una restauración sin indicarlo.
+- [x] Añadir `npm run recover:bundle -- --bundle <archivo-externo>` como comando de recuperación; por defecto
+  no ejecuta health ni tráfico externo. `--dry-run` descifra y valida sin escribir ni hacer health; solo
+  `--health-check` delega explícitamente en `checkKeyHealth`, y ambos flags son mutuamente excluyentes.
+- [ ] Documentar y probar la recuperación bajo otro perfil Windows; nunca ejecutar tráfico externo durante
+  una restauración sin indicarlo.
 
 Aceptación:
 
@@ -450,7 +453,7 @@ Objetivo: hacer que cada fase siguiente tenga una autoridad de cierre reproducib
   el checkout hermano declarado, con evidencia compile+suita limpia y runtime local provisionado.
 - [x] Declarar `npm run task:check -- <ID>` y `quality:doctor`/`quality:analyze` como interfaces canónicas del gate.
 - [x] Ejecutar el gate baseline coordinado contra el primer `HEAD` propio: `npm run task:check -- GLORY-BASELINE`
-  devuelve PASS. La revalidación actual reporta 0 errores y 5 warnings de mantenimiento no bloqueantes.
+  devuelve PASS. La revalidación actual reporta 0 errores y 6 warnings de mantenimiento no bloqueantes.
 - [x] Clasificar y corregir los defectos válidos del baseline antes de cerrar el bootstrap; no se añadieron
   exclusiones Sentinel. Los warnings restantes son la transformación dinámica recomendada por dnd-kit y cuatro
   límites de tamaño en módulos heredados que quedan como refactorización local separada.

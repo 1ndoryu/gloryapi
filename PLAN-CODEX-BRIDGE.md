@@ -195,7 +195,7 @@ Se adopta la siguiente solución:
 
 - `npm run build`: PASS. TypeScript servidor/cliente y Vite completan. Queda un warning
   no bloqueante por un chunk JS de 885.62 kB.
-- `npm test`: PASS, 40 archivos y 226 pruebas del servidor; el build compartido y
+- `npm test`: PASS, 40 archivos y 228 pruebas del servidor; el build compartido y
   cliente también completan. El smoke nominalmente live de OpenCode Zen recibió 401 y
   se auto-omitió; no aporta cobertura real del proveedor en esta ejecución.
 - `node --test integrations/codex-bridge/test/*.cjs`: PASS, 17/17. Incluye upstream
