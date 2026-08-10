@@ -128,7 +128,10 @@ Se adopta la siguiente solución:
 - `/health` identifica servicio, versión y modelo sin revelar upstream. `/ready` y
   `/capabilities` requieren el token local, validan contrato/versiones/credenciales y
   solo devuelven estado y capabilities sanitizadas.
-- Sin CORS wildcard; cuerpo limitado a 8 MiB; errores y logs redactados.
+- Sin CORS wildcard; cuerpo limitado a 8 MiB; errores remotos y logs se reducen a
+  metadata por defecto. Cada
+  request Responses recibe o genera un `X-Glory-Request-Id` acotado, que se
+  conserva en tool loops y se propaga al gateway sin incluir prompts ni secretos.
 - El log completo de prompts es opt-in mediante `BRIDGE_REQUEST_LOG_FULL=1`.
 - La búsqueda limita cada intento a 8 s, el total a 12 s y cada respuesta a 1 MiB;
   URL directa deshabilitada.
@@ -185,20 +188,36 @@ Se adopta la siguiente solución:
   upstream OpenAI-compatible sanitizado y recorrido completo Codex→sidecar→GloryAPI→mock;
   el smoke obtuvo `CANARY_OK` por SSE, verificó `CANARY_TOOL_OK`, fallback Andoryyu→Zen,
   Unicode fragmentado, truncamiento y cancelación, y limpió procesos/temporales.
+- [x] Añadir correlación bounded `X-Glory-Request-Id` desde el bridge por cada request, conservar
+  el mismo ID durante tool loops y propagarlo por el gateway a los adapters registrados; el ID
+  queda fuera del payload y de secretos. Las suites de bridge, proxy y adapters cubren generación,
+  rechazo de valores inválidos y variantes stream/no-stream.
 - [x] Ejecutar revisión final y registrar su veredicto.
 - [ ] Ejecutar E2E real desde Codex Desktop cuando se active el modo DeepSeek; el canary
   determinista no declara compatibilidad Desktop ni sustituye la prueba contra proveedor real.
+- [ ] Ejecutar el preflight de activación (`mode/codex-activation-preflight.ps1`) antes de cualquier
+  cutover. La comprobación es de solo lectura: la ejecución corregida del 2026-08-10 detecta que los
+  cuatro enlaces reales bajo `%USERPROFILE%\\.codex` todavía apuntan a `freellmapi`; además, el perfil
+  DeepSeek falla por puerto 4000/bearer legado sin `auth.command`, falta la credencial upstream de runtime
+  y el health falla porque el bridge está detenido. El helper DPAPI compilado sí está presente.
+- [x] Hacer que `codex-mode.ps1 -Mode deepseek` ejecute el preflight fail-closed antes de
+  arrancar el bridge o reemplazar `config.toml`; `-Preview` permite revisar la transición sin mutar
+  el perfil real.
+- [x] Documentar que el controlador debe invocarse desde la fuente GloryAPI mientras los enlaces
+  `.codex` sigan apuntando a `freellmapi`; el enlace legacy no conoce `-Preview` y no es una ruta segura.
+- [x] Dejar un runbook reversible de cutover en `integrations/codex-bridge/README.md`, con hashes
+  antes/después, canary, E2E Desktop y rollback; permanece documental y no ejecutado.
 
 ## Evidencia y resultados
 
 ### Pruebas locales
 
 - `npm run build`: PASS. TypeScript servidor/cliente y Vite completan. Queda un warning
-  no bloqueante por un chunk JS de 885.62 kB.
-- `npm test`: PASS, 40 archivos y 228 pruebas del servidor; el build compartido y
+  no bloqueante por un chunk JS de 889.67 kB.
+- `npm test`: PASS, 44 archivos y 255 pruebas del servidor; el build compartido y
   cliente también completan. El smoke nominalmente live de OpenCode Zen recibió 401 y
   se auto-omitió; no aporta cobertura real del proveedor en esta ejecución.
-- `node --test integrations/codex-bridge/test/*.cjs`: PASS, 17/17. Incluye upstream
+- `node --test integrations/codex-bridge/test/*.cjs`: PASS, 31/31. Incluye upstream
   local simulado con dos llamadas por flujo, `role=tool` y respuesta final tanto en SSE
   como en no streaming; además Unicode UTF-8 fragmentado, truncamiento sin `[DONE]`,
   cancelación observada, identidad health, falta de auth, límite 413, URL directa
@@ -251,5 +270,5 @@ durante la tarea; no se hizo pull, rebase, reset, push ni integración para no m
   por ahora permanece como cambio local no confirmado. No se conservan backups sueltos
   que puedan divergir o retener credenciales antiguas.
 - Validación posterior: junction correcto, fuente con `server.js`, `responses-sse.js`,
-  `start-bridge.ps1` y `stop-bridge.ps1`; fixture Responses y ADR versionados; 15/15 tests;
+  `start-bridge.ps1` y `stop-bridge.ps1`; fixture Responses y ADR versionados; 31/31 tests;
   sintaxis PowerShell de los scripts activos; modo ChatGPT y puerto 4000 detenido.

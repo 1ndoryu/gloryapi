@@ -37,6 +37,7 @@ async function waitForHealth(url, child) {
 test('mock upstream validates health, auth, limits and the internal web loop', async (t) => {
   const upstreamBodies = [];
   const upstreamAuthorizations = [];
+  const upstreamRequestIds = [];
   const hangingResponses = new Set();
   const upstream = http.createServer((request, response) => {
     if (request.url !== '/v1/chat/completions') {
@@ -47,6 +48,7 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
     request.on('data', (chunk) => chunks.push(chunk));
     request.on('end', () => {
       upstreamAuthorizations.push(request.headers.authorization);
+      upstreamRequestIds.push(request.headers['x-glory-request-id']);
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       upstreamBodies.push(body);
       if (JSON.stringify(body.messages).includes('hang-body')) {
@@ -119,6 +121,13 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   assert.equal(modelsBody.models[0].owned_by, 'gloryapi');
   assert.equal(modelsBody.models[0].slug, modelsBody.models[0].id);
 
+  const wrongMethod = await fetch(`${base}/v1/models`, { method: 'POST' });
+  assert.equal(wrongMethod.status, 405);
+  assert.match(wrongMethod.headers.get('allow') || '', /GET/);
+
+  const longPath = await fetch(`${base}/${'x'.repeat(600)}`);
+  assert.equal(longPath.status, 414);
+
   const unauthorizedReady = await fetch(`${base}/ready`);
   assert.equal(unauthorizedReady.status, 401);
 
@@ -158,6 +167,25 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   });
   assert.equal(oversized.status, 413);
 
+  const wrongContentType = await fetch(`${base}/v1/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', Authorization: 'Bearer test' },
+    body: '{}',
+  });
+  assert.equal(wrongContentType.status, 415);
+
+  const unsupportedInput = await fetch(`${base}/v1/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test' },
+    body: JSON.stringify({
+      model: 'deepseek-v4-flash',
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'missing item type' }] }],
+    }),
+  });
+  assert.equal(unsupportedInput.status, 400);
+  const unsupportedInputBody = await unsupportedInput.json();
+  assert.equal(unsupportedInputBody.error.code, 'invalid_request');
+
   const result = await fetch(`${base}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test' },
@@ -169,6 +197,8 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
     }),
   });
   assert.equal(result.status, 200);
+  const bridgeRequestId = result.headers.get('x-glory-request-id');
+  assert.match(bridgeRequestId || '', /^req_[a-f0-9]{32}$/);
   const events = await result.text();
   assert.equal(upstreamBodies.length, 2);
   const toolMessage = upstreamBodies[1].messages.find((message) => message.role === 'tool');
@@ -195,6 +225,11 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   assert.equal(responseBody.output.some((item) => item.type === 'function_call_output'), false);
   assert.ok(upstreamAuthorizations.length >= 4);
   assert.ok(upstreamAuthorizations.every((value) => value === 'Bearer upstream-test'));
+  assert.ok(upstreamRequestIds.length >= 4);
+  assert.ok(upstreamRequestIds.every((value) => /^req_[a-f0-9]{32}$/.test(value || '')));
+  assert.equal(upstreamRequestIds[0], bridgeRequestId);
+  assert.equal(upstreamRequestIds[1], bridgeRequestId);
+  assert.notEqual(upstreamRequestIds[2], bridgeRequestId);
   assert.equal(upstreamAuthorizations.includes('Bearer test'), false);
 
   const hangingStartedAt = Date.now();

@@ -42,8 +42,15 @@ sin commit por indicación del usuario.
 - El cuerpo se limita a 8 MiB, configurable con `BRIDGE_MAX_BODY_BYTES`.
 - Cada respuesta de backend de búsqueda se limita a 1 MiB, configurable con
   `BRIDGE_SEARCH_MAX_BYTES`.
-- `bridge.requests.log` guarda metadatos y errores redactados. El cuerpo completo
+- `bridge.requests.log` guarda metadatos; los errores remotos conservan solo clase,
+  status y tamaño. El cuerpo completo
   solo se habilita conscientemente con `BRIDGE_REQUEST_LOG_FULL=1`.
+- El archivo rota al superar `BRIDGE_REQUEST_LOG_MAX_BYTES` (4 MiB por defecto) y
+  conserva `BRIDGE_REQUEST_LOG_RETENTION` rotaciones (3 por defecto).
+- Las escrituras son asíncronas y la cola está limitada por
+  `BRIDGE_REQUEST_LOG_QUEUE_CAPACITY` (64 por defecto); cuando se satura se
+  descartan entradas metadata-only y se contabiliza el drop. Una entrada mayor
+  que el presupuesto se degrada a un registro de tamaño, no aumenta el archivo.
 - `stop-bridge.ps1` valida PID, ejecutable y ruta de `server.js` antes de detener.
 
 ## Autenticación separada
@@ -72,6 +79,26 @@ node .\server\dist\scripts\bridge-auth.js --metadata
 configuración `auth` de Codex; emite únicamente el token y nunca lo escribe en TOML,
 logs o documentación. `start-bridge.ps1` lo resuelve automáticamente cuando
 `BRIDGE_CLIENT_TOKEN` no está presente.
+
+La credencial sidecar → GloryAPI se resuelve primero desde `GLORY_API_KEY` o
+`FREEL_API_KEY`; si no están en el entorno, `start-bridge.ps1` usa el helper
+token-only `server/dist/scripts/bridge-upstream-auth.js`, que lee `unified_api_key`
+en modo SQLite `readonly`. El helper nunca imprime el valor salvo con `--print`
+para entregarlo directamente al proceso del bridge y no lo persiste en archivos.
+`unified_api_key` ya está migrada a `local_auth_tokens` con DPAPI `CurrentUser`;
+el helper solo acepta esa fila DPAPI y falla cerrado si falta. `server/data`
+conserva además ACL explícita sin herencia (solo Owner, SYSTEM y Administrators)
+como defensa en profundidad. El helper abre SQLite en modo `readonly` y no tiene
+código de escritura.
+Antes de iniciar el sidecar, el mismo script levanta el runtime local de GloryAPI
+en 3101 mediante `start-gloryapi.ps1` si `/api/ping` aún no responde.
+
+`start-gloryapi.ps1` arranca el runtime con un entorno aislado: nunca hereda
+`BRIDGE_CLIENT_TOKEN`, `GLORY_API_KEY`, `FREEL_API_KEY` ni `BRIDGE_RUNTIME_DIR`.
+El bridge se lanza después con un entorno explícito que contiene únicamente sus
+dos tokens, el puerto, el contrato y las variables mínimas de Node/Windows.
+El test `environment-isolation.test.cjs` captura el entorno real del proceso
+hijo y exige que las tres credenciales estén ausentes.
 
 ## Perfil temporal de canary
 
@@ -106,6 +133,64 @@ Los scripts de modo se comprueban con:
 Get-Item "$env:USERPROFILE\.codex\*-*.ps1", "$env:USERPROFILE\.codex\codex-mode.ps1" |
   Select-Object Name, LinkType, Target
 ```
+
+Antes de cualquier cambio de modo se ejecuta el preflight de activación, que es de
+solo lectura y termina con código distinto de cero si falta un enlace, el perfil no
+usa Responses en 4100 con `auth.command` DPAPI canónico o el bridge no responde con
+su identidad esperada:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File .\mode\codex-activation-preflight.ps1 -Json
+```
+
+El resultado versionado es `glory-codex-activation-preflight-v1`; no imprime tokens,
+argumentos completos ni cuerpos de respuesta. Tras el cutover local del 2026-08-10
+devuelve `ready=true`: los cuatro enlaces apuntan a GloryAPI, el perfil usa Responses
+en 4100 y el bridge/runtime pasan health y readiness. El preflight sigue siendo de
+solo lectura y no activa ni repunta nada por sí mismo.
+
+El controlador `mode/codex-mode.ps1` vuelve a ejecutar esa validación antes de un
+cambio real a DeepSeek y se detiene antes de arrancar procesos o reemplazar
+`config.toml` si falla. Para revisar el resultado sin mutar nada:
+
+```powershell
+.\mode\codex-mode.ps1 -Mode deepseek -Preview
+```
+
+Si el preflight vuelve a marcar `target-not-gloryapi`, no debe ejecutarse ningún
+script desde `%USERPROFILE%\.codex` hasta restaurar el enlace a GloryAPI; esa fue la
+protección que evitó repetir el incidente del controlador legacy.
+
+El preflight también comprueba dos prerrequisitos de runtime que antes solo se
+detectaban después de intentar arrancar: los helpers compilados de auth y la
+presencia de una credencial upstream en el entorno o en la bóveda local. Solo
+informa presencia/ausencia; nunca imprime ni persiste el valor. Por tanto,
+`-SkipHealth` ya no puede dar un falso "listo" cuando el bridge no puede resolver
+su token DPAPI ni la clave unificada.
+
+## Runbook de cutover (ejecutado localmente; Desktop E2E pendiente)
+
+La operación local del 2026-08-10 siguió este orden reversible:
+
+1. Registrar hashes de `config.toml`, `config.chatgpt.toml`, los cuatro enlaces y
+   cualquier journal existente; detener la operación si falta el snapshot.
+2. Ejecutar este preflight desde la fuente GloryAPI; devolvió `ready=true` sin
+   `target-not-gloryapi`, perfil legacy ni secretos bearer.
+3. Alinear los cuatro enlaces con GloryAPI mediante una operación explícita y
+   verificable; no editar ni copiar `freellmapi`.
+4. Generar el perfil temporal `gloryapi-canary`, iniciar el bridge con identidad
+   `gloryapi-codex-bridge` y repetir `/health`, `/ready` y `/capabilities`.
+5. Probar una solicitud real Node → bridge → GloryAPI → Andoryyu; devolvió HTTP 200
+   con el modelo `deepseek-v4-flash`. El E2E de Codex Desktop con una conversación
+   nueva, incluyendo stream, tools, web y rollback, sigue pendiente.
+6. Para revertir: detener el bridge, restaurar ChatGPT desde el snapshot hashado,
+   comprobar que los enlaces y el modo coinciden con el snapshot y registrar la
+   evidencia final.
+
+El snapshot de rollback quedó en `%USERPROFILE%\.codex\gloryapi-cutover.rollback.*.json`.
+La configuración activa quedó en DeepSeek y el bridge/runtime permanecen operativos;
+volver a ChatGPT ejecuta `switch-chatgpt.ps1` desde la fuente GloryAPI.
 
 ## Validación sin activar DeepSeek
 

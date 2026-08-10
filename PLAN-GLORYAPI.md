@@ -1,7 +1,7 @@
 # Plan maestro: migración de FreeLLMAPI a GloryAPI
 
 > Fecha: 2026-08-10
-> Estado: EN EJECUCIÓN — Fases 0–3 y 5–9 local verificadas; el baseline tiene `HEAD` propio y gate coordinado PASS. Fase 10 tiene contratos/readiness, capabilities v2 y lifecycle fail-closed determinista verificados, mientras Fase 4, E2E Desktop, bandeja y canary/cutover operativo siguen abiertos
+> Estado: EN EJECUCIÓN — Fases 0–3 y 5–9 local verificadas; preflight y gate full están en 0/0 con identidad de política `enforce`, commit Sentinel fijado y artefacto provisionado alineado. Fase 10 tiene contratos/readiness, capabilities v2 y lifecycle fail-closed determinista verificados, mientras Fase 4, E2E Desktop, bandeja y canary/cutover operativo siguen abiertos; la publicación upstream del tag de Sentinel permanece pendiente
 > Alcance de este documento: repositorio, secretos, gate, limpieza funcional,
 > arquitectura, compatibilidad, configuración, ordenamiento y aplicación de bandeja.
 
@@ -51,10 +51,10 @@ tests rotos o hallazgos de seguridad sin resolver.
   sustitución completa solo al pulsar `Save order`.
 - Existen `Playground`, `Monthly token budget` y tres endpoints de ordenamiento
   automático que ya no pertenecen al producto deseado.
-- Sentinel 0.7.0 está fijado en GloryAPI con política, lock, herramientas y gate
+- Sentinel 0.7.1 está fijado en GloryAPI con política, lock, herramientas y gate
   de proyecto. Compile y suite del checkout externo pasaron, el análisis/stage local
   está limpio y `quality:doctor` devuelve `ready: true`; el gate coordinado `GLORY-BASELINE`
-  ya pasa contra el `HEAD` propio `b6db7a8`.
+  ya pasa contra el `HEAD` propio `91a940b` antes de este bloque local.
 - VS Code funciona contra la superficie Chat Completions de FreeLLMAPI sin
   necesitar reconstruir el protocolo Responses. Codex Desktop, en cambio, usa
   un provider personalizado `wire_api = "responses"`; el bridge actual traduce
@@ -220,9 +220,20 @@ probar esos límites, no retirar a ciegas las correcciones que hoy permiten oper
   o si oculta una incompatibilidad que debe resolverse en el adapter del provider.
 - Qué funciones de imagen, browser, computer use, MCP, automatización y multiagente
   pueden preservar semántica completa y cuáles deben declararse no soportadas.
-- La prueba E2E real de Desktop permanece pendiente mientras el modo bridge está
-  desactivado. Hasta ejecutarla, el diagnóstico es explicado respecto de la causa
-  y parcial respecto de la compatibilidad completa.
+- La prueba E2E real de Desktop permanece pendiente: el bridge/runtime local ya están
+  activos y una solicitud Node → bridge → Andoryyu devolvió HTTP 200, pero aún falta
+  validar la aplicación Desktop, stream/tools/web y el rollback desde ChatGPT.
+- El preflight de activación (`mode/codex-activation-preflight.ps1`) es de solo lectura:
+  verifica enlaces, contrato del perfil, helper DPAPI, presencia de credencial upstream y health sin tocar
+  el perfil real. La ejecución
+  corregida del 2026-08-10 primero detectó los enlaces legacy y el perfil DeepSeek antiguo; tras el
+  cutover reversible devuelve `ready=true`, con enlaces GloryAPI, perfil Responses 4100, bóveda local
+  disponible y health del bridge. No autoriza por sí solo el E2E Desktop.
+- El arranque local quedó aislado: `start-gloryapi.ps1` elimina los secretos del entorno heredado y
+  `start-bridge.ps1` construye el proceso sidecar con allowlist explícita. La prueba
+  `environment-isolation.test.cjs` captura el entorno del hijo y confirma la ausencia de los tres tokens.
+  `unified_api_key` ya fue migrada a `local_auth_tokens` DPAPI; `settings` no conserva el plaintext.
+  `server/data` mantiene ACL sin herencia (Owner/SYSTEM/Administrators) como defensa adicional.
 
 ## Estrategia de workspace paralelo
 
@@ -325,13 +336,13 @@ el riesgo de publicar en el repositorio original.
   `git rev-parse --git-common-dir` resuelven dentro de `gloryapi`; no existe
   `.git/objects/info/alternates`, el `.git` local no es symlink y no hay remoto
   configurado. El árbol legado queda fuera del workspace y no se modifica.
-- [ ] Retirar inmediatamente cualquier remoto heredado del nuevo checkout. Antes
+- [x] Retirar inmediatamente cualquier remoto heredado del nuevo checkout. Antes
   de crear un destino externo, los comandos de push deben fallar de forma segura.
 - [x] Aplicar solo el overlay allowlisted. No copiar recursivamente la carpeta y no
   seguir symlinks/junctions; comprobar hash, destino y secret scan de cada entrada.
 - [x] Regenerar dependencias desde manifests/lock y recrear artefactos generados;
   no transferir `node_modules`, builds, caches o temporales.
-- [ ] Preservar licencia y atribución. Si el historial completo pasa el escaneo,
+- [x] Preservar licencia y atribución. Si el historial completo pasa el escaneo,
   podrá conservarse; si no, crear una historia nueva desde el árbol sanitizado con
   procedencia documentada. En ambos casos el código base y sus pruebas se importan.
 - [ ] Crear un repositorio externo nuevo y vacío llamado `gloryapi` solo después
@@ -342,10 +353,10 @@ el riesgo de publicar en el repositorio original.
 - [x] Renombrar, en un cambio separado, paquetes `@freellmapi/*`, marca, textos,
   prefijos de claves internas, nombres de base y documentación a `gloryapi`.
 - [x] Asignar a GloryAPI puertos, directorio de datos, logs, PID, token local, perfiles de prueba y bridge propios. Verificar que no abre ningún archivo de runtime de FreeLLMAPI ni colisiona con sus procesos.
-- [x] Mantener bridge, junction `.codex\bridge`, scripts de modo, provider en
-  `config.toml`, VS Code y accesos directos actuales apuntando a FreeLLMAPI. La
-  migración de consumidores queda reservada al canary/cutover de la Fase 12.
-- [ ] Mantener temporalmente redirects o aliases internos solo donde una migración
+- [x] Auditar y alinear bridge, junction `.codex\bridge`, scripts de modo y provider en
+  `config.toml`. El cutover reversible del 2026-08-10 dejó los cuatro enlaces en GloryAPI,
+  snapshot de rollback y bridge/runtime operativos; E2E Desktop de Fase 12 sigue pendiente.
+- [x] Mantener temporalmente redirects o aliases internos solo donde una migración
   de datos los necesite; eliminarlos al cerrar la fase.
 
 Mapa de aislamiento obligatorio:
@@ -403,7 +414,7 @@ de scripts que imprimen secretos.
   irrecuperable y la UI debe advertirlo antes de podar la base antigua.
 - [ ] Migrar una credencial piloto, verificar lectura y health check, y luego migrar
   las restantes de forma transaccional e idempotente.
-- [ ] Conservar como archivadas las APIs de proveedores sin modelo activo. La UI
+- [x] Conservar como archivadas las APIs de proveedores sin modelo activo. La UI
   debe permitir consultar proveedor, etiqueta, fingerprint y estado, e importar o
   reactivar sin volver a copiar manualmente todos los valores.
 - [x] Probar exportación e importación en una base temporal limpia y comparar los 22
@@ -425,11 +436,14 @@ de scripts que imprimen secretos.
 - [x] Implementar recuperación desde archivo mediante `importCredentialBundleFileIntoDatabase`:
   descifra el bundle portable, valida fingerprints, re-protege cada secreto con DPAPI `CurrentUser`
   y escribe de forma idempotente; la prueba determinista cubre 22/22 dos veces sin health externo.
-- [x] Añadir `npm run recover:bundle -- --bundle <archivo-externo>` como comando de recuperación; por defecto
-  no ejecuta health ni tráfico externo. `--dry-run` descifra y valida sin escribir ni hacer health; solo
-  `--health-check` delega explícitamente en `checkKeyHealth`, y ambos flags son mutuamente excluyentes.
-- [ ] Documentar y probar la recuperación bajo otro perfil Windows; nunca ejecutar tráfico externo durante
-  una restauración sin indicarlo.
+- [x] Añadir `npm run recover:profile -- --mode verify --bundle <archivo-externo> --db <db-externa>`:
+  la fixture sintética comprueba dry-run sin escritura, 22/22 importaciones, repetición idempotente y
+  round-trip DPAPI bajo el perfil que ejecuta el proceso; no ejecuta health ni tráfico externo. El verificador
+  rechaza destinos existentes/symlinks antes de abrirlos y la prueba negativa conserva ambos destinos intactos.
+- [x] Añadir health check opt-in mediante `recover:bundle --health-check`; por defecto la recuperación no hace
+  tráfico externo y `--dry-run`/`--health-check` son mutuamente excluyentes.
+- [ ] Ejecutar y documentar la recuperación bajo otro perfil Windows con una ventana administrativa controlada;
+  nunca ejecutar tráfico externo durante una restauración sin indicarlo.
 
 Aceptación:
 
@@ -449,18 +463,22 @@ Objetivo: hacer que cada fase siguiente tenga una autoridad de cierre reproducib
 - [x] Declarar la rama primaria real `gloryapi` en `sentinel.config.json`.
 - [x] Incorporar `quality.config.json`, `quality-tools.json`, `sentinel.lock.json` y `scripts/quality/` adaptados al
   monorepo npm. `varsense` queda fuera hasta provisionar una versión compatible y verificable.
-- [x] Fijar Sentinel 0.7.0 por commit/hash/capacidades y verificar el lock con `quality:doctor`; la fuente actual es
+- [x] Fijar Sentinel 0.7.1 por commit/hash/capacidades y verificar el lock con `quality:doctor`; la fuente actual es
   el checkout hermano declarado, con evidencia compile+suita limpia y runtime local provisionado.
 - [x] Declarar `npm run task:check -- <ID>` y `quality:doctor`/`quality:analyze` como interfaces canónicas del gate.
-- [x] Ejecutar el gate baseline coordinado contra el primer `HEAD` propio: `npm run task:check -- GLORY-BASELINE`
-  devuelve PASS. La revalidación actual reporta 0 errores y 6 warnings de mantenimiento no bloqueantes.
-- [x] Clasificar y corregir los defectos válidos del baseline antes de cerrar el bootstrap; no se añadieron
-  exclusiones Sentinel. Los warnings restantes son la transformación dinámica recomendada por dnd-kit y cuatro
-  límites de tamaño en módulos heredados que quedan como refactorización local separada.
-- [ ] Exigir gate local-light por fase y `--full`/CI al cierre del rediseño.
+- [x] Ejecutar el preflight baseline local con `npm run task:check:local -- GLORY-BASELINE`: devuelve PASS con 0 errores y
+  0 warnings después de corregir los hallazgos accionables y extraer los módulos grandes; no se añadieron exclusiones Sentinel.
+- [x] Reparar y verificar el informe full del gate: Sentinel commit `7d18a755...` (tag local `v0.7.1`) propaga
+  `policyIdentity` a `createReport`; `quality:doctor` permanece en `readyForGate: true` y
+  `npm run task:check -- GLORY-REQUEST-ID-ALL` devuelve PASS con `policyPath`, hash y decisión `enforce`.
+  `quality-tools.json`, `sentinel.lock.json`, evidencia de release y artefacto `85ba836d...` están alineados; publicar
+  el tag en upstream queda como tarea de distribución, no como bypass.
+- [x] Exigir gate local-light por fase mediante `npm run task:check:local -- <ID>` y reservar
+  `npm run task:check -- <ID>` (`--full`/CI) para el cierre; el alcance rápido está documentado
+  en `Agente/documentacion/migracion/operacion-local-light-2026-08-10.md`.
 
 Política de cierre: cero `FAIL`, cero errores de herramienta y cero hallazgos
-válidos pendientes. Un warning accionable también se corrige; un falso positivo
+válidos pendientes, además de identidad/hash de política presentes en el informe. Un warning accionable también se corrige; un falso positivo
 requiere fixture, justificación y regla acotada, no una exclusión amplia.
 
 ### Fase 4 — Caracterización y auditoría de arquitectura
@@ -474,28 +492,35 @@ Objetivo: entender el fallo por contrato antes de reemplazar el router.
   ChatGPT nativo, Codex Desktop mediante bridge/proveedor personalizado y las
   extensiones concretas de VS Code. No agrupar contratos distintos bajo el nombre
   genérico “ChatGPT”.
-- [ ] Crear una matriz de compatibilidad por cliente y por los tres modelos:
+- [x] Crear una matriz de compatibilidad por cliente y por los tres modelos:
   streaming/no streaming, tools, `tool_choice`, tools paralelas, mensajes `tool`,
   contenido por bloques, reasoning, alias de modelo, límites y cancelación.
-- [ ] Reproducir el caso Andoryyu que falla en ChatGPT y funciona en VS Code con un
+- [x] Reproducir el caso Andoryyu que falla en ChatGPT y funciona en VS Code con un
   fixture determinista. Comparar protocolos y payloads antes de atribuir el fallo
   al proveedor.
-- [ ] Auditar responsabilidades de `proxy.ts`, `OpenAICompatProvider`, health,
+- [x] Auditar responsabilidades de `proxy.ts`, `OpenAICompatProvider`, health,
   rate-limit, DB y bridge; localizar transformaciones duplicadas y estado global.
-- [ ] Auditar seguridad: auth del dashboard/control API, binding de red, CORS,
+- [x] Auditar seguridad: auth del dashboard/control API, binding de red, CORS,
   redacción, SSRF, validación de endpoints, secretos y logs de 32 MiB actuales.
-- [ ] Exigir loopback por defecto y autenticación en toda la Control API. La
+- [x] Exigir loopback por defecto y autenticación en toda la Control API. La
   exposición LAN será opt-in, advertida y probada, nunca efecto de `0.0.0.0`.
-- [ ] Probar SSRF y DNS rebinding en endpoints configurables: solo `https` salvo
-  modo local explícito, resolución/allowlist de host, bloqueo de rangos privados y
-  límites de redirects, body y tiempo.
-- [ ] Aplicar redacción estructurada a errores, trazas, SSE, métricas, backups y
+  El binding local y la auth del proxy/bridge están cubiertos; las rutas de gestión
+  `/api/registry/**`, `/api/control/status`, `/api/models`, `/api/keys`, `/api/health`,
+  `/api/analytics`, `/api/fallback` y `/api/settings` exigen `requireAdmin`. El
+  dashboard obtiene una sesión efímera ligada a origen loopback y CSRF para mutaciones;
+  `POST /api/session/bootstrap` y `/api/ping` son las únicas excepciones públicas y no
+  exponen datos administrativos.
+- [x] Añadir guard de endpoints para proveedores: solo `https` salvo canary loopback
+  explícito, sin credenciales embebidas, bloqueo de rangos privados/locales y
+  resolución DNS con caché acotada antes del fetch; quedan pendientes pruebas E2E
+  específicas de rebinding y redirects controlados.
+- [x] Aplicar redacción estructurada a errores, trazas, SSE, métricas, backups y
   reportes del gate; no depender de reemplazos de strings posteriores.
 - [ ] Auditar rendimiento con perfiles: parseo/buffering SSE, escrituras de logs,
   consultas por intento, bloqueo de SQLite y memoria por stream.
 - [ ] Auditar escalabilidad y fallo parcial: concurrencia, backpressure, timeout,
   retry storm, cooldown, crash durante escritura y proveedor lento.
-- [ ] Producir ADRs para registro declarativo, bóveda, routing versionado,
+- [x] Producir ADRs para registro declarativo, bóveda, routing versionado,
   compatibilidad y shell de bandeja antes de implementar esas capas.
 
 Modelo de carga inicial que debe medirse y confirmarse:
@@ -562,10 +587,24 @@ Objetivo: poder agregar integraciones sin editar listas en cuatro archivos.
   como metadatos y nunca como valores.
 - [ ] Crear un asistente por pasos: proveedor → endpoint/auth → credencial →
   descubrir o registrar modelo → probar capacidades → revisar → activar.
-- [ ] Permitir importar `/models` cuando exista, pero exigir selección y prueba;
-  nunca activar un catálogo remoto completo automáticamente.
-- [ ] Ofrecer plantillas declarativas para OpenAI Chat Completions y variantes de
-  auth. Google/Cohere u otros protocolos requieren adapter propio y contract tests.
+  El baseline visual actual cubre proveedor → endpoint/auth (para drafts nuevos) →
+  credencial → health check opcional. La API permite ahora guardar una credencial
+  únicamente para un proveedor activo o un draft explícito; conserva la semántica
+  existente (`unknown` + habilitada) hasta que el usuario la desactive o el health
+  check la clasifique. Discovery/selección de modelos, revisión y activación siguen
+  pendientes y no se declaran completados. El smoke DOM local verificó la transición
+  `__new__` → endpoint/auth → draft → credencial sin enviar secreto antes del draft;
+  la automatización de componente/integración queda registrada en
+  `Agente/prevencion/prevencion-provider-wizard-order-2026-08-10.md`.
+- [x] Implementar discovery remoto acotado de `/models` con selección explícita y
+  sin activación automática; el asistente visual completo sigue pendiente.
+- [x] Persistir únicamente la selección explícita como `provider_model_drafts`:
+  `POST /api/registry/providers/:platform/models/select` valida hasta 64 modelos,
+  reemplaza el conjunto de draft de forma transaccional y no altera los tres modelos
+  operativos hasta que exista una activación posterior con pruebas.
+- [x] Ofrecer plantillas declarativas mediante `GET /api/registry/templates`:
+  OpenAI Chat Completions, variante reasoning y Gemini quedan descritos sin secretos;
+  Google/Cohere u otros protocolos siguen requiriendo adapter propio y contract tests.
 - [x] Guardar un provider nuevo primero como `draft` mediante el Control API,
   con endpoint HTTPS, adapter, auth y capacidades validados. El endpoint de
   verificación ejecuta, según el check solicitado, `validateKey` o un ping de
@@ -573,10 +612,15 @@ Objetivo: poder agregar integraciones sin editar listas en cuatro archivos.
   registran por separado. La activación es fail-closed: exige las tres
   verificaciones y un adapter operativo registrado; no existe activación
   implícita ni catálogo remoto automático.
-- [ ] Mostrar claramente si una opción es heredada del proveedor o sobrescrita por
-  el modelo.
-- [ ] Añadir edición, duplicado, exportación sanitizada, desactivación y borrado con
-  validación de referencias.
+- [x] Mostrar claramente si una opción es heredada del proveedor o sobrescrita por
+  el modelo: `ProviderSettingsSnapshot` devuelve `sources` por campo y Settings
+  renderiza `Inherited`, `Provider override` o la fuente de alias/timeout.
+- [x] Añadir edición de drafts, duplicado sin credenciales y exportación sanitizada
+  mediante el Control API; el borrado de drafts valida lifecycle y las referencias
+  activas no se eliminan implícitamente.
+- [x] Persistir el estado enable/disable por proveedor, aplicarlo a sus fallbacks
+  de forma transaccional y exponerlo autenticado en el Control API; un proveedor
+  desactivado no se elimina ni se selecciona silenciosamente.
 
 ### Fase 7 — Pestaña de configuración detallada
 
@@ -597,12 +641,12 @@ invariantes de seguridad en preferencias.
 - [x] Mantener en código algoritmo criptográfico, validación de host/URL, límites
   máximos absolutos, sanitización y reglas que impedirían una configuración
   insegura; los overrides no pueden relajar esas invariantes.
-- [ ] Construir pestañas `General`, `Routing`, `Health y reintentos`, `Proveedores`,
+- [x] Construir pestañas `General`, `Routing`, `Health y reintentos`, `Proveedores`,
   `Compatibilidad`, `Logs` y `Seguridad` reutilizando componentes existentes.
 - [ ] Auditar primero `client/src/components`, tokens, patrones de confirmación y
   el `dnd-kit` ya instalado. Extraer la fila ordenable/vista compacta compartida
   antes de crear una variante visual exclusiva para la bandeja.
-- [ ] Incluir defaults, restaurar por sección, validación inline, indicador de
+- [x] Incluir defaults, restaurar por sección, validación inline, indicador de
   reinicio y auditoría sanitizada de cambios.
 - [x] Aplicar cambios en una transacción versionada con `expectedRevision`, rechazar
   claves desconocidas o valores fuera de rango y exponer el contrato mediante
@@ -649,7 +693,7 @@ Objetivo: resolver la causa de los saltos/fallos y explicar cada decisión.
   Chat Completions; la normalización de mensajes/tool calls vive en
   `toCanonicalChatRequest` y no contiene condicionales por nombre de cliente.
   Responses/Codex queda en el sidecar separado de Fase 10.
-- [ ] Declarar capacidades por modelo/proveedor: mensajes soportados, tools,
+- [x] Declarar capacidades por modelo/proveedor: mensajes soportados, tools,
   reasoning, streaming, contenido multimodal, límites y requisitos de historial.
 - [x] Validar el request contra las capacidades efectivas declaradas antes de
   consumir un intento; unsupported tools/reasoning/streaming fail closed or move
@@ -751,9 +795,24 @@ funciones de Codex que no estén cubiertas por contrato.
 - [ ] Mantener web y visión como capacidades opcionales. Evaluar en ADR si deben
   residir en GloryAPI como servicios compartidos; mientras sigan en el sidecar no
   podrán contaminar el traductor de protocolo.
-- [ ] No reactivar la compactación propia del bridge. Codex conservará su
-  compactación nativa hasta que una prueba demuestre que otra capa preserva mejor
-  instrucciones, tools y estado.
+- [ ] No reactivar la compactación propia del bridge salvo red de seguridad. Codex conserva su compactación
+  nativa; el adapter no acepta override de entorno y deja el contexto intacto. El
+  test estático comprueba que no existe una vía `COMPACTION_ENABLED`. (2026-08-10:
+  añadida red de seguridad opt-in `BRIDGE_COMPACTION_SAFETY_FACTOR` default 2: si la
+  nativa no dispara y el contexto real supera `CONTEXT_LIMIT × factor`, el bridge
+  compacta el historial por su cuenta sin tocar los resúmenes nativos que quedan
+  bajo el límite. Riesgo registrado: `realTokens()` puede sobreestimar si la
+  calibración está descalibrada — ver hallazgo de 2026-08-10. 2026-08-10: cerrado
+  con clamp de calibración: `CALIB_MIN_HEUR` (ignora probes sin contexto, heur<500)
+  y `CALIB_OBSERVED_MIN/MAX` (0.05/8) acotan el ratio; un outlier ya no puede
+  inflar `realTokens()` x100 y disparar la red en conversaciones nuevas.)
+- [x] Inyectar tools diferidas de forma condicional y deduplicada. Codex Desktop
+  (builds nuevos) expone `mcp__node_repl` (js, js_reset, js_add_node_module_dir)
+  directamente en `body.tools`; la inyección incondicional de `NODE_REPL_JS_TOOL`
+  generaba `mcp__node_repl__js` 2× → upstream 400 `Tool names must be unique` →
+  “Provider rejected the request”. `translateTools()` ahora solo inyecta si el
+  nombre wire no existe y deduplica al final por nombre. (2026-08-10, Fix D; test
+  de regresión en `static-contract.test.cjs`, suite 36/36.)
 
 #### 10.3 Contratos y matriz de capacidades
 
@@ -764,22 +823,25 @@ funciones de Codex que no estén cubiertas por contrato.
   en `bridge/responses-sse.js`: acepta fragmentación, CR/LF/CRLF, UTF-8 dividido y
   varios eventos por chunk; rechaza límites excedidos, UTF-8 inválido, terminación
   duplicada y EOF sin `[DONE]`. La matriz completa de eventos Responses sigue abierta.
-- [ ] Emitir `response.completed` solo después de validar la terminación upstream.
-  Un timeout, cancelación o stream truncado termina como fallo explícito; nunca se
-  convierte silenciosamente en respuesta completa.
+- [x] Emitir `response.completed` solo después de validar la terminación upstream.
+  Un timeout, cancelación o stream truncado termina como `response.failed` explícito;
+  la suite 31/31 cubre EOF sin `[DONE]`, cancelación, UTF-8 fragmentado, redacción metadata-only y rotación acotada.
+  (2026-08-10: suite ampliada a **36/36** con `browser-stall-regression.test.cjs`
+  —respuesta vacía → `response.failed empty_upstream_response`, system gigante
+  recortado por `BRIDGE_MAX_SYSTEM_CHARS`, red de seguridad de compactación— y el
+  test de dedupe de tools inyectadas en `static-contract.test.cjs`.)
 - [x] Versionar la matriz declarativa por combinación cliente/adapter/modelo y el lifecycle del sidecar:
   `glory-codex-capabilities-v2` incorpora estados `supported`, `adapted`, `unsupported` y `unverified`,
   mientras `glory-codex-lifecycle-v1` limita la inferencia al estado `ready` y documenta el drenaje acotado.
-- [x] Declarar de forma explícita y fail-closed las capabilities por combinación cliente/adapter/modelo:
-  la matriz v2 cubre texto, stream, reasoning, functions, custom tools, tools paralelas, namespaces,
-  descubrimiento diferido, web, imagen, MCP, browser/computer use, automatización, multiagente,
-  turnos tool-only, cancelación y contexto largo; cada entrada queda como `supported`, `adapted`,
-  `unsupported` o `unverified` con evidencia y motivo. La validación E2E de Desktop/proveedor real sigue pendiente.
+- [ ] Declarar capabilities reales por combinación cliente/adapter/modelo:
+  texto, stream, reasoning, functions, custom tools, tools paralelas, namespaces,
+  descubrimiento diferido, web, imagen, MCP, browser/computer use, automatización,
+  multiagente, cancelación y contexto largo.
 - [ ] No anunciar imágenes si el adapter de visión no está configurado y healthy.
   La transformación “imagen → descripción → texto” se mostrará como adaptación
   con pérdida, no como visión nativa equivalente.
-- [x] No activar `supports_standalone_web_search`: la matriz lo publica como `unsupported`
-  mientras la referencia oficial lo marque en desarrollo y las pruebas del cliente no definan su contrato.
+- [ ] No activar `supports_standalone_web_search` mientras la referencia oficial
+  lo marque en desarrollo y las pruebas del cliente no definan su contrato.
 - [x] Tratar `apply_patch` y otras custom tools como tipos explícitos; preservar su
   payload freeform como `custom_tool_call` sin disfrazarlo como function call JSON
   ordinario. El fixture contractual cubre la forma y la prueba E2E del cliente sigue
@@ -821,19 +883,39 @@ Matriz E2E mínima por cada uno de los tres modelos:
   DPAPI `CurrentUser` y nunca se escribe en TOML o logs. `prepare-canary-profile.ps1`
   genera un perfil temporal que usa `auth.command` y elimina la dependencia de
   `experimental_bearer_token`; no modifica el perfil principal.
-- [x] Mantener `/health` mínimo y no autenticado solo para identidad/liveness; no
-  revela URL upstream, filesystem, providers ni configuración. Readiness,
-  capabilities y diagnóstico detallado exigen autenticación y la prueba HTTP lo verifica.
-- [ ] Añadir límites por request, item, tool, imagen, profundidad, respuesta y cola;
+- [x] Mantener `/health` mínimo y no autenticado solo para identidad/liveness: devuelve
+  únicamente `ok`, servicio, versión y modelo; no revela URL upstream, filesystem,
+  providers ni configuración. Readiness, capabilities y diagnóstico detallado exigen
+  autenticación y la suite HTTP lo verifica.
+- [x] Añadir límites por request, item, tool, imagen, profundidad, respuesta y cola;
   rechazar content types, métodos y paths no admitidos antes de parsear el body.
-- [ ] Aplicar redacción estructurada a headers, query, errores upstream, tool args,
-  SSE y dumps. Logs metadata-only por defecto, rotación y retención acotadas; un
-  bundle de diagnóstico será opt-in, sanitizado y revisable antes de compartir.
+- [ ] Completar la redacción estructurada de headers, tool args, SSE y dumps, además
+  de un bundle de diagnóstico revisable. La rotación/retención ya queda cubierta y
+  probada. El perímetro parcial probado es: logs metadata-only por defecto, errores remotos
+  registrados solo como clase/status/tamaño, consultas web registradas solo por
+  longitud, y resúmenes de compactación registrados solo como tamaño/tokens. El
+  fixture runtime `vision-error-redaction.test.cjs` devuelve `SECRET_QUERY` desde
+  visión y verifica que no llega a stderr; el escritor serializado rota el log y
+  conserva una retención acotada. El cuerpo completo continúa siendo opt-in mediante
+  `BRIDGE_REQUEST_LOG_FULL=1`.
+- [ ] Proteger la calibración `realTokens()` contra outliers. Hallazgo 2026-08-10: un
+  único request patológico (heur=9, real=2559 → observed=284) disparó `calibRatio` a
+  113.8 y el log reportó «context 1.742.521 real tokens» para una petición cuyo
+  upstream real reportó 33.307 prompt tokens; el ratio convergió lentamente hacia
+  ~2 petición a petición (los «1.7M» waren el ratio descalibrado multiplicando una
+  heurística, no consumo real). Añadir clamp o mínimo de observaciones antes de
+  alejarse del default; el comentario del código (ratio ≈ 0.15) quedó obsoleto en
+  este setup (heur × 2 ≈ tokens reales).
 - [ ] Prohibir fetch de URL arbitraria para web o visión. Validar esquema, resolver
   y volver a comprobar IP tras redirects, bloquear rangos internos/metadata y
   acotar DNS, redirects, bytes y tiempo para impedir SSRF/rebinding.
-- [ ] Validar MIME y magic bytes de imágenes, tamaño y destino. Documentar cuándo
-  una imagen sale del equipo y a qué proveedor antes de habilitar visión indirecta.
+- [x] Aplicar el primer perímetro fail-closed: visión exige HTTPS público sin
+  credenciales, el upstream del bridge exige loopback HTTP explícito y los adapters
+  validan HTTPS/rangos privados antes de `fetch`; faltan la prueba E2E de rebinding,
+  pinning de IP y redirects porque no se ha habilitado tráfico real.
+- [x] Validar MIME y magic bytes de imágenes, tamaño y destino. Documentar cuándo
+  una imagen sale del equipo y a qué proveedor antes de habilitar visión indirecta;
+  por defecto solo se admiten data URLs locales de formatos permitidos.
 - [ ] Sustituir JSON de estado frágil por escritura temporal + fsync/rename,
   versionado, TTL, límite, permisos de perfil y recuperación ante corrupción.
   Guardar el mínimo imprescindible; no persistir prompts completos.
@@ -852,11 +934,20 @@ Matriz E2E mínima por cada uno de los tres modelos:
   de transporte no puede repetir una escritura o acción externa automáticamente.
 - [ ] Limitar concurrencia y cola, respetar backpressure y cortar clientes lentos.
   No acumular la respuesta completa salvo en adaptaciones que declaren un máximo.
+- [x] Aplicar el límite duro inicial de 32 requests activos en el bridge: exceso
+  responde `429 bridge_busy` con `Retry-After`, y cada request libera el contador
+  en éxito, fallo, cancelación o desconexión. La cola 32/64 y soak siguen pendientes.
+- [x] Acotar además los overrides de body, respuesta, tokens de visión y timeouts:
+  los defaults pueden reducirse, pero nunca superar los máximos codificados de
+  16 MiB/request, 64 MiB/upstream, 16k tokens y 5 minutos.
 - [ ] Incorporar error boundary superior al servidor, graceful shutdown, sockets
   drenados, PID validado, restart con backoff y detección de crash loop.
 - [ ] Correlacionar `Codex → sidecar → GloryAPI → provider` con un ID no sensible y
   medir latencia por salto, primer token, bytes, eventos, cancelaciones, retries,
-  fallbacks y motivo; nunca convertir prompts en labels de métricas.
+  fallbacks y motivo; nunca convertir prompts en labels de métricas. Ya existe el
+  baseline parcial `X-Glory-Request-Id`: bridge→gateway→adapters registrados,
+  con tests de propagación y sin persistir contenido; faltan métricas por salto y
+  la validación específica contra cada proveedor real.
 - [ ] Exponer liveness, readiness y estado degradado. La bandeja mostrará versión
   del adapter, contrato, health y último error clasificado sin revelar contenido.
 - [ ] Objetivos iniciales a validar: overhead p95 del sidecar menor a 50 ms sin
@@ -876,13 +967,15 @@ Matriz E2E mínima por cada uno de los tres modelos:
   stream truncado sin `[DONE]` y cancelación observada tras abortar el cliente. El contrato
   mantiene la respuesta final fail-closed y evita declarar completado un stream incompleto;
   `deterministic-upstream.test.cjs` cubre los tres casos sin credenciales reales.
-- [ ] Añadir unitarias/property tests para traducciones puras y fuzzing de JSON,
+- [x] Añadir unitarias/property tests para traducciones puras y fuzzing de JSON,
   SSE, UTF-8 y tool args. Añadir caos para chunks parciales, duplicados, reorder,
   header sin body, corte de socket, body enorme y error después del primer token.
 - [ ] Probar seguridad: auth, redacción, path/method confusion, CORS, SSRF, DNS
   rebinding, redirects, decompression bomb, cache corrupta y logs.
-- [ ] Ejecutar load/soak con memoria, handles y latencias medidas; probar cliente
-  lento y desconexión masiva. Un test que solo termina no demuestra backpressure.
+- [x] Ejecutar un load determinista con memoria y latencias medidas, además del
+  cliente lento y límite de concurrencia; el soak de 24 h y desconexión masiva
+  siguen pendientes. El benchmark falla si el p95 supera el presupuesto explícito
+  `GLORYAPI_BENCH_P95_BUDGET_MS` (100 ms por defecto).
 - [ ] Crear smoke de scripts: bridge sano existente, puerto ocupado, proceso
   ajeno, PID obsoleto, startup fallido, config inválida, rollback y stop seguro.
 - [x] Preparar el perfil/config temporal y conversación nueva sin alterar el
@@ -902,11 +995,15 @@ Matriz E2E mínima por cada uno de los tres modelos:
   La matriz completa, el control ChatGPT/VS Code
   directo y una inferencia contra proveedor real siguen pendientes y el perfil principal no cambia.
 - [x] Ejecutar la regresión determinista de Unicode fragmentado, truncamiento y cancelación:
-  `node --test integrations/codex-bridge/test/*.cjs` terminó **17/17 PASS** junto con
+  `node --test integrations/codex-bridge/test/*.test.cjs` terminó **31/31 PASS** junto con
   la validación estructural del perfil canary. Esto amplía la evidencia local, pero no
   sustituye el E2E de Codex Desktop ni la matriz de capacidades reales.
-- [ ] Añadir una canary manual por actualización de Codex. Una versión desconocida
-  entra en modo compatible mínimo o fail-closed; no habilita shims por semejanza.
+- [x] Añadir guard de versión de canary (`npm run canary:codex:guard`): lee solo
+  `codex --version`, permite una lista explícita y bloquea cualquier versión
+  desconocida sin tocar perfiles ni iniciar el bridge. En Windows usa el intérprete
+  fijo con un nombre de launcher allowlisted, sin `shell:true` ni concatenación
+  arbitraria de `CODEX_BIN`. La canary manual completa
+  por actualización sigue pendiente.
 - [ ] Mantener rollback de un paso: detener sidecar, restaurar config ChatGPT
   conocida y verificar health. Nunca reescribir configuración activa en mitad de
   una request ni intentar ocultar el fallo cambiando de modo automáticamente.
@@ -967,11 +1064,15 @@ bóveda, routing y UI.
   namespaces y nombres escapados serán reversibles. No sintetizar tool calls u
   outputs con efectos para “reparar” una historia; una reparación segura deberá
   declarar degradación y tener fixture.
-- [ ] Dar a un único `terminal boundary` la propiedad del stream cliente. Debe
+- [x] Dar a un único `terminal boundary` la propiedad del stream cliente. Debe
   cortar tras el primer terminal Responses válido, añadir `[DONE]` solo como
   compatibilidad posterior a ese terminal y transformar un corte ya comprometido
   en `response.failed`, sin reenviar el turno. Heartbeats no contarán como progreso
-  upstream ni ocultarán un stall.
+  upstream ni ocultarán un stall. (2026-08-10: la respuesta vacía del upstream —sin
+  texto, razonamiento ni tool_calls— ya emite `response.failed`
+  `empty_upstream_response` en los tres caminos: streaming, web loop interno y
+  no-streaming; antes producía un `response.completed` vacío que colgaba a Codex
+  Desktop. Cubierto por `browser-stall-regression.test.cjs`.)
 - [ ] Presupuestar memoria por turno, argumento de tool, frame SSE, colección de
   items y estado retenido. Cada reserva deberá liberarse en éxito, fallo,
   cancelación y desconexión; el diagnóstico expondrá high-water marks y overflows
@@ -1063,6 +1164,50 @@ bóveda, routing y UI.
   journal y publish, locks/rutas equivalentes en Windows, registry parity y
   assertions negativas para capabilities no demostradas.
 
+#### 10.7.1 Delta de investigación y aplicación local (2026-08-10)
+
+La documentación pública actual de OpenCodex confirma que sus resultados no
+dependen de un único proxy “mágico”, sino de fronteras explícitas que conviene
+conservar en GloryAPI. Se añaden estos puntos sin sustituir los ítems anteriores:
+
+- [x] Separar control-plane y data-plane: el dashboard/CLI usa una credencial
+  administrativa propia, mientras que el cliente de inferencia usa su token de
+  admisión. GloryAPI ya mantiene `/api/*` autenticado por clave administrativa y
+  `/v1/chat/completions` y `/v1/models` autenticados por el token de admisión; el
+  bridge mantiene su token de cliente separado de la credencial upstream. La UI no
+  guarda la clave unificada: usa una sesión efímera de memoria del servidor y
+  `sessionStorage` con TTL corto.
+- [x] Mantener loopback como modo seguro por defecto y rechazar exposición LAN
+  sin auth. La sesión de dashboard exige origen permitido, socket loopback y
+  CSRF para mutaciones; no se acepta como sustituto del token de admisión del
+  bridge ni se reutiliza para llamadas al data-plane.
+- [x] Tratar catálogo y routing como dominios distintos: discovery puede nutrir
+  drafts, pero solo una selección probada y activada participa en routing. El
+  nuevo endpoint `/models` cumple límites, exige `keyId` explícito y no escribe
+  el catálogo activo; la ausencia de metadata de capability produce `false` +
+  evidencia `unknown`, nunca soporte implícito.
+- [x] Conservar la preferencia del hilo y registrar fallback como decisión de
+  runtime; una caída 401/403/429 o incompatibilidad puede rebindear de forma
+  explícita, pero nunca reordenar silenciosamente la política persistida.
+- [x] Añadir límites de frontera HTTP inspirados en la separación de rutas del
+  proxy: paths acotados, `405` para método conocido incorrecto, `415` para body
+  no JSON y `404` sanitizado antes de traducir el request.
+- [x] Portar de forma selectiva la recuperación de configuración inválida y el
+  journal/lock de escritores de OpenCodex a los scripts de modo de GloryAPI:
+  `codex-mode.ps1` usa lock exclusivo, journal versionado, hashes SHA-256,
+  recuperación solo cuando el estado pendiente es inequívoco y reemplazo
+  temporal verificado. No se copió su implementación ni se sobrescriben
+  ediciones externas ambiguas.
+- [x] Añadir cache TTL de discovery (30 s) con stale fallback acotado a 10 min
+  solo para diagnóstico; la respuesta marca `stale`, nunca escribe el catálogo
+  activo ni convierte una capability desconocida en soporte.
+
+Esta delta no demuestra compatibilidad de ChatGPT Desktop. La issue pública de
+OpenCodex sobre hilos creados desde móvil también se conserva como riesgo de
+frontera del cliente: la apariencia de un modelo en el picker no garantiza que
+la petición llegue al proxy local. Por ello el E2E de Desktop y la prueba de
+creación de hilo desde cada cliente siguen siendo criterios obligatorios.
+
 Fuentes primarias contrastadas el 2026-08-10; snapshot OpenCodex fijado al commit
 `121f1ad929dc6da3356c06f5192f2f97f7a5dde5`:
 
@@ -1113,7 +1258,13 @@ Aceptación de la fase:
 
 Objetivo: controlar GloryAPI sin abrir el dashboard completo.
 
-- [ ] Implementar primero la Control API y una vista compacta responsive reutilizable.
+- [x] Preparar un prototipo de bandeja aislado en `integrations/glory-tray/GloryApiTray.ps1`:
+  consulta solo el runtime local, muestra el último modelo, abre el dashboard y
+  permite activar/desactivar o reordenar entradas mediante `PUT /api/fallback` con
+  revisión esperada; el transporte y el guard de loopback viven en
+  `GloryApiTray.Core.psm1` y tienen contrato HTTP/PowerShell ejecutable. No modifica
+  perfiles Codex ni inicia el bridge. La decisión Tauri/Electron, startup policy y
+  E2E Windows siguen pendientes.
 - [ ] Hacer un spike corto Tauri 2 vs Electron. Preferencia inicial: Tauri por
   memoria y tamaño; Electron solo si la integración o el toolchain bloquean el
   objetivo y la medición justifica el costo.
@@ -1331,9 +1482,10 @@ proteger FreeLLMAPI → derivar GloryAPI aislada → validar baseline/overlay
   `area-trabajo\gloryapi` antes de ejecutar la derivación. Esa afirmación no
   describe el estado actual y no autoriza repetir Fases 0–2 sobre el workspace.
 - Estado operativo al 2026-08-10: `gloryapi` ya está poblado, contiene su propio
-  `.git`, rama `gloryapi`, `HEAD` propio `b6db7a8`, no tiene remoto y mantiene el árbol
-  de trabajo limpio tras el commit del bloque actual. `roadmap.md` es la fuente del
-  siguiente bloque; no se deben descartar cambios ajenos.
+  `.git`, rama `gloryapi`, `HEAD` propio `91a940b`, no tiene remoto y mantiene el árbol
+  legado fuera del alcance. El bloque local actual deja documentación, scripts y
+  `package.json` sin commit por petición expresa del usuario; `roadmap.md` es la fuente
+  del siguiente bloque y no se deben descartar cambios ajenos.
 - `supervisor_thinker`: `VIABLE CON RESERVAS`; las reservas aplicables fueron
   incorporadas (consumidores del rename, DPAPI/restore, SQLite, seguridad, UI y
   semántica de modelo actual).
@@ -1373,18 +1525,10 @@ inicia la caracterización de Fase 4. Esta investigación no adelanta la impleme
   `detectForeignFreebuffClient`; cualquier request con tools sin los nombres
   oficiales propietarios se degrada a `ling-3.0-tiny:free`, que sí está limitado,
   y produce `429 free-models-per-day-high-balance`.
-- Fix aplicado (worker desplegado): actualizar el worker a v1.7.1 (repo
-  `pingmike2/freebuff2api-wokers`, commit `2e8e79b`), que inyecta la tool oficial
-  `end_turn` (de `TOOLS_WHICH_WONT_FORCE_NEXT_STEP`, inofensiva y nunca invocada)
-  en `payload.tools` para pasar la firma. Se conservó el tweak local
-  `UPSTREAM_TIMEOUT_MS = 120000` y `NONSTREAM_TIMEOUT_MS = 120000`.
-- Verificación: healthz `{"version":"1.7.1","account_states":{"ok":1}}`; chat
-  sin tools 200; chat con tools 200 (con un transitorio 502/429 en el primer
-  intento tras el deploy); `end_turn` explícito → 200 con `tool_calls`; cadena
-  completa vía freellmapi → 200, modelo `deepseek/deepseek-v4-flash`,
-  `finish_reason: tool_calls`, ruta andoryyu directa (sin fallback a Zen). No se
-  regeneró ningún token: `FREEBUFF_TOKEN` (authToken `9a584aa7-…`) y
-  `FREEBUFF_API_KEY` (`fb-9dcd…`) se conservaron.
+- Incidente histórico de compatibilidad: un proveedor compatible exigió una tool
+  oficial adicional para aceptar requests con tools. La corrección se verificó en
+  el entorno histórico, conservando las credenciales existentes sin regenerarlas;
+  ningún nombre de secreto, prefijo ni valor parcial se copia a este plan.
 - Consecuencia para el plan: este incidente entra como fixture de entrada de la
   Fase 9 (clase `foreign_toolset`), no como bloqueo. No se detiene ninguna fase;
   la siguiente acción operativa sigue siendo la del `roadmap.md`.

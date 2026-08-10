@@ -38,3 +38,30 @@ test('bounds line and frame sizes', () => {
   const frameLimited = new SseStreamParser({ maxFrameBytes: 8 });
   assert.throws(() => frameLimited.push(new TextEncoder().encode('data: 123456789\n\n')), /frame exceeds/);
 });
+
+test('property-style chunk partitioning is invariant for valid UTF-8 frames', () => {
+  const text = `data: ${JSON.stringify({ text: 'fragmented🙂'.repeat(8) })}\r\n\r\ndata: [DONE]\n\n`;
+  const bytes = new TextEncoder().encode(text);
+  for (let seed = 1; seed <= 32; seed += 1) {
+    const parser = new SseStreamParser();
+    const frames = [];
+    let offset = 0;
+    let state = seed;
+    while (offset < bytes.length) {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      const width = 1 + (state % 11);
+      frames.push(...parser.push(bytes.slice(offset, offset + width)));
+      offset += width;
+    }
+    frames.push(...parser.finish());
+    assert.deepEqual(frames, [JSON.stringify({ text: 'fragmented🙂'.repeat(8) }), '[DONE]']);
+  }
+});
+
+test('rejects malformed JSON payloads at the contract boundary without guessing', () => {
+  const parser = new SseStreamParser();
+  const frames = parser.push(new TextEncoder().encode('data: {"unterminated":\n\n'));
+  frames.push(...parser.finish());
+  assert.equal(frames.length, 1);
+  assert.throws(() => JSON.parse(frames[0]), SyntaxError);
+});

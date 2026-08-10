@@ -1,7 +1,12 @@
 # Detiene únicamente este bridge local; nunca mata un proceso solo por usar :4100.
 $ErrorActionPreference = 'Stop'
-$BridgeDir = $PSScriptRoot
-$PidFile = Join-Path $BridgeDir 'bridge.pid'
+$bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
+$BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
+    (Resolve-Path -LiteralPath ([string](@($bridgeLink.Target) | Select-Object -First 1))).Path
+} else { $PSScriptRoot }
+$RuntimeDir = (Resolve-Path (Join-Path $BridgeDir '..\..\..\server\data')).Path
+$RuntimeDir = Join-Path $RuntimeDir 'bridge-runtime'
+$PidFile = Join-Path $RuntimeDir 'bridge.pid'
 $ServerFile = [System.IO.Path]::GetFullPath((Join-Path $BridgeDir 'server.js'))
 
 function Test-BridgeProcess([int]$ProcessIdValue) {

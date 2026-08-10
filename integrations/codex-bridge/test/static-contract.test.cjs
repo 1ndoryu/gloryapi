@@ -6,9 +6,16 @@ const test = require('node:test');
 const root = path.resolve(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 const server = read('bridge', 'server.js');
+const endpointSecurity = read('bridge', 'endpoint-security.js');
+const diagnostics = read('bridge', 'diagnostics.js');
+const requestLog = read('bridge', 'request-log.js');
+  const activationPreflight = read('mode', 'codex-activation-preflight.ps1');
+  const upstreamAuth = fs.readFileSync(path.join(root, '..', '..', 'server', 'src', 'scripts', 'bridge-upstream-auth.ts'), 'utf8');
 const responsesFixture = JSON.parse(read('fixtures', 'responses-contract-v1.json'));
 const deterministicUpstream = read('test', 'deterministic-upstream.cjs');
 const canaryScript = fs.readFileSync(path.join(root, '..', '..', 'scripts', 'canary', 'run-codex-canary.cjs'), 'utf8');
+const trayScript = fs.readFileSync(path.join(root, '..', '..', 'integrations', 'glory-tray', 'GloryApiTray.ps1'), 'utf8');
+const trayCore = fs.readFileSync(path.join(root, '..', '..', 'integrations', 'glory-tray', 'GloryApiTray.Core.psm1'), 'utf8');
 
 test('the deterministic canary upstream is local-only and response-shaped', () => {
   assert.match(deterministicUpstream, /CANARY_OK/);
@@ -36,6 +43,8 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(server, /BRIDGE_MAX_BODY_BYTES/);
   assert.match(server, /BRIDGE_SEARCH_MAX_BYTES/);
   assert.match(server, /statusCode = 413/);
+  assert.match(server, /MAX_ACTIVE_REQUESTS = 32/);
+  assert.match(server, /code: 'bridge_busy'/);
   assert.match(server, /service: BRIDGE_ID/);
   assert.match(server, /req\.on\(['"]aborted['"], abortUpstream\)/);
   assert.match(server, /res\.on\(['"]close['"], abortUpstream\)/);
@@ -48,6 +57,8 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(server, /CAPABILITIES_SCHEMA/);
   assert.match(server, /LIFECYCLE_SCHEMA/);
   assert.match(server, /function getLifecycle/);
+  assert.doesNotMatch(server, /COMPACTION_ENABLED/);
+  assert.match(server, /compaction: DISABLED \(native Codex owns context continuity\)/);
   assert.match(server, /bridge_lifecycle_not_ready/);
   assert.match(server, /requestShutdown/);
   assert.match(server, /url\.pathname === ['"]\/ready['"]/);
@@ -56,6 +67,29 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(canaryScript, /\/lifecycle/);
   assert.match(canaryScript, /glory-codex-lifecycle-v1/);
   assert.match(canaryScript, /glory-codex-capabilities-v2/);
+  assert.match(server, /assertSafeVisionEndpoint/);
+  assert.match(server, /assertSafeLoopbackUpstream/);
+  assert.match(server, /redirect: 'error'/);
+  assert.match(server, /function validateImageReference/);
+  assert.match(server, /MAX_IMAGE_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(server, /magic bytes do not match/);
+  assert.match(endpointSecurity, /public HTTPS without embedded credentials/);
+  assert.match(endpointSecurity, /explicit loopback HTTP/);
+});
+
+test('the tray validates local destinations before reading or forwarding its key', () => {
+  assert.match(trayCore, /function Assert-LocalHttpUrl/);
+  assert.match(trayCore, /127\.0\.0\.1/);
+  assert.match(trayCore, /IPAddress\]::TryParse/);
+  assert.match(trayCore, /-not \$isLoopbackLiteral/);
+  assert.match(trayCore, /UserInfo/);
+  assert.match(trayCore, /function Send-GloryJson/);
+  assert.match(trayCore, /function Save-GloryControlOrder/);
+  assert.match(trayScript, /Import-Module/);
+  assert.match(trayScript, /\$BaseUrl = Assert-LocalHttpUrl/);
+  assert.match(trayScript, /\$DashboardUrl = Assert-LocalHttpUrl/);
+  assert.match(trayScript, /GLORYAPI_ADMIN_AUTH_TOKEN/);
+  assert.doesNotMatch(trayScript, /GLORYAPI_CONTROL_KEY|GLORY_API_KEY|GLORYAPI_UNIFIED/);
 });
 
 test('the versioned Responses fixture covers lifecycle and tool invariants', () => {
@@ -123,6 +157,48 @@ test('web search does not fetch arbitrary model-provided URLs', () => {
   assert.match(server, /role:\s*['"]tool['"]/);
 });
 
+test('injected tools are conditional and deduped so upstream never sees duplicate names', () => {
+  // Regression 2026-08-10: Codex Desktop's browser now exposes mcp__node_repl__js
+  // directly in body.tools (namespace mcp__node_repl with children js, js_reset,
+  // js_add_node_module_dir). The bridge injected it unconditionally too -> the
+  // upstream rejected the whole request with 400 "Tool names must be unique" ->
+  // Codex Desktop showed "Provider rejected the request".
+  assert.match(server, /if \(!tools\.some\(\(t\) => t\.function && t\.function\.name === NODE_REPL_JS_TOOL\.function\.name\)\)/);
+  assert.match(server, /if \(!tools\.some\(\(t\) => t\.function && t\.function\.name === AUTOMATION_UPDATE_TOOL\.function\.name\)\)/);
+  assert.match(server, /Dedupe by wire name as a final safety net/);
+  assert.match(server, /const seen = new Set\(\);/);
+  assert.match(server, /if \(name && seen\.has\(name\)\) continue;/);
+  assert.match(server, /return \{ tools: deduped, toolMap, customTools \};/);
+  assert.doesNotMatch(server, /tools\.push\(NODE_REPL_JS_TOOL\);\n  toolMap\.set\('mcp__node_repl__js'/);
+  assert.doesNotMatch(server, /tools\.push\(AUTOMATION_UPDATE_TOOL\);\n  toolMap\.set\('codex_app__automation_update'/);
+});
+
+test('diagnostic logs stay metadata-only for prompt-bearing paths', () => {
+  assert.match(server, /api\[_-\]\?key/);
+  assert.match(server, /queryChars=\$\{q\.length\}/);
+  assert.doesNotMatch(server, /diagnosticFingerprint/);
+  assert.doesNotMatch(server, /web search OK source=\$\{label\} query="\$\{q\}"/);
+  assert.match(server, /formatRemoteFailure/);
+  assert.match(server, /safe\.errorBytes/);
+  assert.match(server, /if \(!REQUEST_LOG_FULL\) delete safe\.error/);
+  assert.doesNotMatch(server, /summarize failed HTTP.*await res\.text/s);
+  assert.match(diagnostics, /Prompt-bearing remote failures/);
+  assert.match(diagnostics, /formatRemoteFailure/);
+  assert.match(requestLog, /function rotateIfNeeded/);
+  assert.match(requestLog, /function createRequestLogger/);
+  assert.match(requestLog, /queueCapacity/);
+  assert.match(requestLog, /droppedLogEntries/);
+  assert.match(requestLog, /logger\.flush/);
+  assert.match(requestLog, /fs\.promises\.appendFile/);
+  assert.match(server, /BRIDGE_REQUEST_LOG_MAX_BYTES/);
+  assert.match(server, /BRIDGE_REQUEST_LOG_RETENTION/);
+  assert.match(server, /BRIDGE_REQUEST_LOG_QUEUE_CAPACITY/);
+  assert.match(server, /compact summary generated tokens=/);
+  assert.doesNotMatch(server, /COMPACT SUMMARY.*\$\{summaryText\}/s);
+  assert.doesNotMatch(server, /DEBUG\)\s+log\('chat request:',\s*JSON\.stringify\(chat\)/);
+  assert.match(server, /if \(!REQUEST_LOG_FULL\) delete safe\.body/);
+});
+
 test('mode switch scripts delegate to the fail-closed controller', () => {
   const chatgpt = read('mode', 'switch-chatgpt.ps1');
   const deepseek = read('mode', 'switch-deepseek.ps1');
@@ -133,8 +209,15 @@ test('mode switch scripts delegate to the fail-closed controller', () => {
   assert.match(chatgpt, /codex-mode\.ps1.*-Mode chatgpt/s);
   assert.match(deepseek, /codex-mode\.ps1.*-Mode deepseek/s);
   assert.match(controller, /Join-Path \$env:USERPROFILE ['"]\.codex['"]/);
+  assert.match(controller, /\[switch\]\$Preview/);
+  assert.match(controller, /Invoke-ActivationPreflight/);
+  assert.match(controller, /SkipHealth/);
+  assert.match(controller, /controllerLink/);
+  assert.match(controller, /modeSource/);
   assert.match(start, /BRIDGE_CLIENT_TOKEN/);
+  assert.match(start, /\$authOutput = @\(/);
   assert.match(start, /GLORY_API_KEY/);
+  assert.match(start, /\$upstreamOutput = @\(/);
   assert.match(start, /bridge-auth\.js.*--print/s);
   assert.match(authCommand, /bridge-auth\.js/);
   assert.match(authCommand, /--print/);
@@ -150,9 +233,62 @@ test('mode switch scripts delegate to the fail-closed controller', () => {
   assert.doesNotMatch(canary, /config\.toml.*Move-Item/);
 });
 
+test('activation preflight is read-only and detects the real Codex consumer contract', () => {
+  assert.match(activationPreflight, /glory-codex-activation-preflight-v1/);
+  assert.match(activationPreflight, /expectedAuthHelper/);
+  assert.match(activationPreflight, /expectedUpstreamAuthHelper/);
+  assert.match(activationPreflight, /unified key available through local GloryAPI vault/);
+  assert.match(activationPreflight, /bridge-auth-helper/);
+  assert.match(activationPreflight, /gloryapi-upstream-credential/);
+  assert.match(activationPreflight, /GLORY_API_KEY/);
+  assert.match(activationPreflight, /FREEL_API_KEY/);
+  assert.match(activationPreflight, /codex-bridge-link/);
+  assert.match(activationPreflight, /switch-chatgpt-link/);
+  assert.match(activationPreflight, /switch-deepseek-link/);
+  assert.match(activationPreflight, /experimental_bearer_token/);
+  assert.match(activationPreflight, /providerDeclaration/);
+  assert.match(activationPreflight, /providerSection/);
+  assert.match(activationPreflight, /authSection/);
+  assert.match(activationPreflight, /providerBody/);
+  assert.match(activationPreflight, /authBody/);
+  assert.match(activationPreflight, /modelContract/);
+  assert.match(activationPreflight, /expectedAuthScript/);
+  assert.match(activationPreflight, /-File/);
+  assert.match(activationPreflight, /authPath/);
+  assert.match(activationPreflight, /normalizedTarget/);
+  assert.match(activationPreflight, /normalizedExpected/);
+  assert.match(activationPreflight, /model_providers/);
+  assert.match(activationPreflight, /\\\.auth/);
+  assert.match(activationPreflight, /powershell\\\.exe/);
+  assert.match(activationPreflight, /get-codex-auth\\\.ps1/);
+  assert.match(activationPreflight, /127\.0\.0\.1:4100\/health/);
+  assert.match(activationPreflight, /SkipHealth/);
+  assert.match(activationPreflight, /healthChecked/);
+  assert.match(activationPreflight, /gloryapi-codex-bridge/);
+  assert.match(activationPreflight, /deepseek-v4-flash/);
+  assert.doesNotMatch(activationPreflight, /Move-Item|Set-Content|Remove-Item|New-Item|Start-Process|Stop-Process/);
+  assert.match(upstreamAuth, /readonly: true/);
+  assert.match(upstreamAuth, /unified_api_key/);
+  assert.match(upstreamAuth, /--print/);
+  assert.match(upstreamAuth, /bridge-upstream-auth failed/);
+});
+
 test('the stop script verifies process identity before terminating', () => {
+  const start = read('bridge', 'start-bridge.ps1');
   const stop = read('bridge', 'stop-bridge.ps1');
+  const startRuntime = read('bridge', 'start-gloryapi.ps1');
+  assert.match(startRuntime, /127\.0\.0\.1:3101\/api\/ping/);
+  assert.match(startRuntime, /Get-NetTCPConnection -LocalPort 3101/);
+  assert.match(startRuntime, /server\\dist\\index\.js/);
+  assert.match(startRuntime, /WindowStyle Hidden/);
+  assert.match(start, /start-gloryapi\.ps1/);
+  assert.match(start, /bridgeLink/);
+  assert.match(start, /Resolve-Path/);
+  assert.match(start, /BRIDGE_RUNTIME_DIR/);
+  assert.match(start, /bridge-runtime/);
   assert.match(stop, /Get-CimInstance Win32_Process/);
+  assert.match(stop, /bridgeLink/);
+  assert.match(stop, /bridge-runtime/);
   assert.match(stop, /IndexOf\(\$ServerFile/);
   assert.match(stop, /se rechaza detenerlo/);
 });
