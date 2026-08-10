@@ -41,7 +41,8 @@ $content = @"
 # This is a temporary profile and does not replace config.toml.
 model = "deepseek-v4-flash"
 model_provider = "$profileName"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "high"
+model_catalog_json = "C:/Users/Owner/.codex/models.json"
 
 [model_providers.$profileName]
 name = "GloryAPI Canary (local sidecar)"
