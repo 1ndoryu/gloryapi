@@ -1709,7 +1709,14 @@ async function fetchUpstreamCompletion(chat, authorization) {
     throw error;
   }
   try {
-    return JSON.parse(raw);
+    const json = JSON.parse(raw);
+    // GloryAPI exposes which provider+model actually served this request via
+    // X-Routed-Via (e.g. "andoryyu/deepseek-v4-flash"). Attach it (non-enumerable
+    // so it never leaks into bodies that get re-serialized/forwarded) so callers
+    // can correlate model behavior with the real upstream route.
+    const routedVia = response.headers.get('x-routed-via');
+    if (routedVia) Object.defineProperty(json, '__routedVia', { value: routedVia, enumerable: false });
+    return json;
   } catch {
     const error = new Error('upstream returned invalid JSON');
     error.statusCode = 502;
@@ -1830,6 +1837,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
       requestId: chat.__gloryRequestId,
       status: 200,
       internalWebLoop: true,
+      routedVia: resolved.json.__routedVia || null,
       contextReal: realTokens(chat.messages || []),
       body: chat,
     });
@@ -1925,7 +1933,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
       end_turn: true,
     },
   });
-  logRequest({ ts: new Date().toISOString(), kind: 'result', requestId: chat.__gloryRequestId, status: 200, textLen: text.length, internalWebLoop: true });
+  logRequest({ ts: new Date().toISOString(), kind: 'result', requestId: chat.__gloryRequestId, status: 200, routedVia: resolved.json.__routedVia || null, textLen: text.length, internalWebLoop: true });
   res.write('data: [DONE]\n\n');
   res.end();
 }
@@ -1992,6 +2000,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
       kind: 'upstream_error',
       requestId: chat.__gloryRequestId,
       status: upstreamRes.status,
+      routedVia: upstreamRes.headers.get('x-routed-via') || null,
       error: errText,
       body: chat,
     });
@@ -2007,6 +2016,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   }
 
   const ctype = upstreamRes.headers.get('content-type') || '';
+  const routedVia = upstreamRes.headers.get('x-routed-via') || null;
   if (!ctype.includes('text/event-stream')) {
     // Non-streaming upstream response (shouldn't happen; we always request stream)
     let raw = '';
@@ -2131,7 +2141,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     const safeMessage = streamFailure instanceof SseParserError
       ? `invalid upstream SSE (${streamFailure.code})`
       : redactText(streamFailure && streamFailure.message);
-    logRequest({ ts: new Date().toISOString(), kind: 'stream_error', requestId: chat.__gloryRequestId, status: 502, error: safeMessage });
+    logRequest({ ts: new Date().toISOString(), kind: 'stream_error', requestId: chat.__gloryRequestId, status: 502, routedVia, error: safeMessage });
     // A disconnected client cannot receive a terminal event. The abort still
     // propagates to fetch, and importantly no response.completed is emitted.
     if (controller.signal.aborted || res.destroyed) return;
@@ -2154,6 +2164,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
       kind: 'empty_upstream',
       requestId: chat.__gloryRequestId,
       status: 200,
+      routedVia,
       contextReal: realTokens(chat.messages || []),
       body: chat,
     });
@@ -2275,8 +2286,10 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     kind: 'result',
     requestId: chat.__gloryRequestId,
     status: 200,
+    routedVia,
     textLen: text.length,
     toolCalls: toolCalls.size,
+    toolNames: [...toolCalls.values()].map((t) => t.name),
   });
   res.write('data: [DONE]\n\n');
   res.end();
@@ -2361,6 +2374,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       kind: 'empty_upstream',
       requestId: chat.__gloryRequestId,
       status: 502,
+      routedVia: json.__routedVia || null,
       contextReal: realTokens(chat.messages || []),
       body: chat,
     });
@@ -2377,6 +2391,16 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     );
     return;
   }
+  logRequest({
+    ts: new Date().toISOString(),
+    kind: 'result',
+    requestId: chat.__gloryRequestId,
+    status: 200,
+    routedVia: json.__routedVia || null,
+    textLen: (message.content || '').length,
+    toolCalls: (message.tool_calls || []).length,
+    toolNames: (message.tool_calls || []).map((tc) => tc.function && tc.function.name).filter(Boolean),
+  });
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(
     JSON.stringify({
