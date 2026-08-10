@@ -49,6 +49,8 @@ export function recordRoutingTraceAttempt(
     || reason === 'provider_unavailable'
     || reason === 'provider_not_found'
     || reason === 'provider_error'
+    || reason === 'model_downgrade'
+    || reason === 'foreign_toolset'
     || reason === 'no_route'
     || reason === 'retryable'
     || reason === 'capability_not_supported'

@@ -669,18 +669,19 @@ Objetivo: resolver la causa de los saltos/fallos y explicar cada decisión.
   `glory-andoryyu-regression-v1`, validarlo contra el schema canónico y exigir que
   un stream truncado produzca `stream_truncated` y fallback a OpenCode Zen sin
   modificar la preferencia persistida.
-- [ ] Añadir a la taxonomía la clase `foreign_toolset`/`model_downgrade`: un 429
-  con mensaje idéntico al de cuota puede ser downgrade de modelo por firma de
-  tools (detección `detectForeignFreebuffClient` de codebuff), no cuota real.
-  Distinguir por evidencia de respuesta (modelo efectivo ≠ modelo solicitado) y
-  no aplicar cooldown de proveedor ni esperar reset de cuota.
-- [ ] Ampliar `glory-andoryyu-regression-v1` (sin cambiar su comportamiento
-  actual) con el caso real 2026-08-10: payload con tools sin firma oficial →
-  429/downgrade; con la firma (tool `end_turn` inyectada por el worker v1.7.1) →
-  200 con modelo real.
-- [ ] Añadir aserción de modelo en el CompatibilityAdapter: toda respuesta 200
-  debe declarar el modelo efectivo y compararlo con el solicitado; un downgrade
-  silencioso (p. ej. `ling-3.0-tiny:free`) se clasifica como error, no como éxito.
+- [x] Añadir a la taxonomía la clase `foreign_toolset`/`model_downgrade`: un 429
+  con mensaje idéntico al de cuota se clasifica por la evidencia de modelo efectivo
+  diferente, no como cuota real. El proxy hace fallback sin cooldown de proveedor ni
+  penalidad de rate-limit y la traza conserva el motivo bounded.
+- [x] Ampliar `glory-andoryyu-regression-v1` con el caso determinista 2026-08-10:
+  payload con tools sin firma oficial → 429/downgrade `ling-3.0-tiny:free`; el
+  mismo caso repetido no entra en cooldown y el fallback termina en OpenCode Zen.
+  La firma oficial y la respuesta real del worker v1.7.1 siguen siendo validación
+  externa pendiente, sin tocar el legado.
+- [x] Añadir aserción de modelo en el CompatibilityAdapter: toda respuesta 200 y
+  cada chunk SSE declara el modelo efectivo y lo compara con el modelo enviado;
+  un downgrade silencioso se clasifica como `model_downgrade`, o `foreign_toolset`
+  cuando existen tools, y nunca se cuenta como éxito.
 
 ### Fase 10 — Endurecer y escalar el bridge de Codex Desktop
 

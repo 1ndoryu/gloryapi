@@ -24,12 +24,15 @@ export type ProxyErrorCode =
   | 'provider_unavailable'
   | 'provider_not_found'
   | 'provider_error'
+  | 'model_downgrade'
+  | 'foreign_toolset'
   | 'no_route';
 
 export interface ProxyErrorClassification {
   category: ProxyErrorCategory;
   code: ProxyErrorCode;
   retryable: boolean;
+  cooldownEligible: boolean;
   status: number;
   safeMessage: string;
 }
@@ -66,8 +69,9 @@ function classification(
   retryable: boolean,
   status: number,
   safeMessage: string,
+  cooldownEligible = true,
 ): ProxyErrorClassification {
-  return { category, code, retryable, status, safeMessage };
+  return { category, code, retryable, cooldownEligible, status, safeMessage };
 }
 
 /**
@@ -84,6 +88,16 @@ export function classifyProxyError(
 
   if (error.cancelled === true) {
     return classification('stream', 'request_cancelled', false, 499, 'Request cancelled.');
+  }
+  if (error.modelDowngrade === true) {
+    return classification(
+      'provider',
+      error.foreignToolset === true ? 'foreign_toolset' : 'model_downgrade',
+      true,
+      502,
+      'Provider returned a different model than requested.',
+      false,
+    );
   }
   if (error.streamAbort === true) {
     return classification('stream', 'stream_truncated', true, 502, 'Provider stream terminated before completion.');
@@ -146,6 +160,7 @@ export function isProxyErrorClassification(value: unknown): value is ProxyErrorC
   return typeof value.category === 'string'
     && typeof value.code === 'string'
     && typeof value.retryable === 'boolean'
+    && typeof value.cooldownEligible === 'boolean'
     && typeof value.status === 'number'
     && typeof value.safeMessage === 'string';
 }

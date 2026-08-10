@@ -52,4 +52,22 @@ describe('Andoryyu ChatGPT/VS Code regression fixture', () => {
     expect(vscode.expectedFallback).toBe(false);
     expect(vscode.expectedErrorCode).toBeNull();
   });
+
+  it('classifies the observed tool-signature downgrade without cooling the provider', () => {
+    const fixture = ANDORYYU_REGRESSION_FIXTURE.foreignToolset;
+    expect(chatCompletionSchema.safeParse(fixture.request).success).toBe(true);
+    const failure = Object.assign(new Error('free-models-per-day-high-balance'), {
+      status: 429,
+      modelDowngrade: true,
+      requestedModel: fixture.requestedModel,
+      effectiveModel: fixture.effectiveModel,
+      foreignToolset: true,
+      retryable: true,
+    });
+    const classification = classifyProxyError(failure);
+    expect(classification.code).toBe(fixture.expectedErrorCode);
+    expect(classification.retryable).toBe(fixture.expectedFallback);
+    expect(classification.cooldownEligible).toBe(fixture.cooldownEligible);
+    expect(classification.safeMessage).not.toContain(fixture.effectiveModel);
+  });
 });

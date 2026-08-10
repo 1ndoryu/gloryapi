@@ -14,6 +14,7 @@ import {
   replaceNullAssistantContent as normalizeNullAssistantContent,
 } from './openai-message-normalization.js';
 import { getProviderErrorMessage } from './error-response.js';
+import { assertEffectiveModel, createModelIdentityError, extractEffectiveModel } from './compat/model-identity.js';
 import { getEffectiveProviderModelSettings } from '../settings/registry.js';
 import { SseParserError, SseStreamParser } from '../lib/sse-parser.js';
 
@@ -217,12 +218,17 @@ export class OpenAICompatProvider extends BaseProvider {
 
     if (!res.ok) {
       const err: unknown = await res.json().catch(() => null);
+      const effectiveModel = extractEffectiveModel(err);
+      if (effectiveModel && effectiveModel.toLowerCase() !== upstreamModel.toLowerCase()) {
+        throw createModelIdentityError(upstreamModel, effectiveModel, Boolean(options?.tools?.length));
+      }
       const msg = `${this.name} API error ${res.status}: ${getProviderErrorMessage(err, res.statusText)}`;
       logFailedRequest(this.platform, res.status, { model: upstreamModel, messages: requestMessages, options }, msg);
       throw new Error(msg);
     }
 
     const data = await res.json() as ChatCompletionResponse;
+    assertEffectiveModel(data, upstreamModel, Boolean(options?.tools?.length));
     normalizeChoices(data);
     data._routed_via = { platform: this.platform, model: modelId };
     return data;
@@ -260,6 +266,10 @@ export class OpenAICompatProvider extends BaseProvider {
 
     if (!res.ok) {
       const err: unknown = await res.json().catch(() => null);
+      const effectiveModel = extractEffectiveModel(err);
+      if (effectiveModel && effectiveModel.toLowerCase() !== upstreamModel.toLowerCase()) {
+        throw createModelIdentityError(upstreamModel, effectiveModel, Boolean(options?.tools?.length));
+      }
       const msg = `${this.name} API error ${res.status}: ${getProviderErrorMessage(err, res.statusText)}`;
       logFailedRequest(this.platform, res.status, { model: upstreamModel, messages: requestMessages, options }, msg);
       throw new Error(msg);
@@ -364,6 +374,13 @@ export class OpenAICompatProvider extends BaseProvider {
           streamError.retryable = true;
           streamError.streamAbort = true;
           throw streamError;
+        }
+        try {
+          assertEffectiveModel(chunk, upstreamModel, Boolean(options?.tools?.length));
+        } catch (error) {
+          const identityError = error as StreamError;
+          identityError.streamAbort = true;
+          throw identityError;
         }
         sawSse = true;
         stats.chunks++;

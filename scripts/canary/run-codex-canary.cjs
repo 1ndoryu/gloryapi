@@ -203,6 +203,46 @@ async function main() {
     throw new Error('internal tool loop canary response contract failed');
   }
 
+  const foreignToolsetResponse = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
+    body: JSON.stringify({
+      model: 'deepseek-v4-flash',
+      stream: false,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'CANARY_FOREIGN_TOOLSET_CASE' }] }],
+      tools: [{ type: 'function', name: 'foreign_tool' }],
+    }),
+  });
+  const foreignToolsetText = foreignToolsetResponse?.output?.[0]?.content?.[0]?.text;
+  if (foreignToolsetText !== 'CANARY_OK') throw new Error('foreign toolset fallback response contract failed');
+  const foreignTraces = await requestJson(`${serverBase}/api/fallback/traces`, {
+    headers: { Authorization: `Bearer ${unifiedKey}` },
+  });
+  const foreignTrace = foreignTraces?.traces?.find(trace => trace?.attempts?.some(attempt =>
+    attempt.reason === 'foreign_toolset'));
+  if (foreignTrace?.finalModel?.platform !== 'opencode-zen') {
+    throw new Error(`foreign toolset trace contract failed: ${JSON.stringify(foreignTrace)}`);
+  }
+  const foreignRetryResponse = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
+    body: JSON.stringify({
+      model: 'deepseek-v4-flash',
+      stream: false,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'CANARY_FOREIGN_TOOLSET_CASE' }] }],
+      tools: [{ type: 'function', name: 'foreign_tool' }],
+    }),
+  });
+  if (foreignRetryResponse?.output?.[0]?.content?.[0]?.text !== 'CANARY_OK') {
+    throw new Error('foreign toolset retry response contract failed');
+  }
+  const foreignRetryTraces = await requestJson(`${serverBase}/api/fallback/traces`, {
+    headers: { Authorization: `Bearer ${unifiedKey}` },
+  });
+  const foreignTraceCount = foreignRetryTraces?.traces?.filter(trace => trace?.attempts?.some(attempt =>
+    attempt.reason === 'foreign_toolset')).length ?? 0;
+  if (foreignTraceCount < 2) throw new Error('foreign toolset unexpectedly entered cooldown');
+
   const fallbackResponse = await requestJson(`http://127.0.0.1:${bridgePort}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
@@ -273,6 +313,8 @@ async function main() {
     nonStreaming: true,
     internalToolLoop: true,
     fallback: true,
+    foreignToolset: true,
+    foreignToolsetNoCooldown: true,
     stream: true,
     isolated: true,
   }) + '\n');

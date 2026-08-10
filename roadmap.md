@@ -94,10 +94,14 @@ canary y cutover reversible posteriores.
 - Fase 9 local tiene la taxonomía `ProxyErrorCategory/ProxyErrorCode`, respuestas y logs de metadata sin mensajes
   upstream, y trazas con códigos bounded. `proxy-errors.test.ts` cubre request/auth/schema/rate-limit/timeout/cold-start/
   stream/provider, además del fixture sanitizado ChatGPT/VS Code de Andoryyu: stream truncado => `stream_truncated`,
-  fallbackable y siguiente candidato OpenCode Zen; stream completado => sin fallback.
+  fallbackable y siguiente candidato OpenCode Zen; stream completado => sin fallback. El nuevo contrato de identidad
+  exige que respuestas y chunks declaren el modelo efectivo; un downgrade se clasifica como `model_downgrade` o
+  `foreign_toolset`, no aplica cooldown ni penalidad y el canary repite el caso 429 determinista para probarlo.
 - El runtime compilado ya incluye `@gloryapi/shared/dist/types.js`: `build:shared` se ejecuta antes del build del
   servidor y un smoke real en loopback confirmó que `server/dist/index.js` arranca sin `ERR_MODULE_NOT_FOUND`.
-- El bloque actual de UI/control separó hooks de `FallbackPage` y `SettingsPage`, movió Analytics y los contratos de
+- El bloque actual de compatibilidad añadió `server/src/providers/compat/model-identity.ts`, fixture
+  `foreign_toolset`/`model_downgrade`, trazas bounded y canary determinista con retry sin cooldown.
+- El bloque anterior de UI/control separó hooks de `FallbackPage` y `SettingsPage`, movió Analytics y los contratos de
   backup/registry a límites explícitos sin cambiar las rutas públicas; build, suite y bridge siguen verdes.
 - Fase 10.1 tiene el fixture `integrations/codex-bridge/fixtures/responses-contract-v1.json`, probado por el contrato
   estructural del bridge (texto, reasoning/tools, error, cancelación, custom tool, namespace y visión),
@@ -121,7 +125,8 @@ canary y cutover reversible posteriores.
   sigue siendo una mejora futura de distribución, no un bloqueo del checkout actual.
 - El nuevo workspace aún no tiene remoto externo; no se crea ni se publica como parte de esta fase.
 - La revalidación del 2026-08-10 ejecutó `npm run canary:codex` con PASS para texto, tool loop,
-  fallback Andoryyu→Zen, SSE y el upstream determinista de Unicode fragmentado, truncamiento y cancelación.
+  fallback Andoryyu→Zen, `foreign_toolset`/downgrade repetible sin cooldown, SSE y el upstream determinista de Unicode
+  fragmentado, truncamiento y cancelación.
   La suite del bridge terminó 16/16, `npm run build` y `npm test` terminaron PASS, y no quedaron temporales
   propios. La compatibilidad E2E completa de Codex Desktop sigue pendiente: el canary validado es Codex CLI `0.146.1` aislado
   contra un upstream determinista sanitizado. Falta probar Desktop real, control VS Code, capabilities completas y

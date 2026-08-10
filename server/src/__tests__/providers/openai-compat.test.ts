@@ -323,7 +323,7 @@ describe('OpenAICompatProvider - platform instances', () => {
         return {
           ok: true,
           json: () => Promise.resolve({
-            id: 'id', object: 'chat.completion', created: 1, model: 'm',
+            id: 'id', object: 'chat.completion', created: 1, model: 'model',
             choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
             usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
           }),

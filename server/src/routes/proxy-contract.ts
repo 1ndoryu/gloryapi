@@ -159,6 +159,10 @@ export type ProxyError = Error & {
   retryable?: boolean;
   streamAbort?: boolean;
   cancelled?: boolean;
+  modelDowngrade?: boolean;
+  requestedModel?: string;
+  effectiveModel?: string;
+  foreignToolset?: boolean;
 };
 
 export function normalizeProxyError(value: unknown): ProxyError {
@@ -169,6 +173,10 @@ export function normalizeProxyError(value: unknown): ProxyError {
     if (typeof value.retryable === 'boolean') error.retryable = value.retryable;
     if (typeof value.streamAbort === 'boolean') error.streamAbort = value.streamAbort;
     if (typeof value.cancelled === 'boolean') error.cancelled = value.cancelled;
+    if (typeof value.modelDowngrade === 'boolean') error.modelDowngrade = value.modelDowngrade;
+    if (typeof value.requestedModel === 'string') error.requestedModel = value.requestedModel;
+    if (typeof value.effectiveModel === 'string') error.effectiveModel = value.effectiveModel;
+    if (typeof value.foreignToolset === 'boolean') error.foreignToolset = value.foreignToolset;
     return error;
   }
   return new Error(String(value)) as ProxyError;

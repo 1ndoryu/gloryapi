@@ -121,6 +121,17 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
       }
       const serialized = serializedMessages(body);
       if (request.headers.authorization === 'Bearer canary-andoryyu-fail'
+        && serialized.includes('CANARY_FOREIGN_TOOLSET_CASE')) {
+        json(response, 429, {
+          model: 'ling-3.0-tiny:free',
+          error: {
+            message: 'free-models-per-day-high-balance',
+            model: 'ling-3.0-tiny:free',
+          },
+        });
+        return;
+      }
+      if (request.headers.authorization === 'Bearer canary-andoryyu-fail'
         && serialized.includes('CANARY_FALLBACK_CASE')
         && !serialized.includes('CANARY_TRUNCATION_CASE')) {
         json(response, 503, { error: { message: 'deterministic canary provider failure' } });

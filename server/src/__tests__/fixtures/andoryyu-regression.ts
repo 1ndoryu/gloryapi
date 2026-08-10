@@ -27,6 +27,23 @@ export const ANDORYYU_REGRESSION_FIXTURE = {
     expectedErrorCode: 'stream_truncated',
     expectedNextPlatform: 'opencode-zen',
   },
+  foreignToolset: {
+    request: {
+      model: 'deepseek-v4-flash',
+      stream: false,
+      tools: [{
+        type: 'function',
+        function: { name: 'foreign_tool', parameters: { type: 'object' } },
+      }],
+      messages: [{ role: 'user', content: 'fixture: tool signature without the official marker' }],
+    } satisfies ChatCompletionRequest,
+    upstreamOutcome: '429_model_downgrade',
+    requestedModel: 'deepseek/deepseek-v4-flash',
+    effectiveModel: 'ling-3.0-tiny:free',
+    expectedFallback: true,
+    expectedErrorCode: 'foreign_toolset',
+    cooldownEligible: false,
+  },
   vscode: {
     request: {
       model: 'deepseek-v4-flash',

@@ -31,6 +31,19 @@ test('deterministic upstream covers fragmented Unicode, truncation, and cancella
   assert.match(unicodeBody, /🌍/);
   assert.match(unicodeBody, /\[DONE\]/);
 
+  const foreignToolset = await fetch(`${base}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer canary-andoryyu-fail', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'deepseek/deepseek-v4-flash',
+      tools: [{ type: 'function', function: { name: 'foreign_tool' } }],
+      messages: [{ role: 'user', content: 'CANARY_FOREIGN_TOOLSET_CASE' }],
+    }),
+  });
+  const foreignBody = await foreignToolset.json();
+  assert.equal(foreignToolset.status, 429);
+  assert.equal(foreignBody.model, 'ling-3.0-tiny:free');
+
   const truncated = await post(base, 'canary-andoryyu-fail', 'CANARY_TRUNCATION_CASE');
   const truncatedBody = await truncated.text();
   assert.equal(truncated.status, 200);

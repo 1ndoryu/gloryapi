@@ -207,7 +207,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // Track which model+key already got a cold-start retry so we don't loop forever
   const coldStartRetried = new Set<string>();
   let lastError: ProxyError | null = null;
-  let lastErrorKind: 'retryable' | 'schema_mismatch' | null = null;
+  let lastErrorKind: 'retryable' | 'schema_mismatch' | 'model_downgrade' | null = null;
 
   const traceId = beginRoutingTrace();
   const maxAttempts = getSettingNumber('routing.maxAttempts');
@@ -221,11 +221,14 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       // No more models available
       if (lastError) {
         const exhaustedBySchemaMismatch = lastErrorKind === 'schema_mismatch';
+        const exhaustedByModelDowngrade = lastErrorKind === 'model_downgrade';
         const lastClassification = classifyProxyError(lastError);
         const publicError = exhaustedBySchemaMismatch
           ? { message: 'All compatible models rejected this request.', type: 'provider_error', code: 'schema_incompatible' }
-          : { message: 'All candidate models are temporarily unavailable.', type: 'rate_limit_error', code: lastClassification.code };
-        res.status(exhaustedBySchemaMismatch ? 502 : 429).json({ error: publicError });
+          : exhaustedByModelDowngrade
+            ? publicProxyError(lastClassification)
+            : { message: 'All candidate models are temporarily unavailable.', type: 'rate_limit_error', code: lastClassification.code };
+        res.status(exhaustedBySchemaMismatch || exhaustedByModelDowngrade ? 502 : 429).json({ error: publicError });
       } else {
         res.status(503).json({
           error: { message: 'No model is currently available for this request.', type: 'routing_error', code: 'no_route' },
@@ -381,11 +384,15 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         // Put this model+key on cooldown and try the next one
         skipKeys.add(skipId);
         if (retryable) {
-          const policy = PROVIDER_FAILURE_POLICY[route.platform];
-          setCooldown(route.platform, route.modelId, route.keyId, policy?.cooldownMs ?? 120_000);
-          if (policy?.recordPenalty !== false) recordRateLimitHit(route.modelDbId);
-          if (policy?.recordProviderFailure !== false) recordProviderFailure(route.platform);
-          lastErrorKind = 'retryable';
+          if (errorClassification.cooldownEligible) {
+            const policy = PROVIDER_FAILURE_POLICY[route.platform];
+            setCooldown(route.platform, route.modelId, route.keyId, policy?.cooldownMs ?? 120_000);
+            if (policy?.recordPenalty !== false) recordRateLimitHit(route.modelDbId);
+            if (policy?.recordProviderFailure !== false) recordProviderFailure(route.platform);
+          }
+          lastErrorKind = errorClassification.code === 'model_downgrade' || errorClassification.code === 'foreign_toolset'
+            ? 'model_downgrade'
+            : 'retryable';
         } else {
           lastErrorKind = 'schema_mismatch';
         }
@@ -407,14 +414,17 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // Exhausted the bounded attempt/time budget.
   finishRoutingTrace(traceId, 'failed');
   const exhaustedBySchemaMismatch = lastErrorKind === 'schema_mismatch';
+  const exhaustedByModelDowngrade = lastErrorKind === 'model_downgrade';
   const exhaustedClassification = lastError ? classifyProxyError(lastError) : null;
-  res.status(exhaustedBySchemaMismatch ? 502 : 429).json({
+  res.status(exhaustedBySchemaMismatch || exhaustedByModelDowngrade ? 502 : 429).json({
     error: exhaustedBySchemaMismatch
       ? { message: 'All compatible models rejected this request.', type: 'provider_error', code: 'schema_incompatible' }
-      : {
-          message: 'All candidate models are temporarily unavailable.',
-          type: 'rate_limit_error',
-          code: exhaustedClassification?.code ?? 'rate_limited',
-        },
+      : exhaustedByModelDowngrade && exhaustedClassification
+        ? publicProxyError(exhaustedClassification)
+        : {
+            message: 'All candidate models are temporarily unavailable.',
+            type: 'rate_limit_error',
+            code: exhaustedClassification?.code ?? 'rate_limited',
+          },
   });
 });
