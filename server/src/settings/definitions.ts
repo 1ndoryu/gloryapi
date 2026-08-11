@@ -6,7 +6,10 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     description: 'Maximum provider attempts allowed for one inference request.', scope: 'routing', sensitive: false, requiresRestart: false,
   },
   {
-    key: 'routing.maxDurationMs', type: 'duration-ms', defaultValue: 120_000, min: 1_000, max: 10 * 60 * 1_000,
+    // 4 min: un intento de opencode-go puede tardar hasta 120 s (timeout
+    // efectivo del upstream) y aun asi debe quedar margen para un reintento
+    // dentro del mismo request sin interrumpir la conversacion.
+    key: 'routing.maxDurationMs', type: 'duration-ms', defaultValue: 240_000, min: 1_000, max: 10 * 60 * 1_000,
     description: 'Maximum total routing time before the request fails closed.', scope: 'routing', sensitive: false, requiresRestart: false,
   },
   {
@@ -18,7 +21,10 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     description: 'How long an inactive conversation keeps its preferred model.', scope: 'routing', sensitive: false, requiresRestart: false,
   },
   {
-    key: 'routing.stickyRotationMs', type: 'duration-ms', defaultValue: 30 * 60 * 1000, min: 60 * 1000, max: 24 * 60 * 60 * 1000,
+    // 5 min: cuando opencode-go (pago) funciona, se mantiene al menos 5 min
+    // antes de volver a intentar el primer modelo gratuito; si el gratuito
+    // vuelve a servir, el sticky lo adopta, y si no, go lo cubre.
+    key: 'routing.stickyRotationMs', type: 'duration-ms', defaultValue: 5 * 60 * 1000, min: 60 * 1000, max: 24 * 60 * 60 * 1000,
     description: 'Maximum age of a sticky model assignment before it can rotate.', scope: 'routing', sensitive: false, requiresRestart: false,
   },
   {

@@ -16,6 +16,10 @@ export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; 
 
 export const PROVIDER_FAILURE_POLICY: Record<string, {
   cooldownMs: number
+  /** Cooldown escalado cuando el fallo es rate_limited (429) en vez de
+   * transitorio. Pools con cuota diaria (opencode-zen ~4M tokens/día) agotan
+   * la cuota: reintentarlos a los 5 min martillea un pool seco. */
+  rateLimitCooldownMs?: number
   recordPenalty: boolean
   recordProviderFailure: boolean
 }> = {
@@ -24,8 +28,13 @@ export const PROVIDER_FAILURE_POLICY: Record<string, {
   // reintento sea determinista en primera pasada; la cadencia de 5 min la dan el
   // cooldown de key (cooldownMs) y el cooldown de proveedor (recordProviderFailure).
   // Mientras están en cooldown, opencode-go sirve sin interrumpir la ejecución.
+  // andoryyu es un worker con pool de cuentas (cuota por sesión, límite exacto
+  // desconocido): 5 min de cadencia es suficiente porque el worker rota cuentas
+  // internamente y sus fallos son sobre todo 503 transitorios.
   andoryyu: { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
-  'opencode-zen': { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
+  // opencode-zen: un 429 casi siempre es cuota diaria agotada (4M tokens/día).
+  // Escalar a 4h evita martillar el pool y deja que opencode-go sirva mientras.
+  'opencode-zen': { cooldownMs: 300_000, rateLimitCooldownMs: 4 * 60 * 60 * 1000, recordPenalty: false, recordProviderFailure: true },
   // Proveedor de pago (opencode-go): último recurso casi nunca falla. Nunca se
   // penaliza (no se hunde en la cola), no entra en cooldown de proveedor y su
   // cooldown de key es 0: tras un fallo puntual se vuelve a intentar de inmediato

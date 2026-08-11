@@ -74,6 +74,10 @@ export interface ProviderDefinition {
   endpoint: string;
   authScheme: 'bearer' | 'account-and-token';
   capabilities: CapabilityProfile;
+  /** Timeout canónico del upstream (ms). Lo usa el snapshot de settings como
+   * fallback cuando no hay override explícito; los prompts grandes (clientes
+   * tipo Codex con contexto enorme) necesitan más de los 15 s por defecto. */
+  timeoutMs?: number;
   credentialCount: number;
 }
 

@@ -242,7 +242,7 @@ export function getProviderSettingsSnapshot(): ProviderSettingsSnapshot {
     const providerOverrides = readOverride<ProviderSettingsOverrides>(`${PROVIDER_OVERRIDE_PREFIX}${provider.platform}`);
     const providerEffective: EffectiveProviderSettings = {
       baseUrl: providerOverrides.baseUrl ?? provider.endpoint,
-      timeoutMs: providerOverrides.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
+      timeoutMs: providerOverrides.timeoutMs ?? provider.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
       authScheme: providerOverrides.authScheme ?? provider.authScheme,
       capabilities: mergeCapabilities(provider.capabilities, providerOverrides.capabilities),
       sources: {

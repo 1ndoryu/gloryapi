@@ -111,7 +111,9 @@ describe('Settings API', () => {
     const initialSnapshot = initial.body as ProviderSettingsSnapshot
     const andoryyu = initialSnapshot.providers.find(provider => provider.platform === 'andoryyu')
     expect(andoryyu?.effective.sources.baseUrl).toBe('default')
-    expect(andoryyu?.effective.timeoutMs).toBe(15_000)
+    // El timeout efectivo ahora usa el timeout canónico del registry (120 s)
+    // en vez del default de 15 s, para que prompts grandes no aborten.
+    expect(andoryyu?.effective.timeoutMs).toBe(120_000)
 
     const providerUpdate = await requestJson(app, 'PATCH', '/api/settings/providers/andoryyu', {
       expectedRevision: initialSnapshot.revision,

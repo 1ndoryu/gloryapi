@@ -30,7 +30,18 @@ export function resolveProxyModelSelection(
           message: `Model override chain for '${requestedModel}' resolved to no available models. Check that the catalog models are enabled.`,
         } };
       }
-      return { preferredModel: undefined, restrictedChain: resolvedChain };
+      // Sticky de sesión: aunque el cliente pida un modelo explícito con cadena
+      // de fallback (Codex Desktop siempre manda model="deepseek-v4-flash"), si
+      // esta conversación ya tuvo éxito con un proveedor de la cadena, se vuelve
+      // a intentar ese primero. Sin esto, cada request vuelve a empezar por el
+      // primer proveedor gratuito y el modelo "salta" de proveedor en cada turno
+      // (y martillea pools gratuitos con cuota diaria). El sticky se intenta
+      // primero; la cadena sigue cubriendo el fallback si falla.
+      const stickyModelDbId = getStickyModel(messages);
+      return {
+        preferredModel: stickyModelDbId !== undefined && resolvedChain.includes(stickyModelDbId) ? stickyModelDbId : undefined,
+        restrictedChain: resolvedChain,
+      };
     }
 
     const db = getDb();

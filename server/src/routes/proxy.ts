@@ -353,7 +353,13 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         if (retryable) {
           if (errorClassification.cooldownEligible) {
             const policy = PROVIDER_FAILURE_POLICY[route.platform];
-            setCooldown(route.platform, route.modelId, route.keyId, policy?.cooldownMs ?? 120_000);
+            // rate_limited (429) en un pool con cuota diaria (opencode-zen)
+            // suele significar cuota agotada: escalar el cooldown a horas en
+            // vez de los ~5 min de un fallo transitorio (503, timeout).
+            const cooldownMs = errorClassification.code === 'rate_limited'
+              ? (policy?.rateLimitCooldownMs ?? policy?.cooldownMs ?? 120_000)
+              : (policy?.cooldownMs ?? 120_000);
+            setCooldown(route.platform, route.modelId, route.keyId, cooldownMs);
             if (policy?.recordPenalty !== false) recordRateLimitHit(route.modelDbId);
             if (policy?.recordProviderFailure !== false) recordProviderFailure(route.platform);
           }

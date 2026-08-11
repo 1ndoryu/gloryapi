@@ -41,6 +41,10 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     endpoint: 'https://andoryyu-freebuff2api.andoryyu.workers.dev',
     authScheme: 'bearer',
     capabilities: activeCapabilities,
+    // Timeout efectivo del upstream: 120 s. Los prompts grandes (Codex con
+    // contexto enorme) tardan >15 s en recibir el primer chunk; con 15 s el
+    // fetch abortaba y se clasificaba como request_timeout -> 429 recurrente.
+    timeoutMs: 120_000,
   },
   {
     platform: 'opencode-zen',
@@ -51,6 +55,7 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     endpoint: 'https://opencode.ai/zen/v1',
     authScheme: 'bearer',
     capabilities: activeCapabilities,
+    timeoutMs: 120_000,
   },
   {
     platform: 'opencode-go',
@@ -61,6 +66,7 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     endpoint: 'https://opencode.ai/zen/go/v1',
     authScheme: 'bearer',
     capabilities: activeCapabilities,
+    timeoutMs: 120_000,
   },
 ];
 

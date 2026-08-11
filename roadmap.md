@@ -75,6 +75,12 @@ durante la validación posterior al cutover reversible.
 18. `unified_api_key` migrada a `local_auth_tokens` con DPAPI `CurrentUser`; `settings` ya no conserva el
     plaintext. El helper upstream solo resuelve la fila DPAPI en readonly y falla cerrado si falta. Se mantiene
     además ACL sin herencia para Owner, SYSTEM y Administrators como defensa en profundidad.
+19. Bloque de continuidad de conversación (429 `request_timeout` recurrente): corregido el timeout efectivo del
+    upstream (15 s → 120 s, `ProviderDefinition.timeoutMs`), el sticky de proveedor ahora aplica también a
+    cadenas explícitas (`model:"deepseek-v4-flash"`) con `routing.stickyRotationMs=5 min`, opencode-zen escala su
+    cooldown a 4 h en 429 (cuota diaria 4M tokens) y `routing.maxDurationMs=240 s` deja margen de reintento.
+    Evidencia: ADR-004 en `Agente/documentacion/adr/`, 267/267 tests, build OK. Pendiente: validación E2E con
+    sesión larga de Codex Desktop contra el runtime reiniciado e idle-timeout de streams pos-headers.
 
 ## Estado verificado
 
