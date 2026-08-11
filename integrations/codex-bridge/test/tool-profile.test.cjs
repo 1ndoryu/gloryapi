@@ -59,3 +59,48 @@ test('generic profile forwards only client-advertised tools', async () => {
   assert.equal(names.includes('codex_app__automation_update'), false);
   assert.equal(result.toolMap.has('collaborationspawn_agent'), false);
 });
+
+test('codex-desktop preserves a multi-agent call, agent message, and tool result in order', async () => {
+  const translator = makeTranslator('codex-desktop');
+  const result = await translator.translateRequest({
+    stream: false,
+    tools: [{
+      type: 'namespace',
+      name: 'collaboration',
+      tools: [{ type: 'function', name: 'spawn_agent', parameters: { type: 'object' } }],
+    }],
+    input: [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'delegate this task' }] },
+      {
+        type: 'function_call',
+        call_id: 'call-agent-v1',
+        namespace: 'collaboration',
+        name: 'spawn_agent',
+        arguments: '{"agent_type":"worker","fork_turns":"none","message":"inspect the fixture"}',
+      },
+      {
+        type: 'agent_message',
+        content: [{ type: 'input_text', text: 'Message Type: NEW_TASK\nPayload: inspect the fixture' }],
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call-agent-v1',
+        output: '{"status":"accepted"}',
+      },
+    ],
+  });
+
+  const messages = result.chat.messages;
+  const assistantIndex = messages.findIndex(message => message.role === 'assistant' && message.tool_calls?.length);
+  const agentMessageIndex = messages.findIndex(message => message.role === 'user'
+    && JSON.stringify(message.content).includes('Message Type: NEW_TASK'));
+  const toolIndex = messages.findIndex(message => message.role === 'tool' && message.tool_call_id === 'call-agent-v1');
+  assert.ok(assistantIndex >= 0);
+  assert.ok(agentMessageIndex >= 0);
+  assert.ok(agentMessageIndex < assistantIndex);
+  assert.equal(toolIndex, assistantIndex + 1);
+  assert.equal(messages[assistantIndex].tool_calls[0].id, 'call-agent-v1');
+  assert.equal(messages[assistantIndex].tool_calls[0].function.name, 'collaborationspawn_agent');
+  assert.equal(messages[toolIndex].content, '{"status":"accepted"}');
+  assert.equal(messages[toolIndex - 1].role, 'assistant');
+});
