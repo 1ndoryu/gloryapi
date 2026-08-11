@@ -120,6 +120,46 @@ async function stop(child) {
   ]);
 }
 
+async function runCodexExec(codexLauncher, codexHome, dbPath, prompt) {
+  const codexArgs = [
+    ...codexLauncher.prefix,
+    'exec', '--profile', 'gloryapi-canary', '--json', '--ephemeral', '--skip-git-repo-check',
+    '-c', 'features.plugins=false',
+    prompt,
+  ];
+  const codex = spawn(codexLauncher.command, codexArgs, {
+    cwd: root,
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      GLORYAPI_DB_PATH: dbPath,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+  childProcesses.push(codex);
+  let output = '';
+  let errorOutput = '';
+  codex.stdout.on('data', chunk => { output += chunk.toString(); });
+  codex.stderr.on('data', chunk => { errorOutput += chunk.toString(); });
+  const exitCode = await new Promise(resolve => {
+    let settled = false;
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(code);
+    };
+    const timer = setTimeout(() => { try { codex.kill('SIGTERM'); } catch {} finish(124); }, 60_000);
+    codex.once('error', error => {
+      errorOutput += `spawn error: ${error.message}`;
+      finish(1);
+    });
+    codex.once('exit', code => finish(code ?? 1));
+  });
+  return { exitCode, output, errorOutput };
+}
+
 async function main() {
   const serverPort = await new Promise((resolve, reject) => {
     const probe = http.createServer();
@@ -333,43 +373,23 @@ async function main() {
 
   await prepareProfile(bridgePort);
   const codexLauncher = resolveCodexLauncher();
-  const codexArgs = [
-    ...codexLauncher.prefix,
-    'exec', '--profile', 'gloryapi-canary', '--json', '--ephemeral', '--skip-git-repo-check',
-    '-c', 'features.plugins=false',
+  const textRun = await runCodexExec(
+    codexLauncher,
+    codexHome,
+    dbPath,
     'Reply with exactly CANARY_OK and nothing else.',
-  ];
-  const codex = spawn(codexLauncher.command, codexArgs, {
-    cwd: root,
-    env: {
-      ...process.env,
-      CODEX_HOME: codexHome,
-      GLORYAPI_DB_PATH: dbPath,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  let output = '';
-  let errorOutput = '';
-  codex.stdout.on('data', chunk => { output += chunk.toString(); });
-  codex.stderr.on('data', chunk => { errorOutput += chunk.toString(); });
-  const exitCode = await new Promise(resolve => {
-    let settled = false;
-    const finish = (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(code);
-    };
-    const timer = setTimeout(() => { try { codex.kill('SIGTERM'); } catch {} finish(124); }, 60_000);
-    codex.once('error', error => {
-      errorOutput += `spawn error: ${error.message}`;
-      finish(1);
-    });
-    codex.once('exit', code => finish(code ?? 1));
-  });
-  if (exitCode !== 0 || !output.includes('CANARY_OK')) {
-    throw new Error(`Codex canary did not complete: exit=${exitCode}; stderr=${errorOutput.slice(-1500)}; output=${output.slice(-1500)}`);
+  );
+  if (textRun.exitCode !== 0 || !textRun.output.includes('CANARY_OK')) {
+    throw new Error(`Codex text canary did not complete: exit=${textRun.exitCode}; stderr=${textRun.errorOutput.slice(-1500)}; output=${textRun.output.slice(-1500)}`);
+  }
+  const toolRun = await runCodexExec(
+    codexLauncher,
+    codexHome,
+    dbPath,
+    'For CANARY_CODEX_TOOL_CASE, execute the available shell tool once, then reply with exactly CANARY_CODEX_TOOL_OK.',
+  );
+  if (toolRun.exitCode !== 0 || !toolRun.output.includes('CANARY_CODEX_TOOL_OK') || !upstream.state.codexToolObserved) {
+    throw new Error(`Codex tool canary did not complete: exit=${toolRun.exitCode}; stderr=${toolRun.errorOutput.slice(-1500)}; output=${toolRun.output.slice(-1500)}`);
   }
 
   process.stdout.write(JSON.stringify({
@@ -381,6 +401,7 @@ async function main() {
     capabilities: true,
     nonStreaming: true,
     internalToolLoop: true,
+    codexToolExecution: true,
     fallback: true,
     foreignToolset: true,
     foreignToolsetNoCooldown: true,

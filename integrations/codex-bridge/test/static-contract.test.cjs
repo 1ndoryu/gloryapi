@@ -35,6 +35,8 @@ const trayCore = fs.readFileSync(path.join(root, '..', '..', 'integrations', 'gl
 test('the deterministic canary upstream is local-only and response-shaped', () => {
   assert.match(deterministicUpstream, /CANARY_OK/);
   assert.match(deterministicUpstream, /CANARY_TOOL_OK/);
+  assert.match(deterministicUpstream, /CANARY_CODEX_TOOL_CASE/);
+  assert.match(deterministicUpstream, /codexToolObserved/);
   assert.match(deterministicUpstream, /canary-andoryyu-fail/);
   assert.match(deterministicUpstream, /tool_calls/);
   assert.match(deterministicUpstream, /\/v1\/chat\/completions/);

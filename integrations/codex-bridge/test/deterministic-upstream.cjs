@@ -23,6 +23,9 @@ function completionBody(requestBody) {
   const requestsInternalTool = serialized.includes('deterministic canary tool')
     && Array.isArray(requestBody.tools)
     && requestBody.tools.some(tool => tool?.function?.name === 'web_search');
+  const requestsCodexTool = serialized.includes('CANARY_CODEX_TOOL_CASE')
+    && Array.isArray(requestBody.tools)
+    && requestBody.tools.some(tool => tool?.function?.name === 'shell_command');
   const message = requestsInternalTool && !hasToolResult
     ? {
         role: 'assistant',
@@ -33,7 +36,24 @@ function completionBody(requestBody) {
           function: { name: 'web_search', arguments: '{"query":"http://127.0.0.1/private"}' },
         }],
       }
-    : { role: 'assistant', content: hasToolResult ? 'CANARY_TOOL_OK' : 'CANARY_OK' };
+    : requestsCodexTool && !hasToolResult
+      ? {
+          role: 'assistant',
+          content: '',
+          tool_calls: [{
+            id: 'canary-codex-tool-call-v1',
+            type: 'function',
+            function: { name: 'shell_command', arguments: '{"command":"Write-Output CANARY_TOOL_EXECUTED"}' },
+          }],
+        }
+      : {
+          role: 'assistant',
+          content: hasToolResult && serialized.includes('CANARY_CODEX_TOOL_CASE')
+            ? 'CANARY_CODEX_TOOL_OK'
+            : hasToolResult
+              ? 'CANARY_TOOL_OK'
+              : 'CANARY_OK',
+        };
   return {
     id: 'canary-chat-completion-v1',
     object: 'chat.completion',
@@ -91,7 +111,7 @@ function streamCompletion(response, requestBody, state, authorization) {
 }
 
 function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
-  const state = { cancelObserved: false, truncatedObserved: false };
+  const state = { cancelObserved: false, truncatedObserved: false, codexToolObserved: false };
   const server = http.createServer((request, response) => {
     if (!authorized(request, token)) {
       json(response, 401, { error: { message: 'invalid canary credential' } });
@@ -120,6 +140,11 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
         return;
       }
       const serialized = serializedMessages(body);
+      if (serialized.includes('CANARY_CODEX_TOOL_CASE')
+        && Array.isArray(body.messages)
+        && body.messages.some(message => message && message.role === 'tool')) {
+        state.codexToolObserved = true;
+      }
       if (request.headers.authorization === 'Bearer canary-andoryyu-fail'
         && serialized.includes('CANARY_FOREIGN_TOOLSET_CASE')) {
         json(response, 429, {

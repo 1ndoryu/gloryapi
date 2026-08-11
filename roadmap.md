@@ -33,7 +33,8 @@ durante la validación posterior al cutover reversible.
     con Codex CLI `0.146.1`. El canary determinista `npm run canary:codex` ya completó Codex→sidecar→GloryAPI→mock
     con readiness autenticada, lifecycle `ready`, capabilities v2, respuesta no-stream `CANARY_OK`, bucle interno `CANARY_TOOL_OK` sin
     `function_call_output`, fallo trazable de Andoryyu con fallback a Zen y respuesta SSE `CANARY_OK`, usando SQLite
-    temporal, puertos loopback y cleanup; la matriz del endpoint `/capabilities` ahora marca explícitamente
+    temporal, puertos loopback y cleanup; una segunda ejecución temporal de Codex hizo también `shell_command` y
+    recibió `CANARY_CODEX_TOOL_OK`; la matriz del endpoint `/capabilities` ahora marca explícitamente
     `supported`/`adapted`/`unsupported`/`unverified` por cliente/adapter/modelo sin sobreanunciar Desktop o proveedor
     real. `/health` queda limitado a identidad/liveness sin auth y readiness/capabilities mantienen auth; la matriz explicita también
     tool-only, standalone web search, MCP, browser, computer use, automation,
@@ -211,7 +212,7 @@ durante la validación posterior al cutover reversible.
   y selección canary autenticada y restringida a overrides declarados para las tres rutas activas. Evidencia actual:
   60/60 tests dirigidos y 270/270 tests del servidor,
   `npm run build:server` PASS y `npm run canary:codex` PASS con cobertura directa Andoryyu/Zen/Go, fallback,
-  stream, tool loop y Codex CLI aislado. El bridge permanece detenido y ChatGPT normal es la ruta activa;
+  stream, tool loop, ejecución real de shell_command y Codex CLI aislado. El bridge permanece detenido y ChatGPT normal es la ruta activa;
   el E2E real de Desktop/proveedores externos sigue siendo una validación operativa pendiente, no se declara
   como PASS por inferencia.
 

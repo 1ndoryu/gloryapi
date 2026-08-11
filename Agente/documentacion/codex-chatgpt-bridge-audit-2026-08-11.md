@@ -98,7 +98,7 @@ El bridge escucha loopback por defecto, usa `BRIDGE_CLIENT_TOKEN` para el client
 - `node --test integrations/codex-bridge/test/*.test.cjs`: **60/60 PASS**. Incluye anti-falso-complete, reasoning-only, tool-only, web loop, compactación de seguridad, UTF-8 fragmentado, truncamiento, cancelación, preflight, perfiles de herramientas, redacción de visión, routing canary preservado en reintentos y stream que queda abierto después de headers.
 - `npm run build:server`: **PASS**.
 - `npm test -w server`: **270/270 PASS** en 47 archivos, incluidos los tres casos de routing canary fail-closed.
-- `npm run canary:codex`: **PASS**. Resultado: `readiness`, `lifecycle`, `capabilities`, texto, tool loop, fallback, foreign toolset sin cooldown, stream, aislamiento y `providerCoverage` directo para `andoryyu`, `opencode-zen` y `opencode-go`.
+- `npm run canary:codex`: **PASS**. Resultado: `readiness`, `lifecycle`, `capabilities`, texto, loop web interno, ejecución real de `shell_command` desde Codex CLI en `CODEX_HOME` temporal (`codexToolExecution`), fallback, foreign toolset sin cooldown, stream, aislamiento y `providerCoverage` directo para `andoryyu`, `opencode-zen` y `opencode-go`.
 - Los scripts E2E con prefijo `_e2e_` no se incluyen en el baseline automático porque requieren un bridge ya activo en `:4100`; el archivo ajeno `_e2e_apply_patch.cjs` se preserva sin modificar.
 - El bridge queda detenido después de las pruebas. ChatGPT normal permanece activo y la configuración del usuario no se cambia.
 

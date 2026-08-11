@@ -11,7 +11,7 @@
 2. **Documentación y matriz — completada.** Se fijaron frontera Responses/Chat Completions, ownership de routing, matriz de tres proveedores, límites de tools/agentes/plugins/visión/compactación y riesgos residuales.
 3. **Correcciones del bridge — completada.** Se añadió transporte streaming con timeout total/idle, perfil `codex-desktop|generic`, filtrado del fallback reasoning y redacción de errores upstream.
 4. **Canary de tres proveedores — completada.** El harness usa SQLite/puertos/credenciales temporales, helper DPAPI token-only, selección server-side autenticada y ejecuta una petición Responses directa por proveedor más fallback; `auto`, modelos no declarados y token inválido quedan fail-closed.
-5. **Verificación — completada localmente.** `npm run build:server`, 60/60 tests dirigidos, `npm run task:check:local` y `npm run canary:codex` pasan; el bridge se detiene al finalizar.
+5. **Verificación — completada localmente.** `npm run build:server`, 60/60 tests dirigidos, 270/270 tests del servidor, `npm run task:check:local` y `npm run canary:codex` pasan; el canary ejecuta además un `shell_command` real desde Codex CLI temporal y el bridge se detiene al finalizar.
 6. **E2E Desktop/proveedor real — pendiente explícito.** Solo se ejecutará con una ventana autorizada usando un perfil separado, sin editar `config.toml`; hasta entonces la capability real continúa `unverified`.
 
 ## Definition of Done
