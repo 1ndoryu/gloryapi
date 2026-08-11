@@ -107,6 +107,21 @@ const MAX_BODY_BYTES = boundedEnvInt('BRIDGE_MAX_BODY_BYTES', 8 * 1024 * 1024, 1
 const MAX_ACTIVE_REQUESTS = 32;
 const MAX_PATH_BYTES = 512;
 const UPSTREAM_TIMEOUT_MS = boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_MS', 180000, 100, 300000);
+// Anti falso-complete (2026-08-10): número máximo de reintentos (nudge) cuando
+// el modelo narra intención sin invocar herramientas, y timeout acotado para ese
+// segundo request (no debe duplicar la latencia del principal). 0 = desactivado.
+const NUDGE_RETRIES = boundedEnvInt('BRIDGE_NUDGE_RETRIES', 1, 0, 3);
+const NUDGE_TIMEOUT_MS = boundedEnvInt('BRIDGE_NUDGE_TIMEOUT_MS', 60000, 1000, 300000);
+const EXECUTION_DIRECTIVE =
+  'Directiva de ejecución: cuando tu respuesta requiera realizar una acción ' +
+  '(leer, buscar, editar, ejecutar, reintentar una operación...), invoca la ' +
+  'herramienta correspondiente EN ESTE MISMO TURNO. Nunca termines tu turno ' +
+  'anunciando una acción sin ejecutarla: si anuncias una acción, ejecútala ' +
+  'antes de finalizar.';
+const NUDGE_DIRECTIVE =
+  'Continúa: ejecuta ahora la acción que anunciaste usando las herramientas ' +
+  'disponibles. No repitas el plan: invoca la herramienta en este turno. Si la ' +
+  'acción ya está hecha o no requiere herramienta, responde solo el resultado.';
 const UPSTREAM_MAX_RESPONSE_BYTES = boundedEnvInt('BRIDGE_UPSTREAM_MAX_BYTES', 32 * 1024 * 1024, 1024, 64 * 1024 * 1024);
 const REQUEST_LOG_MAX_BYTES = boundedEnvInt('BRIDGE_REQUEST_LOG_MAX_BYTES', 4 * 1024 * 1024, 64 * 1024, 32 * 1024 * 1024);
 const REQUEST_LOG_RETENTION = boundedEnvInt('BRIDGE_REQUEST_LOG_RETENTION', 3, 1, 9);
@@ -1060,6 +1075,15 @@ async function translateRequest(body) {
   if (typeof body.parallel_tool_calls === 'boolean') chat.parallel_tool_calls = body.parallel_tool_calls;
   if (typeof body.max_output_tokens === 'number') chat.max_tokens = body.max_output_tokens;
 
+  // Anti falso-complete (capa preventiva, 2026-08-10): con tools disponibles y
+  // una conversación real, recordamos al modelo ejecutar en este turno. Mensaje
+  // system propio al final (no muta el system de Codex ni el recorte de
+  // boundSystemContent). El guard de messages evita "crear" conversación desde
+  // un payload inválido vacío (que debe seguir siendo 400 invalid_request).
+  if (chat.messages.length > 0 && chat.tools && chat.tools.length && NUDGE_RETRIES > 0) {
+    chat.messages.push({ role: 'system', content: EXECUTION_DIRECTIVE });
+  }
+
   return { chat, toolMap, customTools };
 }
 
@@ -1201,6 +1225,63 @@ function withSpawnForkFix(name, argsString) {
     changed = true;
   }
   return changed ? JSON.stringify(parsed) : argsString;
+}
+
+// ---------------------------------------------------------------------------
+// Anti falso-complete: narración de intención sin ejecución (2026-08-10)
+// ---------------------------------------------------------------------------
+// DeepSeek a veces "narra" la acción que va a hacer ("Voy a escanear los .md...",
+// "Necesito ajustar el fork... lo reintento") en lugar de invocar la herramienta.
+// Codex Desktop interpreta texto sin function_call como fin de turno y cierra con
+// task_complete sin ejecutar nada (el usuario pierde tiempo verificando). Tres
+// capas: (A) directiva preventiva en el prompt cuando hay tools, (B) detección de
+// la narrativa + UN reintento (nudge) pidiendo ejecutar la acción, (C) telemetría
+// con kinds nudge_retry / nudge_noop / nudge_error.
+function isFutureIntentNarration(text) {
+  if (!text) return false;
+  return /(voy a|vamos a|necesito|debo|lo reintento|reintento|procedo a|ahora voy|primero voy|lo haré|intentaré|voy a intentar|voy a hacer|voy a (escanear|revisar|buscar|crear|editar|modificar|comprobar|listar|ejecutar|probar|analizar|leer|abrir|instalar|configurar|correr|verificar))/i.test(
+    text,
+  );
+}
+
+// El retry reenvía el texto narrativo como mensaje assistant (contexto de lo
+// anunciado) y añade la directiva de ejecución como user.
+function buildNudgeChat(chat, finalText) {
+  return {
+    ...chat,
+    stream: false,
+    messages: [
+      ...(chat.messages || []),
+      { role: 'assistant', content: finalText || '' },
+      { role: 'user', content: NUDGE_DIRECTIVE },
+    ],
+  };
+}
+
+// Devuelve { toolCalls, reasoning, routedVia } del retry, o null si el request
+// falló (el llamador decide qué hacer; nunca propaga el error como fallo del
+// turno original).
+async function nudgeForToolCalls(chat, authorization, finalText) {
+  const nudgeChat = buildNudgeChat(chat, finalText);
+  try {
+    const json = await fetchUpstreamCompletion(nudgeChat, authorization, NUDGE_TIMEOUT_MS);
+    const message =
+      json.choices && json.choices[0] && json.choices[0].message ? json.choices[0].message : {};
+    return {
+      toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+      reasoning: message.reasoning_content || '',
+      routedVia: json.__routedVia || null,
+    };
+  } catch (error) {
+    logRequest({
+      ts: new Date().toISOString(),
+      kind: 'nudge_error',
+      requestId: chat.__gloryRequestId,
+      status: error.statusCode || 502,
+      error: error.message,
+    });
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1706,10 +1787,10 @@ function hasWebTool(toolMap) {
   return [...toolMap.values()].some((entry) => entry && entry.web);
 }
 
-async function fetchUpstreamCompletion(chat, authorization) {
+async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM_TIMEOUT_MS) {
   assertSafeLoopbackUpstream(UPSTREAM);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   let raw;
   try {
@@ -1731,7 +1812,7 @@ async function fetchUpstreamCompletion(chat, authorization) {
     const timedOut = controller.signal.aborted;
     const error = new Error(
       timedOut
-        ? `upstream timed out after ${UPSTREAM_TIMEOUT_MS} ms`
+        ? `upstream timed out after ${timeoutMs} ms`
         : `upstream request failed: ${redactText(cause && cause.message)}`,
     );
     error.statusCode = 502;
@@ -2221,6 +2302,54 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     return;
   }
 
+  // Anti falso-complete (capa B, 2026-08-10): si el modelo narró intención sin
+  // invocar herramientas teniendo tools disponibles, reintentamos una vez con
+  // una directiva de ejecución para que el turno continúe con tool_calls reales.
+  // El texto narrativo ya se emitió como deltas (no hay vuelta atrás); las
+  // tool_calls del retry se incorporan al Map y las emite el loop de abajo. Si
+  // el retry vuelve sin tools, se descarta y se cierra con la respuesta original.
+  let nudgeReasoning = '';
+  if (
+    toolCalls.size === 0 &&
+    text &&
+    Array.isArray(chat.tools) &&
+    chat.tools.length &&
+    NUDGE_RETRIES > 0 &&
+    isFutureIntentNarration(text)
+  ) {
+    const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), text);
+    if (nudge && nudge.toolCalls.length) {
+      let nextIndex = toolCalls.size;
+      for (const tc of nudge.toolCalls) {
+        toolCalls.set(nextIndex++, {
+          id: tc.id || rand('call'),
+          name: (tc.function && tc.function.name) || '',
+          args: (tc.function && tc.function.arguments) || '',
+        });
+      }
+      nudgeReasoning = nudge.reasoning || '';
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_retry',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: text.length,
+        toolCalls: nudge.toolCalls.length,
+        toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+      });
+    } else if (nudge) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_noop',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: text.length,
+      });
+    }
+  }
+
   // Final message item (accumulated text)
   if (text) {
     sseEvent(res, 'response.output_item.done', {
@@ -2239,7 +2368,8 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   // `custom_tool_call` with the raw `input` payload; codex 0.147 rejects a
   // function_call with "tool apply_patch invoked with incompatible payload".
   for (const tc of toolCalls.values()) {
-    if (reasoningText) rememberReasoning(tc.id, reasoningText);
+    const itemReasoning = reasoningText || nudgeReasoning;
+    if (itemReasoning) rememberReasoning(tc.id, itemReasoning);
     const { namespace, name, custom, search, web } = lookupToolCall(tc.name, toolMap, customTools);
     if (search) {
       // Tool discovery stays app-handled: emit tool_search_call so the app can
@@ -2401,6 +2531,70 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         item.encrypted_function_args = [];
       }
       output.push(item);
+    }
+  }
+  // Anti falso-complete (capa B, 2026-08-10): misma detección que en el path
+  // streaming; las tool_calls del retry se añaden al output final.
+  if (
+    !(message.tool_calls || []).length &&
+    message.content &&
+    Array.isArray(chat.tools) &&
+    chat.tools.length &&
+    NUDGE_RETRIES > 0 &&
+    isFutureIntentNarration(message.content)
+  ) {
+    const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), message.content);
+    if (nudge && nudge.toolCalls.length) {
+      const nudgeReasoning = nudge.reasoning || '';
+      for (const tc of nudge.toolCalls) {
+        if (nudgeReasoning) rememberReasoning(tc.id, nudgeReasoning);
+        const wireName = tc.function && tc.function.name;
+        const { namespace, name, custom, search, web } = lookupToolCall(wireName, toolMap, customTools);
+        const args = (tc.function && tc.function.arguments) || '{}';
+        if (search) {
+          output.push({ type: 'tool_search_call', call_id: tc.id, name, arguments: args, status: 'completed' });
+        } else if (web) {
+          // No debería ocurrir: este path no corre con web tools (guard arriba).
+          continue;
+        } else if (custom) {
+          let rawInput = args;
+          try {
+            const parsed = JSON.parse(args);
+            if (parsed && typeof parsed.input === 'string') rawInput = parsed.input;
+            else if (parsed && typeof parsed === 'string') rawInput = parsed;
+          } catch {}
+          output.push({ type: 'custom_tool_call', call_id: tc.id, name, input: rawInput });
+        } else {
+          const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, args) };
+          if (namespace) item.namespace = namespace;
+          if (
+            namespace === 'collaboration' &&
+            (name === 'spawn_agent' || name === 'send_message' || name === 'followup_task')
+          ) {
+            item.encrypted_function_args = [];
+          }
+          output.push(item);
+        }
+      }
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_retry',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: (message.content || '').length,
+        toolCalls: nudge.toolCalls.length,
+        toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+      });
+    } else if (nudge) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_noop',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: (message.content || '').length,
+      });
     }
   }
   if (!output.length) {
