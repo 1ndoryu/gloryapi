@@ -79,6 +79,8 @@ durante la validación posterior al cutover reversible.
     pasó texto, `function_call` y SSE sin `FALLBACK_REASONING`; el payload fiel de Browser/plugin también
     completó la ronda `function_call(js)` → `function_call_output` sintético → `message`. Falta E2E desde
     la aplicación Desktop y atribuir cada inferencia a un proveedor individual en una ventana reversible.
+    La matriz real aislada observó `429`/`response.failed` en Andoryyu y Zen, y `200`/`response.completed`
+    en Go; queda como evidencia de disponibilidad de esa ventana, no como PASS simultáneo de proveedores.
 18. `unified_api_key` migrada a `local_auth_tokens` con DPAPI `CurrentUser`; `settings` ya no conserva el
     plaintext. El helper upstream solo resuelve la fila DPAPI en readonly y falla cerrado si falta. Se mantiene
     además ACL sin herencia para Owner, SYSTEM y Administrators como defensa en profundidad.
