@@ -42,8 +42,9 @@ durante la validación posterior al cutover reversible.
     `glory-codex-lifecycle-v1`: `starting`/`ready`/`blocked`/`draining`/`stopped`,
     inferencia solo en `ready` y shutdown con drenaje acotado. El proveedor real Andoryyu,
     el runtime local y el bridge pasan readiness dentro del canary aislado; ChatGPT normal permanece
-    activo y el bridge queda detenido fuera de esa prueba. La matriz completa, bandeja y E2E
-    Desktop/proveedores externos siguen abiertos.
+    activo y el bridge queda detenido fuera de esa prueba. Una E2E HTTP adicional contra el GloryAPI
+    autenticado pasó texto, `function_call` y SSE en un puerto temporal. La matriz completa, bandeja,
+    E2E Desktop y atribución individual del proveedor siguen abiertos.
 11. La investigación de OpenCodex se incorporó aditivamente a Fase 10.7: control-plane/data-plane separados,
     catálogo distinto de routing, afinidad de hilo, límites HTTP explícitos y recuperación/journal como trabajo
     aplicado selectivamente a `codex-mode.ps1` con lock, journal y hashes; no se copió código ni se instaló OpenCodex.
@@ -74,8 +75,9 @@ durante la validación posterior al cutover reversible.
     captura el proceso hijo y confirma que no hereda ningún token.
 17. El estado operativo de esta auditoría conserva ChatGPT normal y el bridge detenido fuera del canary;
     no se modificó `C:\Users\Owner\.codex\config.toml`. El canary local Node → bridge → GloryAPI cubre
-    Andoryyu, OpenCode Zen, OpenCode Go y fallback con HTTP 200. Falta E2E desde la aplicación Desktop y
-    validar proveedores externos reales en una ventana reversible.
+    Andoryyu, OpenCode Zen, OpenCode Go y fallback con HTTP 200, y la E2E HTTP autenticada temporal
+    pasó texto, `function_call` y SSE sin `FALLBACK_REASONING`. Falta E2E desde la aplicación Desktop y
+    atribuir cada inferencia a un proveedor individual en una ventana reversible.
 18. `unified_api_key` migrada a `local_auth_tokens` con DPAPI `CurrentUser`; `settings` ya no conserva el
     plaintext. El helper upstream solo resuelve la fila DPAPI en readonly y falla cerrado si falta. Se mantiene
     además ACL sin herencia para Owner, SYSTEM y Administrators como defensa en profundidad.
@@ -201,7 +203,7 @@ durante la validación posterior al cutover reversible.
   → GloryAPI → SSE `CANARY_OK` con SQLite temporal, puertos loopback y cleanup. La prueba HTTP real del sidecar cubre
   UTF-8 fragmentado, stream sin `[DONE]`, abort al cerrar el cliente y readiness/capabilities; el contrato HTTP
   también verifica `/lifecycle`, estado `blocked` fail-closed y la transición documentada de shutdown; el bridge continúa
-  detenido y no se anuncia compatibilidad completa de Codex Desktop ni de proveedores reales.
+  detenido y no se anuncia compatibilidad completa de Codex Desktop ni atribución individual de proveedores reales.
 - El nudge anti-falso-complete quedó limitado al turno actual (`currentTurnHasToolMessages`) y el
   refactor posterior del bridge centralizó la salida de tools en streaming/non-streaming. Las respuestas
   tool-only ahora emiten `function_call` con `end_turn=false`, el `FALLBACK_REASONING` sintético se filtra

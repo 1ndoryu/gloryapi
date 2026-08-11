@@ -1,9 +1,9 @@
 # Auditoría del bridge ChatGPT/Codex ↔ GloryAPI
 
 - **Fecha:** 2026-08-11
-- **Estado:** implementado y verificado localmente; E2E de la aplicación Desktop con el perfil real sigue sin ejecutarse por decisión operativa (ChatGPT normal permanece activo).
+- **Estado:** implementado y verificado localmente; además pasó una E2E HTTP real y aislada contra el GloryAPI local autenticado. El E2E de la aplicación Desktop con el perfil real sigue sin ejecutarse por decisión operativa (ChatGPT normal permanece activo).
 - **Alcance:** `integrations/codex-bridge/`, el proxy de GloryAPI y sus tres proveedores activos: Andoryyu, OpenCode Zen y OpenCode Go.
-- **No alcance:** cambiar `C:\Users\Owner\.codex\config.toml`, activar un perfil alternativo, hacer llamadas reales a proveedores externos, deploy, push o SSH.
+- **No alcance:** cambiar `C:\Users\Owner\.codex\config.toml`, activar un perfil alternativo desde la aplicación Desktop, hacer llamadas directas a APIs externas de proveedores, deploy, push o SSH.
 
 ## Resumen ejecutivo
 
@@ -103,7 +103,7 @@ El bridge escucha loopback por defecto, usa `BRIDGE_CLIENT_TOKEN` para el client
 - `npm run build:server`: **PASS**.
 - `npm test -w server`: la evidencia histórica de esta rama es **270/270 PASS** en 47 archivos, incluidos los tres casos de routing canary fail-closed. En la verificación actual no llegó a iniciar por un error de resolución/esbuild del entorno (`Access is denied` al resolver `../../../../..` y no encuentra `server/vitest.config.ts`); se repitió sin modificar la configuración.
 - `npm run canary:codex`: **PASS**. Resultado: `readiness`, `lifecycle`, `capabilities`, texto, SSE Responses real (`stream`), continuidad al cambiar entre proveedores (`providerSwitching`), toolset namespaced de plugin/MCP (`pluginTooling`), forwarding aislado del Browser skill con `features.plugins=true`, instalación temporal desde el marketplace local y marcadores distintivos de sus instrucciones (`pluginSkillForwarding`), loop web interno, ejecución real de `shell_command` desde Codex CLI en `CODEX_HOME` temporal (`codexToolExecution`), fallback, foreign toolset sin cooldown, aislamiento y `providerCoverage` directo para `andoryyu`, `opencode-zen` y `opencode-go`.
-- Arranque operativo en esta sesión: `/api/ping` de GloryAPI ya respondía en `:3101`; el wrapper por defecto no pudo crear `server/data/bridge-runtime` por ACL (`Access denied`). Se añadió `-RuntimeDataDir`/`-Port` coordinado en `start-bridge.ps1`, `stop-bridge.ps1` y `restart-bridge.ps1`; la instancia temporal respondió `/health` y fue detenida. Los helpers de credenciales devolvieron `token unavailable` y `local key unavailable`, por lo que no se ejecutó ninguna inferencia contra proveedores externos.
+- E2E HTTP real aislada: los helpers locales resolvieron ambas credenciales en memoria, sin imprimirlas; un bridge temporal en el puerto `4197` contra GloryAPI `:3101` pasó `/ready`, `/health` y `/capabilities` (`200`), una respuesta no streaming (`message`, `200`), una llamada de herramienta (`function_call`, `200`) y una respuesta SSE (`200`, `text/event-stream`, con `response.completed`). No apareció `FALLBACK_REASONING` en ninguna salida. El proceso y su runtime temporal fueron eliminados al terminar.
 - Los scripts E2E con prefijo `_e2e_` no se incluyen en el baseline automático porque requieren un bridge ya activo en `:4100`; el archivo ajeno `_e2e_apply_patch.cjs` se preserva sin modificar.
 - El bridge queda detenido después de las pruebas. ChatGPT normal permanece activo y la configuración del usuario no se cambia.
 
@@ -118,4 +118,4 @@ pero no se presenta como prueba del runtime integrado de plugin/MCP en Desktop.
 
 ## Riesgos residuales y criterio de cierre
 
-La compatibilidad de protocolo y el routing canary están respaldados. Aún no es lícito afirmar “proveedores reales sin fallos” porque las credenciales locales requeridas no están disponibles y no se ejecutaron llamadas externas ni un E2E desde la aplicación Desktop con el perfil normal. Ese cierre requiere, en una ventana explícita y reversible, un perfil canary separado y una conversación nueva que pruebe stream, tools, MCP/plugin, colaboración, visión, compactación, cancelación, cambio de proveedor y rollback. Mientras esa evidencia no exista, el estado correcto es **localmente probado / proveedor real y Desktop E2E no verificados**, no un PASS absoluto.
+La compatibilidad de protocolo y el routing canary están respaldados. La E2E HTTP real contra el GloryAPI autenticado confirma el contrato vivo del bridge, pero no identifica por sí sola qué proveedor terminó atendiendo cada request ni sustituye una sesión desde la aplicación Desktop. Ese cierre requiere, en una ventana explícita y reversible, un perfil canary separado y una conversación nueva que pruebe stream, tools, MCP/plugin, colaboración, visión, compactación, cancelación, cambio de proveedor y rollback. Mientras esa evidencia no exista, el estado correcto es **bridge vivo probado / proveedor individual y Desktop E2E no verificados**, no un PASS absoluto.

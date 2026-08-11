@@ -290,6 +290,14 @@ La operación local del 2026-08-10 siguió este orden reversible:
    comprobar que los enlaces y el modo coinciden con el snapshot y registrar la
    evidencia final.
 
+La E2E HTTP aislada del 2026-08-11 ya fue ejecutada sin activar ningún perfil de
+ChatGPT: un bridge temporal en `:4197`, contra el GloryAPI autenticado en `:3101`,
+pasó `/ready`, `/health`, `/capabilities`, una respuesta no streaming, una llamada
+`function_call` y una respuesta SSE con `response.completed`. El resultado no
+contuvo `FALLBACK_REASONING`; el proceso y el runtime temporal se eliminaron al
+finalizar. Esto valida el contrato vivo del bridge, pero no sustituye una prueba
+desde Codex Desktop ni identifica por sí sola el proveedor final.
+
 El snapshot histórico de rollback puede existir en `%USERPROFILE%\.codex\gloryapi-cutover.rollback.*.json`.
 En la operación actual ChatGPT normal es la ruta activa y el bridge queda detenido después
 de las pruebas; no se debe ejecutar un switch para esta auditoría.
