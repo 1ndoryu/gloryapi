@@ -27,11 +27,11 @@ const test = require('node:test');
 const bridgeFile = path.resolve(__dirname, '..', 'bridge', 'server.js');
 
 // ---------------------------------------------------------------------------
-// Bloque estático: extrae isFutureIntentNarration del server.js real
+// Bloque estático: extrae las heurísticas del adaptador de contexto real
 // ---------------------------------------------------------------------------
-const src = fs.readFileSync(bridgeFile, 'utf8');
+const src = fs.readFileSync(path.resolve(__dirname, '..', 'bridge', 'context-adapter.js'), 'utf8');
 
-// Extrae una función del server.js real (respeta strings/escapes y llaves).
+// Extrae una función del adaptador real (respeta strings/escapes y llaves).
 function extractFunction(fnName) {
   const start = src.indexOf(`function ${fnName}`);
   if (start < 0) {

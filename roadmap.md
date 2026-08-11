@@ -200,9 +200,12 @@ durante la validación posterior al cutover reversible.
   refactor posterior del bridge centralizó la salida de tools en streaming/non-streaming. Las respuestas
   tool-only ahora emiten `function_call` con `end_turn=false`, el `FALLBACK_REASONING` sintético se filtra
   también de la caché persistida y reasoning-only/vacío tiene una recuperación única y bounded antes de
-  `response.failed`. Evidencia del bloque 11826-4: regresiones dirigidas 18/18, build PASS y gate PASS
-  con 0 errores. El bridge permanece detenido y ChatGPT normal es la ruta activa; falta validar E2E desde
-  Desktop únicamente cuando se reactive explícitamente el canary.
+  `response.failed`. El bloque 11826-5 dividió `server.js` en adapters/handlers por responsabilidad
+  y centralizó la configuración agnóstica (`BRIDGE_*`, con aliases legacy); `server.js` quedó en 276 líneas.
+  Evidencia actual: regresiones dirigidas 34/34, suite bridge 51/53 con solo los dos fallos conocidos de
+  `vision-error-redaction`, build PASS y gate PASS con 0 errores. El bridge permanece detenido y ChatGPT
+  normal es la ruta activa; falta validar E2E desde Desktop únicamente cuando se reactive explícitamente
+  el canary.
 
 
 ## Bloqueos y decisiones pendientes

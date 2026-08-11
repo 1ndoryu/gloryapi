@@ -1,5 +1,5 @@
 const fs = require('fs');
-const src = fs.readFileSync(require('path').join(__dirname, '..', 'bridge', 'server.js'), 'utf8');
+const src = fs.readFileSync(require('path').join(__dirname, '..', 'bridge', 'context-adapter.js'), 'utf8');
 const start = src.indexOf('function withSpawnForkFix');
 if (start < 0) { console.error('FAIL: withSpawnForkFix no encontrada'); process.exit(1); }
 let i = start, depth = 0, inStr = null, esc = false;

@@ -4,6 +4,27 @@
 `%USERPROFILE%\.codex\bridge`, es un junction de Windows hacia esa carpeta: no hay
 copia instalada ni paso de sincronización.
 
+## Estructura del bridge
+
+`server.js` es únicamente el entrypoint y el orquestador del proceso. La lógica está separada por
+responsabilidad para poder probarla y sustituir el proveedor sin editar el servidor:
+
+- `config.js`: configuración normalizada desde variables de entorno, límites, timeouts, contratos y defaults.
+- `request-translator.js`: Responses → Chat Completions, herramientas, namespaces y mensajes históricos.
+- `context-adapter.js`: límites de contexto, compactación de seguridad, calibración y recuperaciones de cierre.
+- `responses-adapter.js`: serialización Chat Completions → Responses/SSE y routing de tool calls.
+- `upstream-adapter.js`: transporte al proveedor, timeouts, recuperación de respuestas vacías y web loop.
+- `response-handlers.js`: paths streaming y non-streaming, con la misma política de recuperación.
+- `vision.js` y `reasoning-cache.js`: adaptaciones y cachés persistentes aislados.
+- `http-server.js`: endpoints HTTP, autenticación local, readiness, lifecycle y shutdown graceful.
+
+La configuración prioriza aliases agnósticos y mantiene compatibilidad con `GLORY_*`/`FREEL_*`:
+`BRIDGE_UPSTREAM_BASE_URL`, `BRIDGE_UPSTREAM_COMPLETIONS_PATH`, `BRIDGE_UPSTREAM_API_KEY`,
+`BRIDGE_UPSTREAM_AUTH_SCHEME`, `BRIDGE_MODEL`, `BRIDGE_HOST`, `BRIDGE_PROVIDER_NAME` y
+`BRIDGE_UPSTREAM_CONTRACT`. Los límites y políticas siguen siendo configurables mediante las variables
+`BRIDGE_*` documentadas en este archivo. El bridge continúa escuchando en loopback por defecto y
+apunta a un upstream OpenAI-compatible por defecto; cambiar de proveedor no requiere editar adapters.
+
 Los scripts `codex-mode.ps1`, `switch-chatgpt.ps1` y `switch-deepseek.ps1` tienen su
 única fuente física en `mode/`. Sus rutas conocidas en `%USERPROFILE%\.codex` son
 enlaces simbólicos hacia esos archivos; siguen ejecutándose con los mismos nombres y

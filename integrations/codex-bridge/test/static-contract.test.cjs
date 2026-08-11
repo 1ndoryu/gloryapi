@@ -5,7 +5,21 @@ const test = require('node:test');
 
 const root = path.resolve(__dirname, '..');
 const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
-const server = read('bridge', 'server.js');
+const bridgeSources = [
+  'server.js',
+  'config.js',
+  'reasoning-cache.js',
+  'vision.js',
+  'request-translator.js',
+  'context-adapter.js',
+  'responses-adapter.js',
+  'upstream-adapter.js',
+  'response-handlers.js',
+  'http-server.js',
+].map((file) => read('bridge', file)).join('\n');
+// Keep the historical variable name for the contract assertions: it now
+// represents the canonical bridge source bundle, not one monolithic file.
+const server = bridgeSources;
 const endpointSecurity = read('bridge', 'endpoint-security.js');
 const diagnostics = read('bridge', 'diagnostics.js');
 const requestLog = read('bridge', 'request-log.js');
@@ -30,9 +44,9 @@ test('the deterministic canary upstream is local-only and response-shaped', () =
 
 test('the canonical bridge contains no credential literals', () => {
   assert.doesNotMatch(server, /(?:sk|freellmapi)-[A-Za-z0-9_-]{12,}/);
-  assert.match(server, /process\.env\.GLORY_API_KEY/);
-  assert.match(server, /process\.env\.VISION_API_KEY/);
-  assert.match(server, /process\.env\.BRIDGE_CLIENT_TOKEN/);
+  assert.match(server, /GLORY_API_KEY/);
+  assert.match(server, /env\.VISION_API_KEY/);
+  assert.match(server, /env\.BRIDGE_CLIENT_TOKEN/);
   assert.match(server, /function clientAuthorized/);
   assert.match(server, /function upstreamAuthHeader/);
   assert.doesNotMatch(server, /Authorization:\s*authHeader\(req\)/);
@@ -43,9 +57,9 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(server, /BRIDGE_MAX_BODY_BYTES/);
   assert.match(server, /BRIDGE_SEARCH_MAX_BYTES/);
   assert.match(server, /statusCode = 413/);
-  assert.match(server, /MAX_ACTIVE_REQUESTS = 32/);
+  assert.match(server, /maxActiveRequests: boundedEnvInt\('BRIDGE_MAX_ACTIVE_REQUESTS', 32/);
   assert.match(server, /code: 'bridge_busy'/);
-  assert.match(server, /service: BRIDGE_ID/);
+  assert.match(server, /service: identity\.bridgeId/);
   assert.match(server, /req\.on\(['"]aborted['"], abortUpstream\)/);
   assert.match(server, /res\.on\(['"]close['"], abortUpstream\)/);
   assert.match(server, /response\.failed/);
@@ -54,8 +68,8 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(server, /function getCapabilityMatrix/);
   assert.match(server, /codexDesktopE2E: \{ status: 'unverified'/);
   assert.match(server, /providerInference: \{ status: 'unverified'/);
-  assert.match(server, /CAPABILITIES_SCHEMA/);
-  assert.match(server, /LIFECYCLE_SCHEMA/);
+  assert.match(server, /identity\.capabilitiesSchema/);
+  assert.match(server, /identity\.lifecycleSchema/);
   assert.match(server, /function getLifecycle/);
   assert.doesNotMatch(server, /COMPACTION_ENABLED/);
   assert.match(server, /compaction: DISABLED \(native Codex owns context continuity\)/);
@@ -71,7 +85,7 @@ test('the local HTTP boundary is constrained', () => {
   assert.match(server, /assertSafeLoopbackUpstream/);
   assert.match(server, /redirect: 'error'/);
   assert.match(server, /function validateImageReference/);
-  assert.match(server, /MAX_IMAGE_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(server, /maxImageBytes: boundedEnvInt\('BRIDGE_MAX_IMAGE_BYTES', 8 \* 1024 \* 1024/);
   assert.match(server, /magic bytes do not match/);
   assert.match(endpointSecurity, /public HTTPS without embedded credentials/);
   assert.match(endpointSecurity, /explicit loopback HTTP/);
@@ -180,7 +194,7 @@ test('diagnostic logs stay metadata-only for prompt-bearing paths', () => {
   assert.doesNotMatch(server, /web search OK source=\$\{label\} query="\$\{q\}"/);
   assert.match(server, /formatRemoteFailure/);
   assert.match(server, /safe\.errorBytes/);
-  assert.match(server, /if \(!REQUEST_LOG_FULL\) delete safe\.error/);
+  assert.match(server, /if \(!config\.logging\.full\) delete safe\.error/);
   assert.doesNotMatch(server, /summarize failed HTTP.*await res\.text/s);
   assert.match(diagnostics, /Prompt-bearing remote failures/);
   assert.match(diagnostics, /formatRemoteFailure/);
@@ -196,7 +210,7 @@ test('diagnostic logs stay metadata-only for prompt-bearing paths', () => {
   assert.match(server, /compact summary generated tokens=/);
   assert.doesNotMatch(server, /COMPACT SUMMARY.*\$\{summaryText\}/s);
   assert.doesNotMatch(server, /DEBUG\)\s+log\('chat request:',\s*JSON\.stringify\(chat\)/);
-  assert.match(server, /if \(!REQUEST_LOG_FULL\) delete safe\.body/);
+  assert.match(server, /if \(!config\.logging\.full\) delete safe\.body/);
 });
 
 test('mode switch scripts delegate to the fail-closed controller', () => {
