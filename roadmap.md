@@ -218,7 +218,7 @@ durante la validación posterior al cutover reversible.
   y centralizó la configuración agnóstica (`BRIDGE_*`, con aliases legacy); `server.js` quedó en 276 líneas.
   La auditoría 2026-08-11 añadió timeout total/idle al streaming, perfiles de tools `codex-desktop|generic`,
   selección canary autenticada y restringida a overrides declarados para las tres rutas activas, y un auditor live
-  aislado con proyección de trazas metadata-only. Evidencia actual: 93/93 tests del bridge + 2/2 de seguridad,
+  aislado con proyección de trazas metadata-only. Evidencia actual: 96/96 tests del bridge + 2/2 de seguridad,
   `npm run build:server` PASS, quality gate PASS y `npm run canary:codex` PASS con cobertura directa Andoryyu/Zen/Go,
   fallback, stream, tool loop, plugins/MCP, agentes, ejecución real de `shell_command`, Codex CLI aislado y un
   `codex app-server` aislado con dos turnos, `turn/completed` y compaction observable.

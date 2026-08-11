@@ -9,6 +9,8 @@ const { readResponseTextBounded, requestResponsesStream } = require('./http-help
 const { sanitizePluginConfig } = require('./plugin-config.cjs');
 const { summarizeRoutingTrace } = require('./routing-evidence.cjs');
 const { runCodexAppServerCanary } = require('./app-server-canary.cjs');
+const { closeServerBounded } = require('./bounded-server-close.cjs');
+const { cleanupCanaryResources } = require('./canary-cleanup.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const node = process.execPath;
@@ -138,10 +140,17 @@ function preparePluginCanaryConfig() {
 async function stop(child) {
   if (!child || child.exitCode != null) return;
   child.kill('SIGTERM');
-  await Promise.race([
-    new Promise(resolve => child.once('exit', resolve)),
-    sleep(2_000).then(() => { try { child.kill('SIGKILL'); } catch {} }),
+  const exited = await Promise.race([
+    new Promise(resolve => child.once('exit', () => resolve(true))),
+    sleep(2_000).then(() => false),
   ]);
+  if (exited || child.exitCode != null) return;
+  try { child.kill('SIGKILL'); } catch {}
+  const forceExited = await Promise.race([
+    new Promise(resolve => child.once('exit', () => resolve(true))),
+    sleep(2_000).then(() => false),
+  ]);
+  if (!forceExited && child.exitCode == null) throw new Error('canary child did not stop within the bounded cleanup window');
 }
 
 async function runCodexCommand(codexLauncher, codexHome, dbPath, codexArgs) {
@@ -558,7 +567,10 @@ async function main() {
     cwd: root,
     profilePath,
   });
-  if (!appServerRun.text || !appServerRun.tool || !appServerRun.compaction || !upstream.state.codexToolObserved) {
+  // The app-server assertion is about its own JSONL lifecycle/items. The
+  // subsequent Codex CLI tool canary separately proves that a shell_command
+  // crossed the bridge and reached the deterministic upstream.
+  if (!appServerRun.text || !appServerRun.tool || !appServerRun.compaction) {
     throw new Error(`Codex app-server canary did not complete: ${JSON.stringify(appServerRun)}`);
   }
   const textRun = await runCodexExec(
@@ -603,7 +615,7 @@ async function main() {
     throw new Error(`Codex plugin-skill canary did not complete: exit=${pluginSkillRun.exitCode}; stderr=${pluginSkillRun.errorOutput.slice(-2000)}; output=${pluginSkillRun.output.slice(-2000)}; tools=${JSON.stringify(upstream.state.codexPluginToolNames)}; markers=${JSON.stringify(upstream.state.codexPluginMarkers)}`);
   }
 
-  process.stdout.write(JSON.stringify({
+  return {
     status: 'PASS',
     codexVersion: codexLauncher.version,
     response: 'CANARY_OK',
@@ -627,25 +639,31 @@ async function main() {
     isolated: true,
     providerCoverage,
     fallbackAttribution,
-  }) + '\n');
+  };
 }
 
 (async () => {
+  let result = null;
   try {
-    await main();
+    result = await main();
   } catch (error) {
     process.stderr.write(`CANARY_FAIL: ${error.message}\n`);
     process.exitCode = 1;
   } finally {
-    await stop(bridgeProcess);
-    await stop(serverProcess);
-    if (upstream?.server) await new Promise(resolve => upstream.server.close(resolve));
-    for (const child of childProcesses) await stop(child);
     try {
-      fs.rmSync(dbDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      await cleanupCanaryResources({
+        bridgeProcess,
+        serverProcess,
+        upstreamServer: upstream?.server,
+        childProcesses,
+        stopChild: stop,
+        closeServer: closeServerBounded,
+        removeRuntime: () => fs.rmSync(dbDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }),
+      });
     } catch (cleanupError) {
       process.stderr.write(`CANARY_CLEANUP_WARNING: ${cleanupError.message}\n`);
       process.exitCode = process.exitCode || 1;
     }
   }
+  if (result && process.exitCode == null) process.stdout.write(JSON.stringify(result) + '\n');
 })();

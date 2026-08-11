@@ -92,7 +92,7 @@ La auditoría mantiene la decisión y fija dos límites adicionales:
 La compatibilidad específica del consumidor se separa en `tool-profile.js`:
 `codex-desktop` habilita los aliases de MCP/automation/colaboración necesarios para
 builds con discovery diferido; `generic` solo adapta las herramientas declaradas por
-el cliente. La evidencia local actual es 93/93 tests dirigidos más 2/2 de seguridad;
+el cliente. La evidencia local actual es 96/96 tests dirigidos más 2/2 de seguridad;
 `npm test -w server` pasa 270/270 tests del servidor en 47 archivos y
 `npm run canary:codex` pasa con cobertura determinista directa de los tres
 proveedores, fallback, una ejecución real de `shell_command` desde Codex CLI y un

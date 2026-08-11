@@ -211,13 +211,16 @@ codex --profile gloryapi-canary
 El script escribe únicamente `%CODEX_HOME%\gloryapi-canary.config.toml`, usa
 `model_providers.<id>.auth.command` y no contiene `experimental_bearer_token` ni
 ningún secreto. No reemplaza `config.toml`; `-Force` solo permite regenerar ese
-perfil temporal. El canary debe ejecutarse con GloryAPI y el bridge ya listos, y
-su rollback es seleccionar el perfil ChatGPT y detener el bridge. `npm run canary:codex`
-usa un upstream local determinista y ahora prueba rutas directas a Andoryyu, OpenCode
+perfil temporal. El rollback es seleccionar el perfil ChatGPT y detener el bridge.
+`npm run canary:codex` provisiona por sí mismo una DB SQLite, una `CODEX_HOME`,
+credenciales token-only y puertos loopback temporales; arranca GloryAPI y el bridge,
+y cierra conexiones keep-alive antes de eliminar el runtime. Usa un upstream local
+determinista y ahora prueba rutas directas a Andoryyu, OpenCode
 Zen y OpenCode Go, continuidad de historial y de una llamada de herramienta al cambiar
 de Andoryyu a Go, además de un `codex app-server` aislado con turnos, `shell_command` y
 compaction, y el fallback; no cambia la configuración activa ni demuestra
-disponibilidad de las cuentas externas.
+disponibilidad de las cuentas externas. Una ejecución verificada terminó en 28,5 s
+con código 0 después de corregir el cierre bounded del upstream temporal.
 
 Para repetir una auditoría contra las cuentas reales sin activar Desktop, se puede
 proporcionar explícitamente una ruta de base SQLite y ejecutar:
