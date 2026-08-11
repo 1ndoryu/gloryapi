@@ -216,13 +216,14 @@ durante la validación posterior al cutover reversible.
   también de la caché persistida y reasoning-only/vacío tiene una recuperación única y bounded antes de
   `response.failed`. El bloque 11826-5 dividió `server.js` en adapters/handlers por responsabilidad
   y centralizó la configuración agnóstica (`BRIDGE_*`, con aliases legacy); `server.js` quedó en 276 líneas.
-  La auditoría 2026-08-11 añadió timeout total/idle al streaming, perfiles de tools `codex-desktop|generic`
-  y selección canary autenticada y restringida a overrides declarados para las tres rutas activas. Evidencia actual:
-  72/72 tests dirigidos; la suite del servidor conserva evidencia histórica 270/270 pero no inició en la verificación actual por un error externo de resolución/esbuild,
-  `npm run build:server` PASS y `npm run canary:codex` PASS con cobertura directa Andoryyu/Zen/Go, fallback,
-  stream, tool loop, ejecución real de shell_command y Codex CLI aislado. El bridge permanece detenido y ChatGPT normal es la ruta activa;
-  el E2E real de Desktop/proveedores externos sigue siendo una validación operativa pendiente, no se declara
-  como PASS por inferencia.
+  La auditoría 2026-08-11 añadió timeout total/idle al streaming, perfiles de tools `codex-desktop|generic`,
+  selección canary autenticada y restringida a overrides declarados para las tres rutas activas, y un auditor live
+  aislado con proyección de trazas metadata-only. Evidencia actual: 92/92 tests del bridge + 2/2 de seguridad,
+  `npm run build:server` PASS, quality gate PASS y `npm run canary:codex` PASS con cobertura directa Andoryyu/Zen/Go,
+  fallback, stream, tool loop, plugins/MCP, agentes, ejecución real de `shell_command` y Codex CLI aislado.
+  Una ventana real separada observó `429` en Andoryyu/Zen, `200` en Go y fallback normal hasta Go; eso no equivale
+  a salud estable simultánea. El bridge permanece detenido y ChatGPT normal es la ruta activa; el E2E real de Desktop
+  sigue siendo una validación operativa pendiente y no se declara PASS por inferencia.
 
 
 ## Bloqueos y decisiones pendientes

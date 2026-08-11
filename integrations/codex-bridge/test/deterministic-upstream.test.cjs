@@ -95,6 +95,62 @@ test('deterministic upstream records only the expected Codex tool result', async
   assert.equal(upstream.state.codexToolObserved, true);
 });
 
+test('deterministic upstream preserves a tool call when the provider changes', async t => {
+  const upstream = await createDeterministicUpstream({
+    token: ['canary-andoryyu-fail', 'canary-go'],
+    port: 0,
+  });
+  t.after(() => new Promise(resolve => upstream.server.close(resolve)));
+  const base = `http://127.0.0.1:${upstream.port}`;
+  const tools = [{ type: 'function', function: { name: 'switch_tool' } }];
+  const request = (token, messages) => fetch(`${base}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'deepseek-v4-flash', tools, messages }),
+  });
+
+  const initial = await request('canary-andoryyu-fail', [
+    { role: 'user', content: 'CANARY_SWITCH_TOOL_CASE' },
+  ]);
+  const initialBody = await initial.json();
+  assert.equal(initial.status, 200);
+  assert.equal(initialBody.choices[0].message.tool_calls[0].id, 'canary-switch-tool-call-v1');
+  assert.deepEqual(upstream.state.toolSwitchProviders, ['andoryyu']);
+
+  const assistantCall = {
+    role: 'assistant',
+    tool_calls: [{
+      id: 'canary-switch-tool-call-v1',
+      type: 'function',
+      function: { name: 'switch_tool', arguments: '{"value":"CANARY_SWITCH_TOOL_ARGUMENT"}' },
+    }],
+  };
+  const toolResult = { role: 'tool', tool_call_id: 'canary-switch-tool-call-v1', content: 'CANARY_SWITCH_TOOL_RESULT' };
+  const missingCall = await request('canary-go', [
+    { role: 'user', content: 'CANARY_SWITCH_TOOL_CASE' },
+    toolResult,
+  ]);
+  assert.equal(missingCall.status, 422);
+  await missingCall.arrayBuffer();
+  const reordered = await request('canary-go', [
+    { role: 'user', content: 'CANARY_SWITCH_TOOL_CASE' },
+    toolResult,
+    assistantCall,
+  ]);
+  assert.equal(reordered.status, 422);
+  await reordered.arrayBuffer();
+
+  const continued = await request('canary-go', [
+    { role: 'user', content: 'CANARY_SWITCH_TOOL_CASE' },
+    assistantCall,
+    toolResult,
+  ]);
+  const continuedBody = await continued.json();
+  assert.equal(continued.status, 200);
+  assert.equal(continuedBody.choices[0].message.content, 'CANARY_SWITCH_TOOL_OK');
+  assert.deepEqual(upstream.state.toolSwitchProviders, ['andoryyu', 'opencode-go']);
+});
+
 test('deterministic upstream validates the Codex plugin and MCP toolset', async t => {
   const upstream = await createDeterministicUpstream({ token: 'canary-plugin', port: 0 });
   t.after(() => new Promise(resolve => upstream.server.close(resolve)));

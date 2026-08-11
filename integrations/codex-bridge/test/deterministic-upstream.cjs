@@ -12,6 +12,14 @@ function authorized(request, token) {
   return tokens.some(candidate => request.headers.authorization === `Bearer ${candidate}`);
 }
 
+function providerForAuthorization(authorization) {
+  return {
+    'Bearer canary-andoryyu-fail': 'andoryyu',
+    'Bearer canary-zen': 'opencode-zen',
+    'Bearer canary-go': 'opencode-go',
+  }[authorization] || 'unknown';
+}
+
 function serializedMessages(requestBody) {
   return JSON.stringify(requestBody.messages || []);
 }
@@ -20,6 +28,9 @@ function completionBody(requestBody) {
   const serialized = serializedMessages(requestBody);
   const hasToolResult = Array.isArray(requestBody.messages)
     && requestBody.messages.some(message => message && message.role === 'tool');
+  const requestsProviderSwitchTool = serialized.includes('CANARY_SWITCH_TOOL_CASE')
+    && Array.isArray(requestBody.tools)
+    && requestBody.tools.some(tool => tool?.function?.name === 'switch_tool');
   const requestsInternalTool = serialized.includes('deterministic canary tool')
     && Array.isArray(requestBody.tools)
     && requestBody.tools.some(tool => tool?.function?.name === 'web_search');
@@ -27,8 +38,18 @@ function completionBody(requestBody) {
     && Array.isArray(requestBody.tools)
     && requestBody.tools.some(tool => tool?.function?.name === 'shell_command');
   const requestsCodexPlugin = serialized.includes('CANARY_CODEX_PLUGIN_CASE');
-  const message = requestsInternalTool && !hasToolResult
+  const message = requestsProviderSwitchTool && !hasToolResult
     ? {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{
+          id: 'canary-switch-tool-call-v1',
+          type: 'function',
+          function: { name: 'switch_tool', arguments: '{"value":"CANARY_SWITCH_TOOL_ARGUMENT"}' },
+        }],
+      }
+    : requestsInternalTool && !hasToolResult
+      ? {
         role: 'assistant',
         content: '',
         tool_calls: [{
@@ -56,6 +77,8 @@ function completionBody(requestBody) {
           role: 'assistant',
           content: hasToolResult && serialized.includes('CANARY_CODEX_TOOL_CASE')
             ? 'CANARY_CODEX_TOOL_OK'
+            : hasToolResult && serialized.includes('CANARY_SWITCH_TOOL_CASE')
+              ? 'CANARY_SWITCH_TOOL_OK'
             : hasToolResult
               ? 'CANARY_TOOL_OK'
               : 'CANARY_OK',
@@ -127,6 +150,7 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
     codexPluginToolNames: [],
     codexPluginMarkers: { pluginUri: false, browserSkill: false, setupRuntime: false, browserClient: false },
     continuityPlatforms: [],
+    toolSwitchProviders: [],
   };
   const server = http.createServer((request, response) => {
     if (!authorized(request, token)) {
@@ -156,6 +180,8 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
         return;
       }
       const serialized = serializedMessages(body);
+      const hasToolResult = Array.isArray(body.messages)
+        && body.messages.some(message => message && message.role === 'tool');
       if (serialized.includes('CANARY_CODEX_PLUGIN_CASE')) {
         state.codexPluginToolNames = (body.tools || []).map(tool => tool?.function?.name).filter(Boolean);
         const pluginInstructions = (body.messages || [])
@@ -185,12 +211,35 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
           json(response, 422, { error: { message: 'canary continuity history was incomplete or out of order' } });
           return;
         }
-        const provider = {
-          'Bearer canary-andoryyu-fail': 'andoryyu',
-          'Bearer canary-zen': 'opencode-zen',
-          'Bearer canary-go': 'opencode-go',
-        }[request.headers.authorization] || 'unknown';
-        state.continuityPlatforms.push(provider);
+        state.continuityPlatforms.push(providerForAuthorization(request.headers.authorization));
+      }
+      if (serialized.includes('CANARY_SWITCH_TOOL_CASE')) {
+        const provider = providerForAuthorization(request.headers.authorization);
+        if (!hasToolResult) {
+          state.toolSwitchProviders.push(provider);
+        } else {
+          const messages = Array.isArray(body.messages) ? body.messages : [];
+          const assistantIndex = messages.findIndex(message => message?.role === 'assistant'
+            && Array.isArray(message.tool_calls)
+            && message.tool_calls.some(call => call?.id === 'canary-switch-tool-call-v1'));
+          const toolIndex = messages.findIndex(message => message?.role === 'tool'
+            && message.tool_call_id === 'canary-switch-tool-call-v1');
+          const assistantCall = assistantIndex >= 0
+            ? messages[assistantIndex].tool_calls.find(call => call?.id === 'canary-switch-tool-call-v1')
+            : null;
+          const toolResult = toolIndex >= 0 ? messages[toolIndex] : null;
+          const validOrder = assistantIndex >= 0 && toolIndex > assistantIndex;
+          const validCall = assistantCall?.type === 'function'
+            && assistantCall.function?.name === 'switch_tool'
+            && assistantCall.function?.arguments === '{"value":"CANARY_SWITCH_TOOL_ARGUMENT"}';
+          const validResult = toolResult
+            && JSON.stringify(toolResult.content || '').includes('CANARY_SWITCH_TOOL_RESULT');
+          if (!validOrder || !validCall || !validResult) {
+            json(response, 422, { error: { message: 'provider switch tool history was missing or out of order' } });
+            return;
+          }
+          state.toolSwitchProviders.push(provider);
+        }
       }
       if (serialized.includes('CANARY_PLUGIN_CASE')) {
         const toolNames = new Set((body.tools || []).map(tool => tool?.function?.name).filter(Boolean));

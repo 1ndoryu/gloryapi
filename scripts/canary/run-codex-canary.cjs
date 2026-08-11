@@ -382,6 +382,53 @@ async function main() {
     throw new Error(`provider switch continuity routing failed: ${JSON.stringify(upstream.state.continuityPlatforms)}`);
   }
 
+  const switchToolDefinition = [{
+    type: 'function',
+    name: 'switch_tool',
+    description: 'Tool used to verify continuity across provider changes.',
+    parameters: { type: 'object', properties: { value: { type: 'string' } } },
+  }];
+  const switchToolInput = [
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'CANARY_SWITCH_TOOL_CASE' }] },
+  ];
+  const switchToolStart = await requestJson(`${bridgeBase}/v1/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${localToken}`,
+      'X-Glory-Canary-Provider': 'andoryyu',
+    },
+    body: JSON.stringify({ model: 'deepseek-v4-flash', stream: false, tools: switchToolDefinition, input: switchToolInput }),
+  });
+  const switchCall = switchToolStart?.output?.find(item => item?.type === 'function_call');
+  if (switchCall?.call_id !== 'canary-switch-tool-call-v1'
+    || switchCall.name !== 'switch_tool'
+    || switchCall.arguments !== '{"value":"CANARY_SWITCH_TOOL_ARGUMENT"}') {
+    throw new Error(`provider switch tool call failed: ${JSON.stringify(switchToolStart).slice(0, 2000)}`);
+  }
+  const switchToolFinish = await requestJson(`${bridgeBase}/v1/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${localToken}`,
+      'X-Glory-Canary-Provider': 'opencode-go',
+    },
+    body: JSON.stringify({
+      model: 'deepseek-v4-flash',
+      stream: false,
+      tools: switchToolDefinition,
+      input: [
+        ...switchToolInput,
+        { type: 'function_call', call_id: switchCall.call_id, name: switchCall.name, arguments: switchCall.arguments },
+        { type: 'function_call_output', call_id: switchCall.call_id, output: 'CANARY_SWITCH_TOOL_RESULT' },
+      ],
+    }),
+  });
+  if (switchToolFinish?.output?.[0]?.content?.[0]?.text !== 'CANARY_SWITCH_TOOL_OK'
+    || JSON.stringify(upstream.state.toolSwitchProviders) !== JSON.stringify(['andoryyu', 'opencode-go'])) {
+    throw new Error(`provider switch tool continuity failed: ${JSON.stringify({ response: switchToolFinish, providers: upstream.state.toolSwitchProviders }).slice(0, 3000)}`);
+  }
+
   let pluginToolset;
   try {
     pluginToolset = await requestJson(`${bridgeBase}/v1/responses`, {
@@ -561,6 +608,7 @@ async function main() {
     foreignToolsetNoCooldown: true,
     stream: true,
     providerSwitching: true,
+    providerToolSwitching: true,
     pluginTooling: true,
     isolated: true,
     providerCoverage,
