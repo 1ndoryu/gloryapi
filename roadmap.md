@@ -80,7 +80,10 @@ durante la validación posterior al cutover reversible.
     completó la ronda `function_call(js)` → `function_call_output` sintético → `message`. Falta E2E desde
     la aplicación Desktop y atribuir cada inferencia a un proveedor individual en una ventana reversible.
     La matriz real aislada observó `429`/`response.failed` en Andoryyu y Zen, y `200`/`response.completed`
-    en Go; queda como evidencia de disponibilidad de esa ventana, no como PASS simultáneo de proveedores.
+    en Go; el fallback normal adicional confirmó dos intentos hasta Go y `[DONE]` en SSE. Queda como evidencia
+    de disponibilidad/fallback de esa ventana, no como PASS simultáneo estable de proveedores. Prevención abierta:
+    `Agente/prevencion/prevencion-live-fallback-attribution-2026-08-11.md` evita atribuir la cadena intermedia
+    solo a partir del contador de intentos.
 18. `unified_api_key` migrada a `local_auth_tokens` con DPAPI `CurrentUser`; `settings` ya no conserva el
     plaintext. El helper upstream solo resuelve la fila DPAPI en readonly y falla cerrado si falta. Se mantiene
     además ACL sin herencia para Owner, SYSTEM y Administrators como defensa en profundidad.

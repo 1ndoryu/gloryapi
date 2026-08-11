@@ -311,9 +311,11 @@ La matriz real aislada por proveedor registró además: Andoryyu y OpenCode Zen
 respondieron `429` en no-stream y `response.failed` en SSE; OpenCode Go pasó
 ambos casos (`message` y `response.completed`). El header canary restringe la
 ronda a un proveedor y por eso no hace fallback en ese ensayo; la operación
-normal mantiene el fallback configurado. Los `429` son disponibilidad/cuota de
-esa ventana, no un cierre falso del bridge, y el capability de proveedor sigue
-en `unverified` hasta una ventana estable.
+normal mantiene el fallback configurado. Una prueba normal separada confirmó
+`X-Fallback-Attempts: 2`, `X-Routed-Via: opencode-go/deepseek-v4-flash` y
+terminación SSE `[DONE]` sin `stream_error`. Los `429` son disponibilidad/cuota
+de esa ventana, no un cierre falso del bridge, y el capability de proveedor
+sigue en `unverified` hasta una ventana estable.
 
 El snapshot histórico de rollback puede existir en `%USERPROFILE%\.codex\gloryapi-cutover.rollback.*.json`.
 En la operación actual ChatGPT normal es la ruta activa y el bridge queda detenido después
