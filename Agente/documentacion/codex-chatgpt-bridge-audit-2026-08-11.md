@@ -99,12 +99,21 @@ El bridge escucha loopback por defecto, usa `BRIDGE_CLIENT_TOKEN` para el client
 
 ## Evidencia ejecutada
 
-- `node --test integrations/codex-bridge/test/*.test.cjs`: **72/72 PASS**. Incluye anti-falso-complete, reasoning-only, tool-only, web loop, compactación de seguridad con schemas de herramientas, resumen configurable, UTF-8 fragmentado, truncamiento, cancelación, preflight, perfiles de herramientas, toolset namespaced de plugin/MCP, continuidad incompleta/reordenada rechazada, timers de visión limpiados en éxito/fallo, redacción de visión, límites de body, routing canary preservado en reintentos y streams que quedan abiertos después de headers.
+- `node --test integrations/codex-bridge/test/*.test.cjs`: **85/85 PASS**. Incluye anti-falso-complete, reasoning-only, tool-only, web loop, compactación de seguridad con schemas de herramientas, resumen configurable, UTF-8 fragmentado, truncamiento, cancelación, preflight, perfiles de herramientas, toolset namespaced de plugin/MCP, continuidad incompleta/reordenada rechazada, timers de visión limpiados en éxito/fallo, redacción de visión, límites de body, routing canary preservado en reintentos, streams que quedan abiertos después de headers y sanitización allowlist del perfil de plugins con variantes de secretos, fuentes remotas y rutas no canónicas rechazadas.
 - `npm run build:server`: **PASS**.
 - `npm test -w server`: la evidencia histórica de esta rama es **270/270 PASS** en 47 archivos, incluidos los tres casos de routing canary fail-closed. En la verificación actual no llegó a iniciar por un error de resolución/esbuild del entorno (`Access is denied` al resolver `../../../../..` y no encuentra `server/vitest.config.ts`); se repitió sin modificar la configuración.
-- `npm run canary:codex`: **PASS**. Resultado: `readiness`, `lifecycle`, `capabilities`, texto, SSE Responses real (`stream`), continuidad al cambiar entre proveedores (`providerSwitching`), toolset namespaced de plugin/MCP (`pluginTooling`), loop web interno, ejecución real de `shell_command` desde Codex CLI en `CODEX_HOME` temporal (`codexToolExecution`), fallback, foreign toolset sin cooldown, aislamiento y `providerCoverage` directo para `andoryyu`, `opencode-zen` y `opencode-go`.
+- `npm run canary:codex`: **PASS**. Resultado: `readiness`, `lifecycle`, `capabilities`, texto, SSE Responses real (`stream`), continuidad al cambiar entre proveedores (`providerSwitching`), toolset namespaced de plugin/MCP (`pluginTooling`), forwarding aislado del Browser skill con `features.plugins=true`, instalación temporal desde el marketplace local y marcadores distintivos de sus instrucciones (`pluginSkillForwarding`), loop web interno, ejecución real de `shell_command` desde Codex CLI en `CODEX_HOME` temporal (`codexToolExecution`), fallback, foreign toolset sin cooldown, aislamiento y `providerCoverage` directo para `andoryyu`, `opencode-zen` y `opencode-go`.
 - Los scripts E2E con prefijo `_e2e_` no se incluyen en el baseline automático porque requieren un bridge ya activo en `:4100`; el archivo ajeno `_e2e_apply_patch.cjs` se preserva sin modificar.
 - El bridge queda detenido después de las pruebas. ChatGPT normal permanece activo y la configuración del usuario no se cambia.
+
+El canary de plugin lee `config.chatgpt.toml` solo para extraer por allowlist el
+marketplace local `openai-bundled`, el plugin habilitado
+`browser@openai-bundled` y las opciones seguras de `[features]`; instala el
+plugin únicamente en un `CODEX_HOME` temporal. Rechaza claves desconocidas y
+variantes sensibles como `bearer`, `access_token`, `api_key`, `client_secret`,
+`authorization`, `mcp_servers`, `notify` o `CODEX_HOME` antes de escribir. El
+canary confirma que el Browser skill y su herramienta Node atraviesan el bridge,
+pero no se presenta como prueba del runtime integrado de plugin/MCP en Desktop.
 
 ## Riesgos residuales y criterio de cierre
 

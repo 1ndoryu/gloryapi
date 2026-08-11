@@ -26,6 +26,7 @@ const diagnostics = read('bridge', 'diagnostics.js');
 const requestLog = read('bridge', 'request-log.js');
 const canaryRunner = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'run-codex-canary.cjs'), 'utf8');
 const canaryHttp = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'http-helpers.cjs'), 'utf8');
+const pluginConfig = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'plugin-config.cjs'), 'utf8');
   const activationPreflight = read('mode', 'codex-activation-preflight.ps1');
   const upstreamAuth = fs.readFileSync(path.join(root, '..', '..', 'server', 'src', 'scripts', 'bridge-upstream-auth.ts'), 'utf8');
 const responsesFixture = JSON.parse(read('fixtures', 'responses-contract-v1.json'));
@@ -261,6 +262,12 @@ test('canary exercises real Responses SSE and provider switching', () => {
   assert.match(canaryRunner, /\['andoryyu', 'opencode-zen', 'opencode-go'\]/);
   assert.match(canaryRunner, /CANARY_CONTINUITY_START/);
   assert.match(canaryRunner, /CANARY_PLUGIN_CASE/);
+  assert.match(canaryRunner, /preparePluginCanaryConfig/);
+  assert.match(canaryRunner, /features\.plugins=true/);
+  assert.match(canaryRunner, /pluginSkillForwarding/);
+  assert.match(pluginConfig, /EXPECTED_PLUGIN/);
+  assert.match(pluginConfig, /SENSITIVE_FIELD/);
+  assert.match(pluginConfig, /bearer/);
 });
 
 test('activation preflight is read-only and detects the real Codex consumer contract', () => {

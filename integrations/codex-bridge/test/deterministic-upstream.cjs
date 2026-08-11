@@ -26,6 +26,7 @@ function completionBody(requestBody) {
   const requestsCodexTool = serialized.includes('CANARY_CODEX_TOOL_CASE')
     && Array.isArray(requestBody.tools)
     && requestBody.tools.some(tool => tool?.function?.name === 'shell_command');
+  const requestsCodexPlugin = serialized.includes('CANARY_CODEX_PLUGIN_CASE');
   const message = requestsInternalTool && !hasToolResult
     ? {
         role: 'assistant',
@@ -45,6 +46,11 @@ function completionBody(requestBody) {
             type: 'function',
             function: { name: 'shell_command', arguments: '{"command":"Write-Output CANARY_TOOL_EXECUTED"}' },
           }],
+        }
+    : requestsCodexPlugin
+      ? {
+          role: 'assistant',
+          content: 'CANARY_CODEX_PLUGIN_OK',
         }
       : {
           role: 'assistant',
@@ -117,6 +123,9 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
     codexToolObserved: false,
     pluginToolsetObserved: false,
     pluginToolNames: [],
+    codexPluginObserved: false,
+    codexPluginToolNames: [],
+    codexPluginMarkers: { pluginUri: false, browserSkill: false, setupRuntime: false, browserClient: false },
     continuityPlatforms: [],
   };
   const server = http.createServer((request, response) => {
@@ -147,6 +156,26 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
         return;
       }
       const serialized = serializedMessages(body);
+      if (serialized.includes('CANARY_CODEX_PLUGIN_CASE')) {
+        state.codexPluginToolNames = (body.tools || []).map(tool => tool?.function?.name).filter(Boolean);
+        const pluginInstructions = (body.messages || [])
+          .filter(message => message?.role === 'system' || message?.role === 'developer')
+          .map(message => JSON.stringify(message.content || ''))
+          .join('\n');
+        const hasBrowserTool = (body.tools || []).some(tool => tool?.function?.name === 'mcp__node_repl__js');
+        const hasPluginInstruction = pluginInstructions.includes('control-in-app-browser') && hasBrowserTool;
+        state.codexPluginMarkers = {
+          pluginUri: pluginInstructions.includes('plugin://browser@openai-bundled'),
+          browserSkill: pluginInstructions.includes('control-in-app-browser'),
+          setupRuntime: pluginInstructions.includes('setupBrowserRuntime'),
+          browserClient: pluginInstructions.includes('browser-client.mjs'),
+        };
+        if (!hasPluginInstruction) {
+          json(response, 422, { error: { message: 'plugin skill instructions were not forwarded' } });
+          return;
+        }
+        state.codexPluginObserved = true;
+      }
       if (serialized.includes('CANARY_CONTINUITY_NEXT')) {
         const markers = ['CANARY_CONTINUITY_START', 'CANARY_CONTEXT_PRESERVED', 'CANARY_CONTINUITY_NEXT'];
         const positions = markers.map(marker => serialized.indexOf(marker));

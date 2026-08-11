@@ -6,6 +6,7 @@ const path = require('node:path');
 const { createDeterministicUpstream } = require('../../integrations/codex-bridge/test/deterministic-upstream.cjs');
 const { createBoundedCapture } = require('./bounded-output.cjs');
 const { readResponseTextBounded, requestResponsesStream } = require('./http-helpers.cjs');
+const { sanitizePluginConfig } = require('./plugin-config.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const node = process.execPath;
@@ -116,6 +117,22 @@ async function prepareProfile(bridgePort) {
   return profilePath;
 }
 
+function preparePluginCanaryConfig() {
+  const sourcePath = path.join(process.env.USERPROFILE || os.homedir(), '.codex', 'config.chatgpt.toml');
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  const expectedMarketplaceSource = path.join(
+    process.env.USERPROFILE || os.homedir(),
+    '.codex', '.tmp', 'bundled-marketplaces', 'openai-bundled',
+  );
+  if (!fs.existsSync(expectedMarketplaceSource)) {
+    throw new Error(`bundled marketplace source is not available locally: ${expectedMarketplaceSource}`);
+  }
+  const configPath = path.join(codexHome, 'config.toml');
+  const content = sanitizePluginConfig(source, { expectedMarketplaceSource });
+  fs.writeFileSync(configPath, content, 'utf8');
+  return configPath;
+}
+
 async function stop(child) {
   if (!child || child.exitCode != null) return;
   child.kill('SIGTERM');
@@ -125,13 +142,7 @@ async function stop(child) {
   ]);
 }
 
-async function runCodexExec(codexLauncher, codexHome, dbPath, prompt) {
-  const codexArgs = [
-    ...codexLauncher.prefix,
-    'exec', '--profile', 'gloryapi-canary', '--json', '--ephemeral', '--skip-git-repo-check',
-    '-c', 'features.plugins=false',
-    prompt,
-  ];
+async function runCodexCommand(codexLauncher, codexHome, dbPath, codexArgs) {
   const codex = spawn(codexLauncher.command, codexArgs, {
     cwd: root,
     env: {
@@ -178,6 +189,16 @@ async function runCodexExec(codexLauncher, codexHome, dbPath, prompt) {
   };
 }
 
+async function runCodexExec(codexLauncher, codexHome, dbPath, prompt, { pluginsEnabled = false } = {}) {
+  const pluginFeatureOverride = pluginsEnabled ? 'features.plugins=true' : 'features.plugins=false';
+  return runCodexCommand(codexLauncher, codexHome, dbPath, [
+    ...codexLauncher.prefix,
+    'exec', '--profile', 'gloryapi-canary', '--json', '--ephemeral', '--skip-git-repo-check',
+    '-c', pluginFeatureOverride,
+    prompt,
+  ]);
+}
+
 async function main() {
   const serverPort = await new Promise((resolve, reject) => {
     const probe = http.createServer();
@@ -210,6 +231,7 @@ async function main() {
     GLORYAPI_CANARY_ROUTING_TOKEN: canaryRoutingToken,
     GLORYAPI_CANARY_UPSTREAM_URL: `http://127.0.0.1:${upstream.port}/v1`,
     GLORYAPI_FAILED_REQUESTS_LOG: failedRequestLog,
+    BRIDGE_TOOL_PROFILE: 'generic',
   };
   serverProcess = spawnLogged(node, [path.join(root, 'server', 'dist', 'index.js')], runtimeEnv, 'glory-server');
   await waitFor(`http://127.0.0.1:${serverPort}/api/ping`, (response, body) => response.ok && body?.status === 'ok');
@@ -489,6 +511,29 @@ async function main() {
     throw new Error(`Codex tool canary did not complete: exit=${toolRun.exitCode}; stderr=${toolRun.errorOutput.slice(-1500)}; output=${toolRun.output.slice(-1500)}`);
   }
 
+  preparePluginCanaryConfig();
+  const pluginInstall = await runCodexCommand(codexLauncher, codexHome, dbPath, [
+    ...codexLauncher.prefix,
+    'plugin', 'add', 'browser@openai-bundled', '--json',
+    '-c', 'features.plugins=true',
+  ]);
+  if (pluginInstall.exitCode !== 0 || pluginInstall.outputLimitExceeded) {
+    throw new Error(`Codex plugin installation canary did not complete: exit=${pluginInstall.exitCode}; stderr=${pluginInstall.errorOutput.slice(-2000)}; output=${pluginInstall.output.slice(-2000)}`);
+  }
+  const pluginSkillRun = await runCodexExec(
+    codexLauncher,
+    codexHome,
+    dbPath,
+    'For CANARY_CODEX_PLUGIN_CASE, use [@Browser](plugin://browser@openai-bundled) instructions if present, then reply exactly CANARY_CODEX_PLUGIN_OK.',
+    { pluginsEnabled: true },
+  );
+  if (pluginSkillRun.exitCode !== 0
+    || pluginSkillRun.outputLimitExceeded
+    || !pluginSkillRun.output.includes('CANARY_CODEX_PLUGIN_OK')
+    || !upstream.state.codexPluginObserved) {
+    throw new Error(`Codex plugin-skill canary did not complete: exit=${pluginSkillRun.exitCode}; stderr=${pluginSkillRun.errorOutput.slice(-2000)}; output=${pluginSkillRun.output.slice(-2000)}; tools=${JSON.stringify(upstream.state.codexPluginToolNames)}; markers=${JSON.stringify(upstream.state.codexPluginMarkers)}`);
+  }
+
   process.stdout.write(JSON.stringify({
     status: 'PASS',
     codexVersion: codexLauncher.version,
@@ -499,6 +544,7 @@ async function main() {
     nonStreaming: true,
     internalToolLoop: true,
     codexToolExecution: true,
+    pluginSkillForwarding: true,
     fallback: true,
     foreignToolset: true,
     foreignToolsetNoCooldown: true,
