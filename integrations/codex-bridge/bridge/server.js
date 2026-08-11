@@ -1291,6 +1291,30 @@ function isConfirmationText(text) {
   );
 }
 
+// ¿El turno ACTUAL (desde el último mensaje del usuario) ya ejecutó tools?
+// El guard original del nudge usaba `messages.some(m => m.role === 'tool')`
+// sobre TODO el historial: en una conversación larga con tools de turnos
+// anteriores (p. ej. 146 mensajes con 71 tool), esa condición es siempre false
+// y el nudge anti-falso-complete quedaba desactivado — el modelo podía cerrar
+// con "Sigo ahora con eso" sin ejecutar y el turno terminaba (falso complete
+// observado 2026-08-11). Solo el turno en curso decide: si el modelo ya está
+// ejecutando tools AHORA (tool messages tras el último user), no interrumpir;
+// si cerró con texto sin tools en este turno, nudgear aunque haya tools previas.
+function currentTurnHasToolMessages(messages) {
+  let lastUser = -1;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i] && messages[i].role === 'user') {
+      lastUser = i;
+      break;
+    }
+  }
+  if (lastUser < 0) return false; // sin user visible, no hay turno que nudgear
+  for (let i = lastUser + 1; i < messages.length; i += 1) {
+    if (messages[i] && messages[i].role === 'tool') return true;
+  }
+  return false;
+}
+
 // El retry reenvía el texto final como mensaje assistant (contexto de lo
 // anunciado) y añade la directiva de confirmación de cierre como user.
 function buildNudgeChat(chat, finalText) {
@@ -2395,6 +2419,10 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   // las tool_calls del retry se incorporan al Map y las emite el loop de abajo.
   // Si el retry confirma "ok" o vuelve sin tools, se descarta y se cierra con la
   // respuesta original.
+  // El guard usa SOLO el turno actual (currentTurnHasToolMessages): si el modelo
+  // ya ejecutó tools en este turno no interrumpimos; si cerró con texto sin tools
+  // en el turno en curso, nudgear aunque el historial tenga tools de turnos
+  // anteriores (falso complete real observado en hilos largos, 2026-08-11).
   let nudgeReasoning = '';
   if (
     toolCalls.size === 0 &&
@@ -2402,7 +2430,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     chat.__userTools === true &&
     Array.isArray(chat.tools) &&
     chat.tools.length &&
-    !chat.messages.some((m) => m.role === 'tool') &&
+    !currentTurnHasToolMessages(chat.messages) &&
     NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), text);
@@ -2645,7 +2673,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     gateChat.__userTools === true &&
     Array.isArray(gateChat.tools) &&
     gateChat.tools.length &&
-    !gateChat.messages.some((m) => m.role === 'tool') &&
+    !currentTurnHasToolMessages(gateChat.messages) &&
     NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), message.content);

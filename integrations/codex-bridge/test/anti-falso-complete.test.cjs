@@ -483,3 +483,84 @@ test('control: sin tools disponibles el nudge no se dispara', async (t) => {
   assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
   assert.equal(bridge.upstreamBodies.length, 1, 'sin tools no hay segundo request (nudge)');
 });
+
+// ---------------------------------------------------------------------------
+// E2E: regresión 2026-08-11 — hilo LARGO con tools de turnos ANTERIORES. El
+// guard original (`messages.some(m => m.role === 'tool')`) miraba todo el
+// historial y desactivaba el nudge en cuanto existía cualquier tool previa; el
+// modelo podía cerrar con "Sigo ahora con eso" sin ejecutar y el turno terminaba
+// (falso complete real: hilo de 146 mensajes con 71 tool, "listo?" 07:24Z).
+// El turno ACTUAL no tiene tool messages => el nudge SÍ debe dispararse.
+// ---------------------------------------------------------------------------
+test('regresión: historial con tools previas + turno actual sin tools => nudge SÍ', async (t) => {
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) {
+      return { sse: NARRATIVE_SSE };
+    }
+    // Nudge no-streaming: el retry confirma el cierre ("ok").
+    return {
+      json: {
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok', finish_reason: 'stop' } }],
+        usage: { prompt_tokens: 20, completion_tokens: 1, total_tokens: 21 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [
+        // Turnos anteriores: herramientas ya ejecutadas (rol 'tool' en el historial).
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'ordena los .md' }] },
+        { type: 'function_call', call_id: 'call_prev_1', name: 'read_file', arguments: '{"path":"a.md"}' },
+        { type: 'function_call_output', call_id: 'call_prev_1', output: '{"ok":true}' },
+        // Turno actual: nuevo input del usuario, sin tools ejecutadas aún.
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'listo?' }] },
+      ],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  assert.equal(response.status, 200);
+  const events = sseEvents(await response.text());
+
+  assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
+  assert.ok(
+    !events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item && entry.data.item.type === 'function_call'),
+    'si el retry confirma con "ok", no debe inventar function_call'
+  );
+  // El nudge SÍ se disparó a pesar de las tools de turnos anteriores.
+  assert.equal(bridge.upstreamBodies.length, 2, 'con tools previas pero turno actual sin tools, el nudge debe dispararse (2 requests)');
+  assert.equal(bridge.upstreamBodies[1].stream, false, 'el nudge debe ir no-streaming');
+});
+
+// ---------------------------------------------------------------------------
+// E2E: control — si el turno ACTUAL ya ejecutó tools, el nudge NO se dispara
+// (el modelo está trabajando: el guard mira solo el turno en curso, no el
+// historial completo). Un historial con tools previas + tool en el turno actual
+// => 1 solo request upstream.
+// ---------------------------------------------------------------------------
+test('control: turno actual con tools ejecutadas => nudge NO se dispara', async (t) => {
+  const bridge = await startBridge(() => ({ sse: NARRATIVE_SSE }));
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'ordena los .md' }] },
+        { type: 'function_call', call_id: 'call_cur_1', name: 'read_file', arguments: '{"path":"a.md"}' },
+        { type: 'function_call_output', call_id: 'call_cur_1', output: '{"ok":true}' },
+      ],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  assert.equal(response.status, 200);
+  const events = sseEvents(await response.text());
+  assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
+  assert.equal(bridge.upstreamBodies.length, 1, 'turno actual con tools => sin nudge (1 request)');
+});
