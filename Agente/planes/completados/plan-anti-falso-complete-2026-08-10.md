@@ -150,3 +150,10 @@ Archivo: `integrations/codex-bridge/bridge/server.js` (junction con
 - [x] Commit `0c8011e` en rama `gloryapi`.
 
 Documentado en `Agente/completados/tareas-2026-08-10.md`.
+
+> **SUPERADO (2026-08-11)**: la heurística de la Capa B (regex `isFutureIntentNarration`)
+> dejaba escapar el falso complete con otras redacciones (p. ej. "Sigo la auditoría
+> leyendo..." — thread `019fee99`). Se sustituyó por un **hook universal de
+> confirmación** que pregunta al modelo ("ok" = cierre real; cualquier otra cosa =
+> continúa ejecutando) — tarea `11826-1`, commit `e6cad84`. `isFutureIntentNarration`
+> queda solo como telemetría `intent`. Ver `Agente/completados/tareas-2026-08-11.md`.
