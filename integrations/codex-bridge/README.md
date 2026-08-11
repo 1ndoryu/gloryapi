@@ -100,6 +100,35 @@ dos tokens, el puerto, el contrato y las variables mínimas de Node/Windows.
 El test `environment-isolation.test.cjs` captura el entorno real del proceso
 hijo y exige que las tres credenciales estén ausentes.
 
+## Reinicio del bridge
+
+Un solo comando detiene el bridge actual (si existe), espera a que el puerto quede
+libre, lo inicia con el build actual y verifica `/health`:
+
+```powershell
+.\restart-bridge.ps1            # reinicia solo el bridge
+.\restart-bridge.ps1 -Runtime   # además reinicia el runtime GloryAPI :3101
+.\restart-bridge.ps1 -Force     # sustituye también un proceso ajeno en :4100
+```
+
+El mismo mecanismo está disponible sin el wrapper:
+
+```powershell
+.\start-bridge.ps1 -Restart     # detiene el bridge actual y lo inicia de nuevo
+```
+
+Detalles de robustez:
+
+- `stop-bridge.ps1` acepta `-Force` y, tras detener, espera (`-WaitReleaseSeconds`,
+  por defecto 10 s) a que `:4100` deje de escuchar; así un `start` inmediato no
+  falla por la carrera clásica de "puerto todavía ocupado".
+- `start-bridge.ps1 -Restart` detiene el bridge con la misma validación de
+  identidad (PID + `server.js`) y reintenta el stop si el puerto sigue ocupado.
+  Sin `-Restart` mantiene su comportamiento anterior: no sustituye nada y avisa
+  con un mensaje que apunta al nuevo conmutador.
+- `restart-bridge.ps1 -Runtime` detiene el runtime solo si el proceso coincide con
+  `server/dist/index.js`; un ocupante ajeno en `:3101` exige `-Force`.
+
 ## Perfil temporal de canary
 
 Para preparar una prueba real sin tocar el perfil principal:

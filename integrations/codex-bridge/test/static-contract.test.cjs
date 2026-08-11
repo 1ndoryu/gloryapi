@@ -292,3 +292,22 @@ test('the stop script verifies process identity before terminating', () => {
   assert.match(stop, /IndexOf\(\$ServerFile/);
   assert.match(stop, /se rechaza detenerlo/);
 });
+
+test('restart delegates to start-bridge -Restart and waits for port release', () => {
+  const start = read('bridge', 'start-bridge.ps1');
+  const stop = read('bridge', 'stop-bridge.ps1');
+  const restart = read('bridge', 'restart-bridge.ps1');
+  assert.match(restart, /start-bridge\.ps1.*-Restart/s);
+  assert.match(restart, /\[switch\]\$Force/);
+  assert.match(restart, /\[switch\]\$Runtime/);
+  assert.match(restart, /gloryapi\.pid/);
+  assert.match(restart, /server\\dist\\index\.js/);
+  assert.match(restart, /server\s*\\?\s*data/);
+  assert.match(start, /\[switch\]\$Restart/);
+  assert.match(start, /\[switch\]\$Force/);
+  assert.match(start, /Reinicio solicitado/);
+  assert.match(start, /usa -Restart para sustituirlo/);
+  assert.match(stop, /\[switch\]\$Force/);
+  assert.match(stop, /WaitReleaseSeconds/);
+  assert.match(stop, /Puerto \$Port liberado/);
+});

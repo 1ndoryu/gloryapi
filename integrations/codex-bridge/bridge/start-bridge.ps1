@@ -1,4 +1,10 @@
 # Inicia el bridge local Codex <-> GloryAPI (deepseek-v4-flash)
+#   -Restart -> detiene el bridge actual (si existe) y lo inicia de nuevo
+#   -Force   -> con -Restart, sustituye también un proceso ajeno en :4100
+param(
+    [switch]$Restart,
+    [switch]$Force
+)
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
 $BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
@@ -12,6 +18,7 @@ $LogErr = Join-Path $RuntimeDir 'bridge.err.log'
 $PidFile = Join-Path $RuntimeDir 'bridge.pid'
 $Port = 4100
 $Health = "http://127.0.0.1:$Port/health"
+$StopScript = Join-Path $BridgeDir 'stop-bridge.ps1'
 
 function Test-ExpectedBridge {
     try {
@@ -23,13 +30,32 @@ function Test-ExpectedBridge {
 
 # ¿Ya está corriendo?
 if (Test-ExpectedBridge) {
-    Write-Host "Bridge ya está corriendo ($Health)"
-    exit 0
+    if (-not $Restart) {
+        Write-Host "Bridge ya está corriendo ($Health)"
+        exit 0
+    }
+    Write-Host 'Reinicio solicitado: deteniendo el bridge actual...'
+    & $StopScript -Force:$Force
+    if (Test-ExpectedBridge) {
+        throw 'El bridge siguió respondiendo tras el stop; no se inicia uno nuevo sin puerto libre.'
+    }
 }
 
 $occupant = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 if ($occupant) {
-    throw "El puerto $Port está ocupado por otro servicio; se rechaza iniciar o reemplazarlo."
+    $ownerPids = @($occupant | Select-Object -ExpandProperty OwningProcess -Unique)
+    if ($Restart) {
+        Write-Host "El puerto $Port sigue ocupado (PID $($ownerPids -join ', ')); reintentando el stop..."
+        & $StopScript -Force:$Force
+    }
+    else {
+        throw "El puerto $Port está ocupado por otro servicio (PID $($ownerPids -join ', ')); usa -Restart para sustituirlo."
+    }
+}
+$occupant = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+if ($occupant) {
+    $ownerPids = @($occupant | Select-Object -ExpandProperty OwningProcess -Unique)
+    throw "El puerto $Port sigue ocupado tras el stop (PID $($ownerPids -join ', ')); no se inicia el bridge."
 }
 
 $node = (Get-Command node -ErrorAction Stop).Source
