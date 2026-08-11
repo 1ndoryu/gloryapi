@@ -142,8 +142,11 @@ Archivo: `integrations/codex-bridge/bridge/server.js` (junction con
 ## 10. Estado
 
 - [x] Análisis y diseño (este documento).
-- [ ] Implementación.
-- [ ] Tests + suite.
-- [ ] Reinicio del bridge y validación en vivo con el usuario.
+- [x] Implementación (server.js: constantes, helpers, Capa A, nudge streaming y non-streaming).
+- [x] Tests + suite: `anti-falso-complete.test.cjs` 5/5; suite bridge 42/43 (único
+      fallo pre-existente ajeno: vision-error-redaction).
+- [x] Reinicio del bridge (PID 33736, health OK) — queda validación en vivo con el
+      usuario en su próxima sesión de Codex Desktop (gota del patrón falso-complete).
+- [x] Commit `0c8011e` en rama `gloryapi`.
 
-Próximo paso: implementar Capas A+B+C en `server.js`, tests, suite, restart y commit.
+Documentado en `Agente/completados/tareas-2026-08-10.md`.
