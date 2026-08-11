@@ -4,6 +4,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { createDeterministicUpstream } = require('../../integrations/codex-bridge/test/deterministic-upstream.cjs');
+const { createBoundedCapture } = require('./bounded-output.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const node = process.execPath;
@@ -36,6 +37,7 @@ const bridgeFile = path.join(root, 'integrations', 'codex-bridge', 'bridge', 'se
 const prepareProfileScript = path.join(root, 'integrations', 'codex-bridge', 'mode', 'prepare-canary-profile.ps1');
 const authScript = path.join(root, 'integrations', 'codex-bridge', 'mode', 'get-codex-auth.ps1');
 const childProcesses = [];
+const MAX_CANARY_OUTPUT_BYTES = 1024 * 1024;
 let upstream;
 let serverProcess;
 let bridgeProcess;
@@ -138,10 +140,18 @@ async function runCodexExec(codexLauncher, codexHome, dbPath, prompt) {
     windowsHide: true,
   });
   childProcesses.push(codex);
-  let output = '';
-  let errorOutput = '';
-  codex.stdout.on('data', chunk => { output += chunk.toString(); });
-  codex.stderr.on('data', chunk => { errorOutput += chunk.toString(); });
+  const capture = createBoundedCapture(MAX_CANARY_OUTPUT_BYTES);
+  let outputLimitExceeded = false;
+  const appendBounded = (stream, chunk) => {
+    if (outputLimitExceeded) return;
+    capture.append(stream, chunk);
+    if (capture.exceeded) {
+      outputLimitExceeded = true;
+      try { codex.kill('SIGTERM'); } catch {}
+    }
+  };
+  codex.stdout.on('data', chunk => appendBounded('stdout', chunk));
+  codex.stderr.on('data', chunk => appendBounded('stderr', chunk));
   const exitCode = await new Promise(resolve => {
     let settled = false;
     const finish = (code) => {
@@ -152,12 +162,17 @@ async function runCodexExec(codexLauncher, codexHome, dbPath, prompt) {
     };
     const timer = setTimeout(() => { try { codex.kill('SIGTERM'); } catch {} finish(124); }, 60_000);
     codex.once('error', error => {
-      errorOutput += `spawn error: ${error.message}`;
+      appendBounded('stderr', `spawn error: ${error.message}`);
       finish(1);
     });
     codex.once('exit', code => finish(code ?? 1));
   });
-  return { exitCode, output, errorOutput };
+  return {
+    exitCode,
+    output: capture.text('stdout'),
+    errorOutput: capture.text('stderr'),
+    outputLimitExceeded,
+  };
 }
 
 async function main() {
@@ -379,7 +394,7 @@ async function main() {
     dbPath,
     'Reply with exactly CANARY_OK and nothing else.',
   );
-  if (textRun.exitCode !== 0 || !textRun.output.includes('CANARY_OK')) {
+  if (textRun.exitCode !== 0 || textRun.outputLimitExceeded || !textRun.output.includes('CANARY_OK')) {
     throw new Error(`Codex text canary did not complete: exit=${textRun.exitCode}; stderr=${textRun.errorOutput.slice(-1500)}; output=${textRun.output.slice(-1500)}`);
   }
   const toolRun = await runCodexExec(
@@ -388,7 +403,7 @@ async function main() {
     dbPath,
     'For CANARY_CODEX_TOOL_CASE, execute the available shell tool once, then reply with exactly CANARY_CODEX_TOOL_OK.',
   );
-  if (toolRun.exitCode !== 0 || !toolRun.output.includes('CANARY_CODEX_TOOL_OK') || !upstream.state.codexToolObserved) {
+  if (toolRun.exitCode !== 0 || toolRun.outputLimitExceeded || !toolRun.output.includes('CANARY_CODEX_TOOL_OK') || !upstream.state.codexToolObserved) {
     throw new Error(`Codex tool canary did not complete: exit=${toolRun.exitCode}; stderr=${toolRun.errorOutput.slice(-1500)}; output=${toolRun.output.slice(-1500)}`);
   }
 

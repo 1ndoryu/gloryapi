@@ -142,7 +142,10 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
       const serialized = serializedMessages(body);
       if (serialized.includes('CANARY_CODEX_TOOL_CASE')
         && Array.isArray(body.messages)
-        && body.messages.some(message => message && message.role === 'tool')) {
+        && body.messages.some(message => message
+          && message.role === 'tool'
+          && message.tool_call_id === 'canary-codex-tool-call-v1'
+          && JSON.stringify(message.content || '').includes('CANARY_TOOL_EXECUTED'))) {
         state.codexToolObserved = true;
       }
       if (request.headers.authorization === 'Bearer canary-andoryyu-fail'
