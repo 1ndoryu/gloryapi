@@ -1173,6 +1173,36 @@ function totalTokens(messages) {
   return messages.reduce((s, m) => s + estimateTokens(m), 0);
 }
 
+// Multi-agent v2: `spawn_agent` with an explicit `agent_type` is REJECTED by
+// Codex when the fork is full-history (the default), which is exactly what
+// DeepSeek does when it wants a specialized role:
+//   "Full-history forked agents inherit the parent agent type; omit agent_type,
+//    or spawn without a full-history fork."
+// (codex-rs `multi_agents_common.rs` reject_full_fork_agent_type_override).
+// Fix: force `fork_turns: "none"` in that case, so the spawn succeeds and the
+// subagent receives its context exclusively through `message` (V2 semantics).
+// Also neutralize the V1 `fork_context: true` variant defensively.
+function withSpawnForkFix(name, argsString) {
+  if (name !== 'spawn_agent') return argsString;
+  let parsed;
+  try {
+    parsed = JSON.parse(argsString);
+  } catch {
+    return argsString;
+  }
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.agent_type !== 'string') return argsString;
+  let changed = false;
+  if (parsed.fork_turns === undefined || parsed.fork_turns === 'all') {
+    parsed.fork_turns = 'none';
+    changed = true;
+  }
+  if (parsed.fork_context === true) {
+    parsed.fork_context = false;
+    changed = true;
+  }
+  return changed ? JSON.stringify(parsed) : argsString;
+}
+
 // ---------------------------------------------------------------------------
 // Real-token calibration
 // ---------------------------------------------------------------------------
@@ -1915,7 +1945,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
         item: { type: 'custom_tool_call', call_id: tc.id, name, input: rawInput },
       });
     } else {
-      const item = { type: 'function_call', call_id: tc.id, name, arguments: args };
+      const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, args) };
       if (namespace) item.namespace = namespace;
       if (namespace === 'collaboration' && (name === 'spawn_agent' || name === 'send_message' || name === 'followup_task')) {
         item.encrypted_function_args = [];
@@ -2245,7 +2275,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         item: { type: 'custom_tool_call', call_id: tc.id, name, input: rawInput },
       });
     } else {
-      const item = { type: 'function_call', call_id: tc.id, name, arguments: tc.args || '{}' };
+      const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, tc.args || '{}') };
       if (namespace) item.namespace = namespace;
       // Multi-agent v2 collaboration tools carry the task in `arguments`, but
       // Codex's router (router.rs `direct_source`) treats spawn_agent /
@@ -2359,7 +2389,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       } catch {}
       output.push({ type: 'custom_tool_call', call_id: tc.id, name, input: rawInput });
     } else {
-      const item = { type: 'function_call', call_id: tc.id, name, arguments: args };
+      const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, args) };
       if (namespace) item.namespace = namespace;
       // Same as the SSE path: collaboration spawn/send/followup need
       // encrypted_function_args: [] so Codex routes them as
