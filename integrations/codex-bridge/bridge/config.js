@@ -62,7 +62,24 @@ const config = Object.freeze({
     debug: env.BRIDGE_DEBUG === '1',
     timeoutMs: boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_MS', 360000, 100, 600000),
     timeoutRecoveryMs: boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_RECOVERY_MS', 720000, 1000, 1200000),
+    streamIdleTimeoutMs: boundedEnvInt('BRIDGE_STREAM_IDLE_TIMEOUT_MS', 180000, 1000, 600000),
+    streamTotalTimeoutMs: boundedEnvInt(
+      'BRIDGE_STREAM_TOTAL_TIMEOUT_MS',
+      boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_MS', 360000, 100, 600000),
+      1000,
+      1200000,
+    ),
     maxResponseBytes: boundedEnvInt('BRIDGE_UPSTREAM_MAX_BYTES', 32 * 1024 * 1024, 1024, 64 * 1024 * 1024),
+  },
+  canary: {
+    enabled: env.BRIDGE_CANARY_MODE === '1',
+    routingToken: firstEnv(env, ['BRIDGE_CANARY_ROUTING_TOKEN']),
+  },
+  tools: {
+    // The translation core is provider/client agnostic. Profiles opt into
+    // compatibility shims for clients whose deferred tools are not present in
+    // the request body. `generic` only forwards tools advertised by the client.
+    profile: firstEnv(env, ['BRIDGE_TOOL_PROFILE'], 'codex-desktop'),
   },
   limits: {
     maxBodyBytes: boundedEnvInt('BRIDGE_MAX_BODY_BYTES', 8 * 1024 * 1024, 1024, 16 * 1024 * 1024),

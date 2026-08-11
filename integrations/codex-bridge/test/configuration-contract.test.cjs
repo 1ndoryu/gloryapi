@@ -75,3 +75,28 @@ test('bridge host configuration fails closed outside loopback', () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /BRIDGE_HOST must be loopback/);
 });
+
+test('tool compatibility is selected by profile instead of being hardcoded', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['-e', "const { config } = require('./bridge/config'); const { resolveToolProfile } = require('./bridge/tool-profile'); process.stdout.write(JSON.stringify({ configured: config.tools.profile, generic: resolveToolProfile('generic'), desktop: resolveToolProfile('codex-desktop') }));"],
+    { cwd: root, env: { ...process.env, BRIDGE_TOOL_PROFILE: 'generic' }, encoding: 'utf8' },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.configured, 'generic');
+  assert.equal(output.generic.injectNodeRepl, false);
+  assert.equal(output.generic.injectAutomation, false);
+  assert.equal(output.desktop.injectNodeRepl, true);
+  assert.equal(output.desktop.collaborationAliases, true);
+});
+
+test('unknown tool profiles fail closed instead of enabling Codex shims', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['-e', "const { resolveToolProfile } = require('./bridge/tool-profile'); resolveToolProfile('typo-or-unsupported-client');"],
+    { cwd: root, env: process.env, encoding: 'utf8' },
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unknown BRIDGE_TOOL_PROFILE/);
+});

@@ -74,6 +74,12 @@ test('sidecar rejects truncated SSE, preserves fragmented UTF-8, and aborts on c
         return;
       }
 
+      if (text.includes('stall')) {
+        // Headers without a subsequent SSE frame reproduce the upstream
+        // failure that a bare fetch could leave waiting forever.
+        return;
+      }
+
       if (text.includes('cancel')) {
         cancellationStarted();
         response.write(`data: ${chunkFor('before cancel')}\n\n`);
@@ -101,6 +107,8 @@ test('sidecar rejects truncated SSE, preserves fragmented UTF-8, and aborts on c
       BRIDGE_REQUEST_LOG: requestLog,
       GLORY_API_BASE_URL: `http://127.0.0.1:${upstreamPort}/v1`,
       VISION_DISABLE: '1',
+      BRIDGE_STREAM_IDLE_TIMEOUT_MS: '1000',
+      BRIDGE_STREAM_TOTAL_TIMEOUT_MS: '5000',
     },
     stdio: 'ignore',
   });
@@ -134,6 +142,16 @@ test('sidecar rejects truncated SSE, preserves fragmented UTF-8, and aborts on c
   assert.equal(truncated.status, 200);
   assert.match(truncatedEvents, /response.failed/);
   assert.doesNotMatch(truncatedEvents, /response.completed/);
+
+  const stalled = await fetch(`${base}/v1/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test' },
+    body: JSON.stringify(requestBody('stall')),
+  });
+  const stalledEvents = await stalled.text();
+  assert.equal(stalled.status, 200);
+  assert.match(stalledEvents, /response.failed/);
+  assert.doesNotMatch(stalledEvents, /response.completed/);
 
   const cancellation = http.request(`${base}/v1/responses`, {
     method: 'POST',

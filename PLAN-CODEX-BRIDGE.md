@@ -1,8 +1,10 @@
 # FreeLLMAPI + bridge de Codex
 
 > Auditoría y plan de estabilización local. Iniciado: 2026-08-09.
-> Estado: implementación local aprobada con reserva de E2E. El modo activo sigue
-> siendo ChatGPT y el bridge operativo permanece detenido.
+> Estado histórico: implementación local aprobada con reserva de E2E. La revalidación
+> vigente está en `Agente/documentacion/codex-chatgpt-bridge-audit-2026-08-11.md` y
+> el plan activo en `Agente/planes/plan-codex-bridge-audit-2026-08-11.md`.
+> ChatGPT normal sigue activo y el bridge permanece detenido fuera del canary.
 
 ## Objetivo
 

@@ -9,8 +9,9 @@ durante la validación posterior al cutover reversible.
 2. Ejecutar `npm run task:check:local -- <ID>` como preflight de cada bloque y repetir `npm run task:check -- GLORY-BASELINE` después de cada bloque de cambios; el cierre conserva el perfil full/CI.
 3. Mantener la política de cambios del legado: sin modificaciones durante la migración; cualquier corrección operativa futura debe quedar registrada, probada y evaluada para portabilidad.
 4. Conservar el bootstrap sanitizado por `git archive` + overlay: el escaneo histórico de 518 commits/4.018 blobs y del overlay quedó documentado sin exponer valores.
-5. Mantener la revisión periódica de Sentinel; el gate local actual pasa con 0 errores y 0 warnings después de extraer
-   snapshots, V1–V35 y dejar `server/src/db/index.ts` como orquestador de inicialización y backup.
+5. Mantener la revisión periódica de Sentinel; el gate local actual pasa con 0 errores y 4 warnings de directorios
+   abarrotados (bridge, tests y rutas), además del aviso operativo de lease legacy. No son fallos del bloque, pero
+   permanecen visibles hasta reorganizar esos directorios o registrar una excepción explícita.
 6. Probar ACL/recuperación del bundle portable bajo otro perfil; `portable-bundle-file.ts` ya escribe con fsync/rename, límite de 16 MiB y ACL sin herencia para el usuario actual, y `recover:bundle` re-protege 22/22 filas de forma idempotente sin health externo. `--dry-run` valida sin escribir; `--health-check` es opt-in explícito; `recover:profile` deja el ensayo sintético reproducible y queda probar otro perfil Windows con ventana administrativa controlada.
 7. Cerrar el bloque local de Fase 6: el ciclo draft → discovery acotado → verificación real de health/chat/capabilities → active ya es fail-closed y no activa catálogos remotos completos; el wizard visual ahora cubre proveedor → endpoint/auth para drafts nuevos → credencial → health check opcional, y la API solo acepta credenciales de proveedores activos o drafts explícitos. El smoke DOM comprobó el orden sin transmitir secreto antes del draft; queda automatizarlo y extenderlo a modelos, revisión y activación. Prevención: `Agente/prevencion/prevencion-provider-wizard-order-2026-08-10.md`.
 8. Fase 8 queda cerrada en su bloque local: el contrato de orden, autosave, revisión, cola local, SSE autenticado,
@@ -39,8 +40,9 @@ durante la validación posterior al cutover reversible.
     multi-agent y long-context con estados fail-closed. El contrato se versionó a `glory-codex-capabilities-v2` y añade
     `glory-codex-lifecycle-v1`: `starting`/`ready`/`blocked`/`draining`/`stopped`,
     inferencia solo en `ready` y shutdown con drenaje acotado. El proveedor real Andoryyu,
-    el runtime local y el bridge ya pasan readiness; la matriz completa, bandeja y E2E Desktop
-    siguen abiertos.
+    el runtime local y el bridge pasan readiness dentro del canary aislado; ChatGPT normal permanece
+    activo y el bridge queda detenido fuera de esa prueba. La matriz completa, bandeja y E2E
+    Desktop/proveedores externos siguen abiertos.
 11. La investigación de OpenCodex se incorporó aditivamente a Fase 10.7: control-plane/data-plane separados,
     catálogo distinto de routing, afinidad de hilo, límites HTTP explícitos y recuperación/journal como trabajo
     aplicado selectivamente a `codex-mode.ps1` con lock, journal y hashes; no se copió código ni se instaló OpenCodex.
@@ -69,9 +71,10 @@ durante la validación posterior al cutover reversible.
     listo; el PID/log son propios de GloryAPI y el bridge sigue separado del perfil ChatGPT. El runtime
     arranca con entorno aislado y el bridge con allowlist explícita de variables; `environment-isolation.test.cjs`
     captura el proceso hijo y confirma que no hereda ningún token.
-17. Cutover local ejecutado: `config.toml` coincide con `config.deepseek.toml`, los cuatro enlaces `.codex`
-    apuntan a GloryAPI y el preflight con health devuelve `ready=true`; la prueba Node → bridge → Andoryyu
-    devolvió HTTP 200. Falta E2E desde la aplicación Desktop y validar rollback desde ChatGPT.
+17. El estado operativo de esta auditoría conserva ChatGPT normal y el bridge detenido fuera del canary;
+    no se modificó `C:\Users\Owner\.codex\config.toml`. El canary local Node → bridge → GloryAPI cubre
+    Andoryyu, OpenCode Zen, OpenCode Go y fallback con HTTP 200. Falta E2E desde la aplicación Desktop y
+    validar proveedores externos reales en una ventana reversible.
 18. `unified_api_key` migrada a `local_auth_tokens` con DPAPI `CurrentUser`; `settings` ya no conserva el
     plaintext. El helper upstream solo resuelve la fila DPAPI en readonly y falla cerrado si falta. Se mantiene
     además ACL sin herencia para Owner, SYSTEM y Administrators como defensa en profundidad.
@@ -105,15 +108,17 @@ durante la validación posterior al cutover reversible.
   `quality:doctor` ahora devuelve `ready: true`, con commit `7d18a755...`, release `v0.7.1`, evidencia limpia y
   artefacto `18611cda...`; la herramienta externa permanece limpia.
 - El adaptador `scripts/quality/sentinel-stage.mjs` convierte el análisis en reporte estructurado. El análisis directo y
-  `task:check:local` quedan sin findings accionables: 0 errores y 0 warnings. No se añadieron exclusiones Sentinel.
+  `task:check:local` quedan sin errores, con 4 warnings de directorios abarrotados heredados del workspace; no se
+  añadieron exclusiones Sentinel.
   Tras extraer las migraciones V1–V35, componentes
   de UI, hooks, helpers de providers, contratos del proxy, rutas de Analytics y suites grandes de tests, además de
   tipar respuestas nuevas, producción, UI, tests y contratos compartidos ya no tienen avisos explícitos de `any` ni
   hints pendientes. Los selectores existentes se conservaron mediante el alias semántico `SelectDropdown`, sin
   introducir un componente duplicado ni cambiar su comportamiento.
 - El escaneo histórico/overlay y el guard de independencia de Git quedaron completados; el historial completo no se reutiliza porque el inventario contiene artefactos sensibles excluidos. La política del legado queda fijada: no modificar `freellmapi` durante la migración.
-- El preflight coordinado conserva `task:check:local -- GLORY-BASELINE` en PASS, con 0 errores y 0 warnings;
-  `quality:doctor` confirma Sentinel 0.7.1, política `enforce`, lock/provisionado alineados y `readyForGate: true`.
+- El preflight coordinado conserva `task:check:local -- GLORY-BASELINE` en PASS, con 0 errores y 4 warnings de
+  directorios abarrotados; `quality:doctor` confirma Sentinel 0.7.1, política `enforce`, lock/provisionado alineados y
+  `readyForGate: true`.
   El informe completo ya conserva `policyIdentity` y `npm run task:check -- GLORY-REQUEST-ID-ALL` pasa con política
   `enforce`, hash y ruta verificables. La reparación está fijada al commit Sentinel
   `7d18a755f12751ae9fd1ac67827f5a6dad8be631`, con tag local `v0.7.1`, lock y artefacto provisionado alineados.
@@ -202,10 +207,13 @@ durante la validación posterior al cutover reversible.
   también de la caché persistida y reasoning-only/vacío tiene una recuperación única y bounded antes de
   `response.failed`. El bloque 11826-5 dividió `server.js` en adapters/handlers por responsabilidad
   y centralizó la configuración agnóstica (`BRIDGE_*`, con aliases legacy); `server.js` quedó en 276 líneas.
-  Evidencia actual: regresiones dirigidas 34/34, suite bridge 51/53 con solo los dos fallos conocidos de
-  `vision-error-redaction`, build PASS y gate PASS con 0 errores. El bridge permanece detenido y ChatGPT
-  normal es la ruta activa; falta validar E2E desde Desktop únicamente cuando se reactive explícitamente
-  el canary.
+  La auditoría 2026-08-11 añadió timeout total/idle al streaming, perfiles de tools `codex-desktop|generic`
+  y selección canary autenticada y restringida a overrides declarados para las tres rutas activas. Evidencia actual:
+  60/60 tests dirigidos y 270/270 tests del servidor,
+  `npm run build:server` PASS y `npm run canary:codex` PASS con cobertura directa Andoryyu/Zen/Go, fallback,
+  stream, tool loop y Codex CLI aislado. El bridge permanece detenido y ChatGPT normal es la ruta activa;
+  el E2E real de Desktop/proveedores externos sigue siendo una validación operativa pendiente, no se declara
+  como PASS por inferencia.
 
 
 ## Bloqueos y decisiones pendientes
@@ -232,6 +240,7 @@ durante la validación posterior al cutover reversible.
 
 ## Planes activos
 
+- `Agente/planes/plan-codex-bridge-audit-2026-08-11.md` — auditoría, refuerzo y cobertura canary del bridge.
 - `PLAN-GLORYAPI.md` — derivación, aislamiento y migración por fases.
 - `Agente/documentacion/migracion/fase-0-1-2026-08-10.md` — evidencia de Fase 0/1, overlay, backup y gate.
 - `server/src/__tests__/routes/backup.test.ts` — contrato de integridad/restauración del backup.

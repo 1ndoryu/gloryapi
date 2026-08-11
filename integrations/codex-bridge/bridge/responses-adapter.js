@@ -1,11 +1,15 @@
+const { resolveToolProfile } = require('./tool-profile');
+
 function createResponsesAdapter({
   logRequest,
   visibleReasoning,
   normalizeReasoningText,
   fallbackReasoning,
   withSpawnForkFix,
+  toolProfile: toolProfileName,
 }) {
   const FALLBACK_REASONING = fallbackReasoning;
+  const toolProfile = resolveToolProfile(toolProfileName);
 
 // Response translation: chat/completions SSE -> Responses SSE
 // ---------------------------------------------------------------------------
@@ -187,7 +191,7 @@ function lookupToolCall(wireName, toolMap, customTools) {
   // mcpnode_repl__js). If the call name still mentions node_repl, route it to
   // the known in-app browser JS tool regardless of the exact separator form.
   // namespace must be `mcp__node_repl` (Codex MCP namespace = mcp__<server>).
-  if (wireName && wireName.includes('node_repl')) {
+  if (toolProfile.mcpFallback && wireName && wireName.includes('node_repl')) {
     return { namespace: 'mcp__node_repl', name: 'js' };
   }
   return {

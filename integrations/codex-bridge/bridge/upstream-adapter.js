@@ -21,6 +21,8 @@ function createUpstreamAdapter({
   const COMPLETIONS_PATH = upstream.completionsPath;
   const UPSTREAM_TIMEOUT_MS = upstream.timeoutMs;
   const UPSTREAM_TIMEOUT_RECOVERY_MS = upstream.timeoutRecoveryMs;
+  const STREAM_IDLE_TIMEOUT_MS = upstream.streamIdleTimeoutMs;
+  const STREAM_TOTAL_TIMEOUT_MS = upstream.streamTotalTimeoutMs;
   const UPSTREAM_MAX_RESPONSE_BYTES = upstream.maxResponseBytes;
   const SEARCH_TIMEOUT_MS = search.timeoutMs;
   const SEARCH_TOTAL_TIMEOUT_MS = search.totalTimeoutMs;
@@ -31,6 +33,24 @@ function createUpstreamAdapter({
   const EMPTY_RECOVERY_DIRECTIVE = recovery.emptyDirective;
   const REQUEST_ID_HEADER = logging.requestIdHeader;
   const FALLBACK_REASONING = fallbackReasoning;
+  const canaryRoutingHeaders = config.canary.enabled && config.canary.routingToken
+    ? (chat) => chat.__canaryProvider
+      ? {
+          'X-Glory-Canary-Provider': chat.__canaryProvider,
+          'X-Glory-Canary-Token': config.canary.routingToken,
+        }
+      : {}
+    : () => ({});
+
+  function preserveCanaryProvider(source, target) {
+    if (typeof source.__canaryProvider === 'string') {
+      Object.defineProperty(target, '__canaryProvider', {
+        value: source.__canaryProvider,
+        enumerable: false,
+      });
+    }
+    return target;
+  }
 
 // Web search: the bridge owns the complete provider-side tool loop.
 // Web search: the bridge owns the complete provider-side tool loop.
@@ -242,6 +262,7 @@ async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM
         'Content-Type': 'application/json',
         Authorization: authorization,
         [REQUEST_ID_HEADER]: chat.__gloryRequestId,
+        ...canaryRoutingHeaders(chat),
       },
       body: JSON.stringify({ ...chat, stream: false }),
       signal: controller.signal,
@@ -287,6 +308,79 @@ async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM
 }
 
 /**
+ * Fetch a streaming completion with deadlines that remain active after
+ * headers arrive. A bare fetch only protects connection setup; an upstream
+ * can otherwise keep the response open forever without sending another SSE
+ * frame. The idle deadline is independent from the total deadline because
+ * reasoning models may stream for several minutes.
+ */
+async function fetchUpstreamStream(chat, authorization, callerSignal) {
+  assertSafeLoopbackUpstream(UPSTREAM);
+  const controller = new AbortController();
+  let timeoutReason = null;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  const totalTimer = setTimeout(() => {
+    timeoutReason = 'total';
+    controller.abort();
+  }, STREAM_TOTAL_TIMEOUT_MS);
+
+  const cleanup = () => {
+    clearTimeout(totalTimer);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
+  };
+  const timeoutError = (cause) => {
+    const error = new Error(
+      timeoutReason
+        ? `upstream stream timed out (${timeoutReason}) after ${timeoutReason === 'idle' ? STREAM_IDLE_TIMEOUT_MS : STREAM_TOTAL_TIMEOUT_MS} ms`
+        : `upstream stream failed: ${redactText(cause && cause.message)}`,
+    );
+    error.statusCode = 502;
+    if (timeoutReason) error.__timedOut = true;
+    return error;
+  };
+
+  try {
+    const response = await fetch(`${UPSTREAM.replace(/\/$/, '')}${COMPLETIONS_PATH}`, {
+      redirect: 'error',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authorization,
+        [REQUEST_ID_HEADER]: chat.__gloryRequestId,
+        ...canaryRoutingHeaders(chat),
+      },
+      body: JSON.stringify({ ...chat, stream: true }),
+      signal: controller.signal,
+    });
+    return {
+      response,
+      read: async (reader) => {
+        if (controller.signal.aborted) throw timeoutError(new Error('stream aborted'));
+        const idleTimer = setTimeout(() => {
+          timeoutReason = 'idle';
+          controller.abort();
+        }, STREAM_IDLE_TIMEOUT_MS);
+        try {
+          return await reader.read();
+        } catch (cause) {
+          throw timeoutError(cause);
+        } finally {
+          clearTimeout(idleTimer);
+        }
+      },
+      signal: controller.signal,
+      cleanup,
+      timedOut: () => Boolean(timeoutReason),
+    };
+  } catch (cause) {
+    cleanup();
+    throw timeoutError(cause);
+  }
+}
+
+/**
  * Recuperación por timeout (2026-08-11): el web loop y el path non-streaming
  * usan fetchUpstreamCompletion con un timeout acotado. Si un round aborta por
  * timeout (no por otro fallo upstream), se reintenta UNA vez con la ventana
@@ -320,10 +414,10 @@ async function fetchWithTimeoutRecovery(chat, authorization) {
  * Desktop to accept a fabricated function_call_output in response.output.
  */
 async function runInternalWebToolLoop(chat, toolMap, authorization) {
-  const working = attachRequestId(
+  const working = preserveCanaryProvider(chat, attachRequestId(
     { ...chat, messages: [...(chat.messages || [])], stream: false },
     chat.__gloryRequestId,
-  );
+  ));
   // El spread no copia propiedades no-enumerables; el hook de confirmación
   // necesita __userTools en el working para saber si el cliente expuso tools.
   Object.defineProperty(working, '__userTools', {
@@ -404,11 +498,11 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
 }
 
 function cloneForEmptyRecovery(chat) {
-  const recovered = {
+  const recovered = preserveCanaryProvider(chat, {
     ...chat,
     stream: false,
     messages: [...(chat.messages || [])],
-  };
+  });
   attachRequestId(recovered, chat.__gloryRequestId);
   Object.defineProperty(recovered, '__userTools', {
     value: chat.__userTools === true,
@@ -472,6 +566,7 @@ async function recoverEmptyCompletion(chat, authorization, source) {
     runWebSearch,
     hasWebTool,
     fetchUpstreamCompletion,
+    fetchUpstreamStream,
     fetchWithTimeoutRecovery,
     runInternalWebToolLoop,
     recoverEmptyCompletion,

@@ -4,12 +4,11 @@ function createResponseHandlers({
   logRequest,
   redactText,
   upstreamAuthHeader,
-  assertSafeLoopbackUpstream,
   sseParserError,
   SseStreamParser,
-  requestIdHeader,
   runInternalWebToolLoop,
   hasWebTool,
+  fetchUpstreamStream,
   fetchWithTimeoutRecovery,
   recoverEmptyCompletion,
   responseHelpers,
@@ -17,10 +16,7 @@ function createResponseHandlers({
   rememberReasoning,
 }) {
   const MODEL = config.upstream.model;
-  const UPSTREAM = config.upstream.baseUrl;
-  const COMPLETIONS_PATH = config.upstream.completionsPath;
   const NUDGE_RETRIES = config.recovery.nudgeRetries;
-  const REQUEST_ID_HEADER = requestIdHeader;
   const { sseEvent, assistantMessageFrom, assistantText, assistantToolCalls, hasVisibleAssistantAction,
     responseItemsForToolCalls, responseUsageFromChatUsage, emitResponseCompleted, createReasoningForwarder } = responseHelpers;
   const {
@@ -178,20 +174,9 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   req.on('aborted', abortUpstream);
   res.on('close', abortUpstream);
 
-  let upstreamRes;
+  let streamTransport;
   try {
-    const upstreamEndpoint = assertSafeLoopbackUpstream(UPSTREAM).toString().replace(/\/$/, '');
-    upstreamRes = await fetch(`${upstreamEndpoint}${COMPLETIONS_PATH}`, {
-      redirect: 'error',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: upstreamAuthHeader(),
-        [REQUEST_ID_HEADER]: chat.__gloryRequestId,
-      },
-      body: JSON.stringify(chat),
-      signal: controller.signal,
-    });
+    streamTransport = await fetchUpstreamStream(chat, upstreamAuthHeader(), controller.signal);
   } catch (err) {
     logRequest({ ts: new Date().toISOString(), kind: 'result', requestId: chat.__gloryRequestId, status: 0, error: String(err && err.message), body: chat });
     sseEvent(res, 'response.failed', {
@@ -202,10 +187,12 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     return;
   }
 
+  const upstreamRes = streamTransport.response;
+
   if (!upstreamRes.ok) {
     let errText = '';
     try {
-      errText = (await upstreamRes.text()).slice(0, 1000);
+      errText = redactText((await upstreamRes.text()).slice(0, 1000));
     } catch {}
     logRequest({
       ts: new Date().toISOString(),
@@ -223,6 +210,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         error: { type: 'upstream_http', message: `upstream ${upstreamRes.status}: ${errText}` },
       },
     });
+    streamTransport.cleanup();
     res.end();
     return;
   }
@@ -233,12 +221,13 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     // Non-streaming upstream response (shouldn't happen; we always request stream)
     let raw = '';
     try {
-      raw = await upstreamRes.text();
+      raw = redactText((await upstreamRes.text()).slice(0, 500));
     } catch {}
     sseEvent(res, 'response.failed', {
       type: 'response.failed',
       response: { id: responseId, error: { type: 'bad_upstream', message: `expected SSE, got ${ctype}: ${raw.slice(0, 500)}` } },
     });
+    streamTransport.cleanup();
     res.end();
     return;
   }
@@ -341,7 +330,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   let streamFailure = null;
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await streamTransport.read(reader);
       if (done) break;
       for (const payload of sseParser.push(value)) handleChunk(`data: ${payload}`);
     }
@@ -350,6 +339,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   } catch (err) {
     streamFailure = err;
   }
+  streamTransport.cleanup();
 
   if (streamFailure) {
     const safeMessage = streamFailure instanceof SseParserError

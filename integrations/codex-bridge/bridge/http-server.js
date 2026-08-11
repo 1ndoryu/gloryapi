@@ -304,6 +304,13 @@ function createBridgeHttpServer({
         return;
       }
       attachRequestId(chat, requestId);
+      const canaryProvider = req.headers['x-glory-canary-provider'];
+      if (config.canary.enabled && typeof canaryProvider === 'string' && /^[a-z0-9][a-z0-9-]{1,31}$/i.test(canaryProvider)) {
+        Object.defineProperty(chat, '__canaryProvider', {
+          value: canaryProvider.toLowerCase(),
+          enumerable: false,
+        });
+      }
       await compactContext(chat, authorization);
       if (upstream.debug) {
         log(`chat request metadata model=${chat.model} stream=${!!body.stream} messages=${chat.messages.length} tools=${Array.isArray(chat.tools) ? chat.tools.length : 0}`);

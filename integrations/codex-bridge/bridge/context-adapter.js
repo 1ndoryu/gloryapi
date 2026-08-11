@@ -29,6 +29,24 @@ function createContextAdapter({
   const CONFIRM_DIRECTIVE = recovery.confirmDirective;
   const NUDGE_RETRIES = recovery.nudgeRetries;
   const NUDGE_TIMEOUT_MS = recovery.nudgeTimeoutMs;
+  const canaryRoutingHeaders = config.canary.enabled && config.canary.routingToken
+    ? (provider) => provider
+      ? {
+          'X-Glory-Canary-Provider': provider,
+          'X-Glory-Canary-Token': config.canary.routingToken,
+        }
+      : {}
+    : () => ({});
+
+  function preserveCanaryProvider(source, target) {
+    if (typeof source.__canaryProvider === 'string') {
+      Object.defineProperty(target, '__canaryProvider', {
+        value: source.__canaryProvider,
+        enumerable: false,
+      });
+    }
+    return target;
+  }
 
 // Context window + native autocompaction
 // Context window + native autocompaction
@@ -230,7 +248,7 @@ function currentTurnHasToolMessages(messages) {
 // El retry reenvía el texto final como mensaje assistant (contexto de lo
 // anunciado) y añade la directiva de confirmación de cierre como user.
 function buildNudgeChat(chat, finalText) {
-  return {
+  return preserveCanaryProvider(chat, {
     ...chat,
     stream: false,
     messages: [
@@ -238,7 +256,7 @@ function buildNudgeChat(chat, finalText) {
       { role: 'assistant', content: finalText || '' },
       { role: 'user', content: CONFIRM_DIRECTIVE },
     ],
-  };
+  });
 }
 
 // Devuelve { toolCalls, reasoning, routedVia, text } del retry, o null si el
@@ -367,7 +385,7 @@ function buildTranscript(msgs) {
   return lines.join('\n');
 }
 
-async function summarizeHistory(oldMessages, auth) {
+async function summarizeHistory(oldMessages, auth, canaryProvider) {
   // Bound the summarization input so it never exceeds the context window
   // (reserving room for the COMPACT_MAX_TOKENS summary output).
   const budget = Math.min(CONTEXT_LIMIT, CONTEXT_LIMIT - COMPACT_MAX_TOKENS);
@@ -407,7 +425,11 @@ async function summarizeHistory(oldMessages, auth) {
       res = await fetch(endpoint, {
         redirect: 'error',
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: auth },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: auth,
+          ...canaryRoutingHeaders(canaryProvider),
+        },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -510,7 +532,7 @@ async function compactContext(chat, auth, options = {}) {
 
   let summaryText = null;
   if (old.length) {
-    summaryText = await summarizeHistory(old, auth);
+    summaryText = await summarizeHistory(old, auth, chat.__canaryProvider);
   }
   if (summaryText) {
     log(

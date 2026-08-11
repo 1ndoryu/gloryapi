@@ -1,4 +1,4 @@
-const { config } = require('./config');
+const { resolveToolProfile } = require('./tool-profile');
 
 function createRequestTranslator({ config, describeImage, extractFocusHint, boundSystemContent, log, reasoningFor }) {
   const MODEL = config.upstream.model;
@@ -6,6 +6,7 @@ function createRequestTranslator({ config, describeImage, extractFocusHint, boun
   const FALLBACK_REASONING = config.reasoning.fallback;
   const NUDGE_RETRIES = config.recovery.nudgeRetries;
   const EXECUTION_DIRECTIVE = config.recovery.executionDirective;
+  const toolProfile = resolveToolProfile(config.tools.profile);
 
 // Request translation: Responses request body -> chat/completions body
 // ---------------------------------------------------------------------------
@@ -200,7 +201,8 @@ function flattenOneTool(tool, tools, toolMap, customTools) {
  * only surfaces it via tool_search discovery ("use tool discovery for
  * `node_repl js`"), and DeepSeek never performs tool_search. Without it the
  * model reads the skill, says it will locate the JS tool, and stalls forever
- * calling shell_command. So we ALWAYS inject it here with the real schema.
+ * calling shell_command. The codex-desktop profile injects it here with the
+ * real schema; generic clients keep their advertised toolset unchanged.
  */
 const NODE_REPL_JS_TOOL = {
   type: 'function',
@@ -396,7 +398,8 @@ function translateTools(responsesTools) {
   const toolMap = new Map();
   const customTools = new Set();
   for (const tool of responsesTools || []) flattenOneTool(tool, tools, toolMap, customTools);
-  // ALWAYS inject the in-app browser's Node REPL `js` tool. The app only exposes
+  // The codex-desktop profile injects the in-app browser's Node REPL `js` tool.
+  // The app only exposes
   // it via tool_search discovery (which DeepSeek never performs), so without this
   // the browser skill stalls: the model can never call mcp__node_repl__js.
   // The identifier mcp__node_repl__js splits as { namespace: 'mcp__node_repl',
@@ -413,18 +416,20 @@ function translateTools(responsesTools) {
   // the upstream rejected the whole request with "Tool names must be unique"
   // (observed 2026-08-10, request req_df522... -> 400 -> "Provider rejected the
   // request"). Only inject when the client did not already provide it.
-  if (!tools.some((t) => t.function && t.function.name === NODE_REPL_JS_TOOL.function.name)) {
-    tools.push(NODE_REPL_JS_TOOL);
-  }
-  toolMap.set('mcp__node_repl__js', { namespace: 'mcp__node_repl', name: 'js' });
+  if (toolProfile.injectNodeRepl) {
+    if (!tools.some((t) => t.function && t.function.name === NODE_REPL_JS_TOOL.function.name)) {
+      tools.push(NODE_REPL_JS_TOOL);
+    }
+    toolMap.set('mcp__node_repl__js', { namespace: 'mcp__node_repl', name: 'js' });
   // DeepSeek does NOT echo the double-underscore verbatim: it calls the tool as
   // `mcpnode_repl__js` (single underscores around the namespace), so the exact
   // toolMap key never matches and lookupToolCall falls back to a bare
   // function_call with no namespace -> the app rejects it as an unknown tool and
   // the model retries forever (observed 820x in bridge.requests.log). Register
   // the alias the model actually produces, mapping to the same MCP pair.
-  toolMap.set('mcpnode_repl__js', { namespace: 'mcp__node_repl', name: 'js' });
-  // ALWAYS inject the app's `automation_update` dynamic tool ("guardar
+    toolMap.set('mcpnode_repl__js', { namespace: 'mcp__node_repl', name: 'js' });
+  }
+  // The codex-desktop profile injects the app's `automation_update` dynamic tool ("guardar
   // recuerdo"/recurring automations). Same deferred-discovery failure as
   // node_repl: the app marks it deferLoading:true and only materializes it via
   // tool_search (which DeepSeek never performs), so without this injection the
@@ -433,11 +438,13 @@ function translateTools(responsesTools) {
   // executes. Register the namespace/name pair AND the alias DeepSeek actually
   // emits (it strips the FIRST '__', producing `codex_appautomation_update`; the
   // generic de-mangling in lookupToolCall would also match, this makes it exact).
-  if (!tools.some((t) => t.function && t.function.name === AUTOMATION_UPDATE_TOOL.function.name)) {
-    tools.push(AUTOMATION_UPDATE_TOOL);
+  if (toolProfile.injectAutomation) {
+    if (!tools.some((t) => t.function && t.function.name === AUTOMATION_UPDATE_TOOL.function.name)) {
+      tools.push(AUTOMATION_UPDATE_TOOL);
+    }
+    toolMap.set('codex_app__automation_update', { namespace: 'codex_app', name: 'automation_update' });
+    toolMap.set('codex_appautomation_update', { namespace: 'codex_app', name: 'automation_update' });
   }
-  toolMap.set('codex_app__automation_update', { namespace: 'codex_app', name: 'automation_update' });
-  toolMap.set('codex_appautomation_update', { namespace: 'codex_app', name: 'automation_update' });
   // Multi-agent v2 (namespace `collaboration`) has the SAME failure mode: the
   // model calls `collaboration__spawn_agent` as `collaborationspawn_agent`
   // (first '__' stripped), so the app receives a bare function_call without the
@@ -447,18 +454,20 @@ function translateTools(responsesTools) {
   // forever (163x spawn + followup in bridge.requests.log). Register explicit
   // aliases for every collaboration tool so the response carries the proper
   // namespace:name pair and the app dispatches through the normal path.
-  const COLLAB_TOOLS = [
-    'spawn_agent',
-    'send_message',
-    'followup_task',
-    'wait_agent',
-    'interrupt_agent',
-    'list_agents',
-    'close_agent',
-    'update_agent',
-  ];
-  for (const t of COLLAB_TOOLS) {
-    toolMap.set(`collaboration${t}`, { namespace: 'collaboration', name: t });
+  if (toolProfile.collaborationAliases) {
+    const COLLAB_TOOLS = [
+      'spawn_agent',
+      'send_message',
+      'followup_task',
+      'wait_agent',
+      'interrupt_agent',
+      'list_agents',
+      'close_agent',
+      'update_agent',
+    ];
+    for (const t of COLLAB_TOOLS) {
+      toolMap.set(`collaboration${t}`, { namespace: 'collaboration', name: t });
+    }
   }
   // Dedupe by wire name as a final safety net: if the client already listed a
   // tool (directly or via namespace flattening) we must not send duplicates.

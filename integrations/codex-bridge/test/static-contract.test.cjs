@@ -13,6 +13,7 @@ const bridgeSources = [
   'request-translator.js',
   'context-adapter.js',
   'responses-adapter.js',
+  'tool-profile.js',
   'upstream-adapter.js',
   'response-handlers.js',
   'http-server.js',

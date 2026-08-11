@@ -13,8 +13,9 @@ responsabilidad para poder probarla y sustituir el proveedor sin editar el servi
 - `request-translator.js`: Responses → Chat Completions, herramientas, namespaces y mensajes históricos.
 - `context-adapter.js`: límites de contexto, compactación de seguridad, calibración y recuperaciones de cierre.
 - `responses-adapter.js`: serialización Chat Completions → Responses/SSE y routing de tool calls.
-- `upstream-adapter.js`: transporte al proveedor, timeouts, recuperación de respuestas vacías y web loop.
+- `upstream-adapter.js`: transporte al proveedor, timeouts total/idle de streaming, recuperación de respuestas vacías y web loop.
 - `response-handlers.js`: paths streaming y non-streaming, con la misma política de recuperación.
+- `tool-profile.js`: perfiles de compatibilidad `codex-desktop` y `generic`; los shims de MCP/automation/colaboración no están en el núcleo.
 - `vision.js` y `reasoning-cache.js`: adaptaciones y cachés persistentes aislados.
 - `http-server.js`: endpoints HTTP, autenticación local, readiness, lifecycle y shutdown graceful.
 
@@ -24,6 +25,12 @@ La configuración prioriza aliases agnósticos y mantiene compatibilidad con `GL
 `BRIDGE_UPSTREAM_CONTRACT`. Los límites y políticas siguen siendo configurables mediante las variables
 `BRIDGE_*` documentadas en este archivo. El bridge continúa escuchando en loopback por defecto y
 apunta a un upstream OpenAI-compatible por defecto; cambiar de proveedor no requiere editar adapters.
+
+El perfil de herramientas se elige con `BRIDGE_TOOL_PROFILE=codex-desktop|generic`. El primero mantiene los
+shims necesarios para builds de Codex Desktop que descubren tarde algunas herramientas; `generic` solo reenvía
+las herramientas anunciadas por el cliente. El transporte streaming acepta además `BRIDGE_STREAM_IDLE_TIMEOUT_MS`
+(180 s por defecto) y `BRIDGE_STREAM_TOTAL_TIMEOUT_MS` (6 min por defecto); ambos deadlines cubren también el
+body después de recibir headers.
 
 Los scripts `codex-mode.ps1`, `switch-chatgpt.ps1` y `switch-deepseek.ps1` tienen su
 única fuente física en `mode/`. Sus rutas conocidas en `%USERPROFILE%\.codex` son
@@ -72,6 +79,11 @@ sin commit por indicación del usuario.
   disconnected before completion"). Esto evita cortar la conexión cuando un round
   con contexto grande (100k+ tokens, prefix cache 0) excede el timeout base aunque
   el modelo esté trabajando.
+- El path streaming tiene un deadline total separado y un deadline idle por frame. Si
+  el upstream entrega headers pero no vuelve a producir SSE, el bridge aborta el fetch
+  y emite `response.failed`; no deja el turno esperando indefinidamente. El idle y el
+  total se configuran con `BRIDGE_STREAM_IDLE_TIMEOUT_MS` y
+  `BRIDGE_STREAM_TOTAL_TIMEOUT_MS`.
 - Una respuesta del proveedor con `tool_calls` sin texto es una continuación válida:
   el bridge emite los `function_call` y `response.completed` lleva `end_turn=false`.
   El `FALLBACK_REASONING` usado solo para satisfacer DeepSeek en mensajes históricos
@@ -185,8 +197,10 @@ El script escribe únicamente `%CODEX_HOME%\gloryapi-canary.config.toml`, usa
 `model_providers.<id>.auth.command` y no contiene `experimental_bearer_token` ni
 ningún secreto. No reemplaza `config.toml`; `-Force` solo permite regenerar ese
 perfil temporal. El canary debe ejecutarse con GloryAPI y el bridge ya listos, y
-su rollback es seleccionar el perfil ChatGPT y detener el bridge. La evidencia
-E2E sigue siendo obligatoria antes de declarar compatibilidad con Codex Desktop.
+su rollback es seleccionar el perfil ChatGPT y detener el bridge. `npm run canary:codex`
+usa un upstream local determinista y ahora prueba rutas directas a Andoryyu, OpenCode
+Zen y OpenCode Go, además del fallback; no cambia la configuración activa ni demuestra
+disponibilidad de las cuentas externas.
 
 ## Enlace local
 
@@ -241,7 +255,7 @@ informa presencia/ausencia; nunca imprime ni persiste el valor. Por tanto,
 `-SkipHealth` ya no puede dar un falso "listo" cuando el bridge no puede resolver
 su token DPAPI ni la clave unificada.
 
-## Runbook de cutover (ejecutado localmente; Desktop E2E pendiente)
+## Runbook de cutover (solo documental; Desktop E2E pendiente)
 
 La operación local del 2026-08-10 siguió este orden reversible:
 
@@ -253,16 +267,17 @@ La operación local del 2026-08-10 siguió este orden reversible:
    verificable; no editar ni copiar `freellmapi`.
 4. Generar el perfil temporal `gloryapi-canary`, iniciar el bridge con identidad
    `gloryapi-codex-bridge` y repetir `/health`, `/ready` y `/capabilities`.
-5. Probar una solicitud real Node → bridge → GloryAPI → Andoryyu; devolvió HTTP 200
-   con el modelo `deepseek-v4-flash`. El E2E de Codex Desktop con una conversación
-   nueva, incluyendo stream, tools, web y rollback, sigue pendiente.
+5. Ejecutar el canary aislado: SQLite temporal, puertos loopback, helper DPAPI
+   token-only y cobertura directa de los tres proveedores más fallback. El E2E de
+   Codex Desktop con una conversación nueva, incluyendo stream, tools, web y rollback,
+   sigue pendiente.
 6. Para revertir: detener el bridge, restaurar ChatGPT desde el snapshot hashado,
    comprobar que los enlaces y el modo coinciden con el snapshot y registrar la
    evidencia final.
 
-El snapshot de rollback quedó en `%USERPROFILE%\.codex\gloryapi-cutover.rollback.*.json`.
-La configuración activa quedó en DeepSeek y el bridge/runtime permanecen operativos;
-volver a ChatGPT ejecuta `switch-chatgpt.ps1` desde la fuente GloryAPI.
+El snapshot histórico de rollback puede existir en `%USERPROFILE%\.codex\gloryapi-cutover.rollback.*.json`.
+En la operación actual ChatGPT normal es la ruta activa y el bridge queda detenido después
+de las pruebas; no se debe ejecutar un switch para esta auditoría.
 
 ## Validación sin activar DeepSeek
 

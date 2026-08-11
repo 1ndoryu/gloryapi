@@ -29,6 +29,7 @@ import {
 } from '../services/routing-trace.js';
 import { classifyProxyError, type ProxyErrorClassification } from './proxy-errors.js';
 import { resolveProxyModelSelection } from './routing/proxy-selection.js';
+import { validateCanaryRoutingDirective } from './routing/canary-routing.js';
 
 export const proxyRouter = Router();
 registerModelRoutes(proxyRouter);
@@ -128,7 +129,18 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // matching the requested id, return 400 — silently auto-routing to a
   // different model would be surprising to OpenAI-compatible clients.
   // Sticky-session is the fallback when no `model` field was sent at all.
-  const selection = resolveProxyModelSelection(requestedModel, messages);
+  const canaryValidation = validateCanaryRoutingDirective(
+    req.header('x-glory-canary-provider'),
+    req.header('x-glory-canary-token'),
+  );
+  if ('error' in canaryValidation) {
+    res.status(403).json({
+      error: { message: canaryValidation.error.message, type: 'forbidden', code: canaryValidation.error.code },
+    });
+    return;
+  }
+  const canaryProvider = canaryValidation.provider;
+  const selection = resolveProxyModelSelection(requestedModel, messages, canaryProvider);
   if ('error' in selection) {
     res.status(400).json({
       error: { message: selection.error.message, type: 'invalid_request_error', code: selection.error.code },

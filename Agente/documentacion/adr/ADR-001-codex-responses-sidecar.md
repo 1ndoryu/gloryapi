@@ -70,3 +70,25 @@ function tools, error upstream y cancelación. Sus invariantes principales son:
 Se acepta un salto local adicional y dos contratos que mantener. A cambio, la ruta
 Chat Completions de VS Code permanece estable, el sidecar puede evolucionar con el
 cliente Desktop y cada quirk puede retirarse mediante fixture y versión.
+
+## Revalidación 2026-08-11
+
+La auditoría mantiene la decisión y fija dos límites adicionales:
+
+1. El bridge no incorpora selección de proveedor. Andoryyu, OpenCode Zen y OpenCode
+   Go siguen siendo responsabilidad del router de GloryAPI, que conserva health,
+   límites, sticky sessions, capacidades y fallback. La selección directa de un
+   proveedor existe únicamente en el canary aislado, con token separado y una ruta
+   permitida por el override del modelo; headers equivalentes se rechazan fuera de
+   `GLORYAPI_CANARY_MODE=1`.
+2. El transporte streaming debe mantener un timeout total y uno idle después de
+   recibir headers. Un upstream que deja el body abierto no puede convertir el turno
+   en una espera indefinida; se emite `response.failed` y nunca `response.completed`.
+
+La compatibilidad específica del consumidor se separa en `tool-profile.js`:
+`codex-desktop` habilita los aliases de MCP/automation/colaboración necesarios para
+builds con discovery diferido; `generic` solo adapta las herramientas declaradas por
+el cliente. La evidencia local actual es 55/55 tests dirigidos y `npm run canary:codex`
+PASS con cobertura determinista directa de los tres proveedores y fallback. Esto no
+eleva la capability de proveedor real ni sustituye el E2E Desktop, que permanece
+pendiente para una ventana operativa explícita.

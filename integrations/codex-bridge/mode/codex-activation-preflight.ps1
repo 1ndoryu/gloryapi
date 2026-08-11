@@ -55,7 +55,11 @@ $upstreamVaultAvailable = $false
 if (-not $upstreamCredentialPresent -and (Test-Path -LiteralPath $expectedUpstreamAuthHelper)) {
     $node = (Get-Command node -ErrorAction SilentlyContinue).Source
     if ($node) {
-        & $node $expectedUpstreamAuthHelper --check 2>$null | Out-Null
+        # PowerShell 7 can promote native stderr to a terminating error even
+        # when it is redirected. The helper is intentionally allowed to fail
+        # here (that is the check's result), so swallow that process failure
+        # and keep producing the machine-readable preflight report.
+        try { & $node $expectedUpstreamAuthHelper --check 2>&1 | Out-Null } catch { }
         $upstreamVaultAvailable = ($LASTEXITCODE -eq 0)
     }
 }

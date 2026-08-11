@@ -200,6 +200,7 @@ test('vision upstream bodies never reach stderr', async (t) => {
       BRIDGE_CLIENT_TOKEN: 'test',
       GLORY_API_KEY: 'upstream-test',
       VISION_API_KEY: 'vision-test',
+      VISION_BASE_URL: 'https://opencode.ai/zen/go/v1',
       VISION_DISABLE: '0',
       BRIDGE_REQUEST_LOG: requestLog,
       GLORY_API_BASE_URL: `http://127.0.0.1:${upstreamPort}/v1`,

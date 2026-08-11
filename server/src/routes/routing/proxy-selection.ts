@@ -10,13 +10,47 @@ export type ProxyModelSelection =
 export function resolveProxyModelSelection(
   requestedModel: string | undefined,
   messages: ChatMessage[],
+  canaryProvider?: string,
 ): ProxyModelSelection {
-  if (isAutoModel(requestedModel)) return { preferredModel: undefined, restrictedChain: undefined };
+  if (isAutoModel(requestedModel)) {
+    if (canaryProvider) {
+      return {
+        error: {
+          code: 'model_not_found',
+          message: `Canary provider '${canaryProvider}' requires an explicit declared model route; 'auto' cannot be used for canary routing.`,
+        },
+      };
+    }
+    return { preferredModel: undefined, restrictedChain: undefined };
+  }
 
   if (requestedModel) {
     const overrideChain = MODEL_FALLBACK_OVERRIDES[requestedModel];
+    if (canaryProvider && !overrideChain) {
+      return {
+        error: {
+          code: 'model_not_found',
+          message: `Canary provider '${canaryProvider}' requires a declared override route; model '${requestedModel}' has none.`,
+        },
+      };
+    }
     if (overrideChain) {
       const db = getDb();
+      if (canaryProvider) {
+        const requestedRoute = overrideChain.find(entry => entry.platform === canaryProvider);
+        if (requestedRoute) {
+          const row = db.prepare(
+            'SELECT id FROM models WHERE platform = ? AND model_id = ? AND enabled = 1',
+          ).get(requestedRoute.platform, requestedRoute.modelId) as { id: number } | undefined;
+          if (row) return { preferredModel: row.id, restrictedChain: [row.id] };
+        }
+        return {
+          error: {
+            code: 'model_not_found',
+            message: `Canary provider '${canaryProvider}' is not part of the '${requestedModel}' route.`,
+          },
+        };
+      }
       const resolvedChain: number[] = [];
       for (const entry of overrideChain) {
         const row = db.prepare(
@@ -69,5 +103,13 @@ export function resolveProxyModelSelection(
     } };
   }
 
+  if (canaryProvider) {
+    return {
+      error: {
+        code: 'model_not_found',
+        message: `Canary provider '${canaryProvider}' requires an explicit declared model route.`,
+      },
+    };
+  }
   return { preferredModel: getStickyModel(messages), restrictedChain: undefined };
 }

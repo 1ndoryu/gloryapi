@@ -1,4 +1,4 @@
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
@@ -11,12 +11,27 @@ const powershell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
 const codexEntryPoint = process.platform === 'win32' && process.env.APPDATA
   ? path.join(process.env.APPDATA, 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
   : null;
+function resolveCodexLauncher() {
+  if (codexEntryPoint && fs.existsSync(codexEntryPoint)) {
+    return { command: node, prefix: [codexEntryPoint], version: 'node-entrypoint' };
+  }
+  const sandboxCodex = path.join(process.env.USERPROFILE || os.homedir(), '.codex', '.sandbox-bin', 'codex.exe');
+  if (process.platform === 'win32' && fs.existsSync(sandboxCodex)) {
+    return { command: sandboxCodex, prefix: [], version: 'sandbox-binary' };
+  }
+  const lookup = process.platform === 'win32' ? 'where.exe' : 'which';
+  const result = spawnSync(lookup, ['codex'], { encoding: 'utf8', windowsHide: true });
+  const command = result.status === 0 ? result.stdout.split(/\r?\n/).find(Boolean)?.trim() : null;
+  if (!command) throw new Error('Codex CLI launcher was not found');
+  return { command, prefix: [], version: 'native-binary' };
+}
 const dbDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gloryapi-canary-'));
 const dbPath = path.join(dbDir, 'canary.db');
 const codexHome = path.join(dbDir, 'codex-home');
 const requestLog = path.join(dbDir, 'bridge.requests.log');
 const failedRequestLog = path.join(dbDir, 'failed_requests.log');
 const canaryAdminToken = 'gloryapi-canary-admin-token';
+const canaryRoutingToken = 'gloryapi-canary-routing-token';
 const bridgeFile = path.join(root, 'integrations', 'codex-bridge', 'bridge', 'server.js');
 const prepareProfileScript = path.join(root, 'integrations', 'codex-bridge', 'mode', 'prepare-canary-profile.ps1');
 const authScript = path.join(root, 'integrations', 'codex-bridge', 'mode', 'get-codex-auth.ps1');
@@ -54,15 +69,16 @@ async function waitFor(url, predicate, timeoutMs = 20_000) {
 }
 
 function getUnifiedKey() {
-  const BetterSqlite = require('better-sqlite3');
-  const db = new BetterSqlite(dbPath, { readonly: true });
-  try {
-    const row = db.prepare("SELECT value FROM settings WHERE key = 'unified_api_key'").get();
-    if (!row || typeof row.value !== 'string' || !row.value) throw new Error('unified API key was not initialized');
-    return row.value;
-  } finally {
-    db.close();
-  }
+  const helper = path.join(root, 'server', 'dist', 'scripts', 'bridge-upstream-auth.js');
+  const result = spawnSync(node, [helper, '--print'], {
+    cwd: root,
+    env: { ...process.env, GLORYAPI_DB_PATH: dbPath },
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const token = result.stdout.trim();
+  if (result.status !== 0 || !token) throw new Error('unified API key was not initialized');
+  return token;
 }
 
 async function requestJson(url, options) {
@@ -122,7 +138,7 @@ async function main() {
     });
   });
   upstream = await createDeterministicUpstream({
-    token: ['canary-andoryyu-fail', 'canary-zen'],
+    token: ['canary-andoryyu-fail', 'canary-zen', 'canary-go'],
     port: 0,
   });
 
@@ -133,6 +149,7 @@ async function main() {
     ENCRYPTION_KEY: '0'.repeat(64),
     GLORYAPI_CANARY_MODE: '1',
     GLORYAPI_ADMIN_AUTH_TOKEN: canaryAdminToken,
+    GLORYAPI_CANARY_ROUTING_TOKEN: canaryRoutingToken,
     GLORYAPI_CANARY_UPSTREAM_URL: `http://127.0.0.1:${upstream.port}/v1`,
     GLORYAPI_FAILED_REQUESTS_LOG: failedRequestLog,
   };
@@ -150,6 +167,11 @@ async function main() {
     method: 'POST',
     headers: adminHeaders,
     body: JSON.stringify({ platform: 'opencode-zen', key: 'canary-zen', label: 'isolated-canary-zen' }),
+  });
+  await requestJson(`${serverBase}/api/keys`, {
+    method: 'POST',
+    headers: adminHeaders,
+    body: JSON.stringify({ platform: 'opencode-go', key: 'canary-go', label: 'isolated-canary-go' }),
   });
   const unifiedKey = getUnifiedKey();
   const localTokenResult = spawn(node, [path.join(root, 'server', 'dist', 'scripts', 'bridge-auth.js'), '--rotate'], {
@@ -170,6 +192,8 @@ async function main() {
     BRIDGE_CLIENT_TOKEN: localToken,
     GLORY_API_KEY: unifiedKey,
     GLORY_API_BASE_URL: `${serverBase}/v1`,
+    BRIDGE_CANARY_MODE: '1',
+    BRIDGE_CANARY_ROUTING_TOKEN: canaryRoutingToken,
     BRIDGE_REQUEST_LOG: requestLog,
     VISION_DISABLE: '1',
   }, 'bridge');
@@ -195,6 +219,27 @@ async function main() {
     || capabilities.matrix?.[0]?.capabilities?.providerInference?.status !== 'unverified'
   ) {
     throw new Error(`bridge capability contract failed: ${JSON.stringify(capabilities)}`);
+  }
+
+  const providerCoverage = {};
+  for (const provider of ['andoryyu', 'opencode-zen', 'opencode-go']) {
+    const providerResponse = await requestJson(`${bridgeBase}/v1/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localToken}`,
+        'X-Glory-Canary-Provider': provider,
+      },
+      body: JSON.stringify({
+        model: 'deepseek-v4-flash',
+        stream: false,
+        input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: `CANARY_PROVIDER_${provider}` }] }],
+      }),
+    });
+    if (providerResponse?.output?.[0]?.content?.[0]?.text !== 'CANARY_OK') {
+      throw new Error(`direct provider canary failed for ${provider}`);
+    }
+    providerCoverage[provider] = true;
   }
 
   const nonStreaming = await requestJson(`${bridgeBase}/v1/responses`, {
@@ -287,13 +332,14 @@ async function main() {
   }
 
   await prepareProfile(bridgePort);
+  const codexLauncher = resolveCodexLauncher();
   const codexArgs = [
-    ...(codexEntryPoint && fs.existsSync(codexEntryPoint) ? [codexEntryPoint] : []),
+    ...codexLauncher.prefix,
     'exec', '--profile', 'gloryapi-canary', '--json', '--ephemeral', '--skip-git-repo-check',
     '-c', 'features.plugins=false',
     'Reply with exactly CANARY_OK and nothing else.',
   ];
-  const codex = spawn(node, codexArgs, {
+  const codex = spawn(codexLauncher.command, codexArgs, {
     cwd: root,
     env: {
       ...process.env,
@@ -328,7 +374,7 @@ async function main() {
 
   process.stdout.write(JSON.stringify({
     status: 'PASS',
-    codexVersion: '0.146.1',
+    codexVersion: codexLauncher.version,
     response: 'CANARY_OK',
     readiness: true,
     lifecycle: true,
@@ -340,6 +386,7 @@ async function main() {
     foreignToolsetNoCooldown: true,
     stream: true,
     isolated: true,
+    providerCoverage,
   }) + '\n');
 }
 
