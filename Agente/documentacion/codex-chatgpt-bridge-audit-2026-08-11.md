@@ -35,6 +35,13 @@ Fuentes primarias consultadas:
 
 Como referencia de implementación del cliente, el [app-server de OpenAI Codex](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md) modela cada turno como varios items persistibles —mensaje, reasoning, ejecución, cambio de archivo, MCP y colaboración— y termina con `turn/completed`. El [proxy Responses de Codex](https://github.com/openai/codex/tree/main/codex-rs/responses-api-proxy) sirve como referencia adicional para separar el transporte del protocolo de aplicación.
 
+La verificación de esas referencias fija cuatro invariantes para este sidecar:
+
+- El app-server actual separa `thread`, `turn` e `item`, mantiene los items como contexto futuro y expone `turn/started`/`turn/completed`; además, `thread/compact/start` informa la compactación como un item del mismo hilo. El bridge por eso no convierte reasoning, tool progress o un delta aislado en una respuesta final.
+- La guía actual de function calling define un ciclo de cinco pasos: declarar tools, recibir `function_call`, ejecutar fuera del modelo, devolver `function_call_output` con el mismo `call_id` y continuar hasta texto u otra llamada. La prueba `providerToolSwitching` verifica ese orden al cambiar de Andoryyu a Go.
+- La guía de streaming enumera `response.completed` y `error` como eventos terminales diferenciados; los timeouts/truncamientos del bridge producen `response.failed` o un error SSE acotado, nunca un completed fantasma.
+- La guía de compaction exige conservar el item de compaction al encadenar el siguiente input y permite eliminar solo el prefijo anterior a ese item. La red de seguridad local cuenta schemas de tools y limita cuerpos, pero no se anuncia como sustituto de la compaction nativa del cliente.
+
 ## Arquitectura y propiedad de cada decisión
 
 ```text
