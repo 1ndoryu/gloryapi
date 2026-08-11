@@ -76,8 +76,9 @@ durante la validación posterior al cutover reversible.
 17. El estado operativo de esta auditoría conserva ChatGPT normal y el bridge detenido fuera del canary;
     no se modificó `C:\Users\Owner\.codex\config.toml`. El canary local Node → bridge → GloryAPI cubre
     Andoryyu, OpenCode Zen, OpenCode Go y fallback con HTTP 200, y la E2E HTTP autenticada temporal
-    pasó texto, `function_call` y SSE sin `FALLBACK_REASONING`. Falta E2E desde la aplicación Desktop y
-    atribuir cada inferencia a un proveedor individual en una ventana reversible.
+    pasó texto, `function_call` y SSE sin `FALLBACK_REASONING`; el payload fiel de Browser/plugin también
+    completó la ronda `function_call(js)` → `function_call_output` sintético → `message`. Falta E2E desde
+    la aplicación Desktop y atribuir cada inferencia a un proveedor individual en una ventana reversible.
 18. `unified_api_key` migrada a `local_auth_tokens` con DPAPI `CurrentUser`; `settings` ya no conserva el
     plaintext. El helper upstream solo resuelve la fila DPAPI en readonly y falla cerrado si falta. Se mantiene
     además ACL sin herencia para Owner, SYSTEM y Administrators como defensa en profundidad.

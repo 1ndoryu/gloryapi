@@ -298,6 +298,15 @@ contuvo `FALLBACK_REASONING`; el proceso y el runtime temporal se eliminaron al
 finalizar. Esto valida el contrato vivo del bridge, pero no sustituye una prueba
 desde Codex Desktop ni identifica por sí sola el proveedor final.
 
+La prueba fiel del payload de Browser/plugin también se ejecutó en `:4198` y
+`:4199` con `BRIDGE_TOOL_PROFILE=codex-desktop`: la primera ronda produjo
+`function_call(js)` y la segunda reinyectó su `function_call_output` sintético,
+obteniendo un `message`, siempre con HTTP `200` y sin mostrar
+`FALLBACK_REASONING`. No se ejecutó ninguna herramienta real. La instancia
+GloryAPI existente observó además `X-Routed-Via:
+opencode-go/deepseek-v4-flash` para texto y tools; esto demuestra una ruta real
+disponible, no la salud simultánea de los tres proveedores.
+
 El snapshot histórico de rollback puede existir en `%USERPROFILE%\.codex\gloryapi-cutover.rollback.*.json`.
 En la operación actual ChatGPT normal es la ruta activa y el bridge queda detenido después
 de las pruebas; no se debe ejecutar un switch para esta auditoría.
