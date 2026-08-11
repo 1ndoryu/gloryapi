@@ -107,9 +107,12 @@ const MAX_BODY_BYTES = boundedEnvInt('BRIDGE_MAX_BODY_BYTES', 8 * 1024 * 1024, 1
 const MAX_ACTIVE_REQUESTS = 32;
 const MAX_PATH_BYTES = 512;
 const UPSTREAM_TIMEOUT_MS = boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_MS', 180000, 100, 300000);
-// Anti falso-complete (2026-08-10): número máximo de reintentos (nudge) cuando
-// el modelo narra intención sin invocar herramientas, y timeout acotado para ese
-// segundo request (no debe duplicar la latencia del principal). 0 = desactivado.
+// Anti falso-complete (2026-08-10, hook de confirmación 2026-08-11): número
+// máximo de reintentos (nudge) cuando el modelo cierra con texto sin invocar
+// herramientas, y timeout acotado para ese segundo request (no debe duplicar la
+// latencia del principal). 0 = desactivado. El hook pregunta al modelo si
+// realmente terminó: si responde "ok" se cierra de verdad; si aún le queda
+// acción, la ejecuta en el mismo turno (tool_calls reales).
 const NUDGE_RETRIES = boundedEnvInt('BRIDGE_NUDGE_RETRIES', 1, 0, 3);
 const NUDGE_TIMEOUT_MS = boundedEnvInt('BRIDGE_NUDGE_TIMEOUT_MS', 60000, 1000, 300000);
 const EXECUTION_DIRECTIVE =
@@ -118,10 +121,12 @@ const EXECUTION_DIRECTIVE =
   'herramienta correspondiente EN ESTE MISMO TURNO. Nunca termines tu turno ' +
   'anunciando una acción sin ejecutarla: si anuncias una acción, ejecútala ' +
   'antes de finalizar.';
-const NUDGE_DIRECTIVE =
-  'Continúa: ejecuta ahora la acción que anunciaste usando las herramientas ' +
-  'disponibles. No repitas el plan: invoca la herramienta en este turno. Si la ' +
-  'acción ya está hecha o no requiere herramienta, responde solo el resultado.';
+const CONFIRM_DIRECTIVE =
+  'Confirmación de cierre: si realmente has terminado tu trabajo y no te queda ' +
+  'ninguna acción pendiente, responde únicamente "ok". Si aún te queda algo por ' +
+  'hacer (leer, buscar, editar, ejecutar, verificar, reintentar...), continúa ' +
+  'AHORA en este mismo turno invocando la herramienta correspondiente. No ' +
+  'repitas el plan: ejecútalo.';
 const UPSTREAM_MAX_RESPONSE_BYTES = boundedEnvInt('BRIDGE_UPSTREAM_MAX_BYTES', 32 * 1024 * 1024, 1024, 64 * 1024 * 1024);
 const REQUEST_LOG_MAX_BYTES = boundedEnvInt('BRIDGE_REQUEST_LOG_MAX_BYTES', 4 * 1024 * 1024, 64 * 1024, 32 * 1024 * 1024);
 const REQUEST_LOG_RETENTION = boundedEnvInt('BRIDGE_REQUEST_LOG_RETENTION', 3, 1, 9);
@@ -883,6 +888,7 @@ function extractReasoningText(item) {
 
 async function translateRequest(body) {
   const messages = [];
+  const userToolCount = Array.isArray(body.tools) ? body.tools.length : 0;
   const { tools, toolMap, customTools } = translateTools(body.tools);
   let pendingReasoning = null; // reasoning item from Codex, attached to the next assistant tool_calls message
   const focusHint = extractFocusHint(body);
@@ -1071,6 +1077,13 @@ async function translateRequest(body) {
     stream_options: { include_usage: true },
   };
   if (tools.length) chat.tools = tools;
+  // tools del usuario (sin las inyectadas node_repl/automation_update): solo con
+  // ellas el hook de confirmación pregunta por el cierre. No-enumerable para que
+  // JSON.stringify no la envíe a upstream.
+  Object.defineProperty(chat, '__userTools', {
+    value: userToolCount > 0,
+    enumerable: false,
+  });
   if (typeof body.tool_choice === 'string' && body.tool_choice) chat.tool_choice = body.tool_choice;
   if (typeof body.parallel_tool_calls === 'boolean') chat.parallel_tool_calls = body.parallel_tool_calls;
   if (typeof body.max_output_tokens === 'number') chat.max_tokens = body.max_output_tokens;
@@ -1228,15 +1241,18 @@ function withSpawnForkFix(name, argsString) {
 }
 
 // ---------------------------------------------------------------------------
-// Anti falso-complete: narración de intención sin ejecución (2026-08-10)
+// Anti falso-complete (2026-08-10; hook de confirmación 2026-08-11)
 // ---------------------------------------------------------------------------
-// DeepSeek a veces "narra" la acción que va a hacer ("Voy a escanear los .md...",
-// "Necesito ajustar el fork... lo reintento") en lugar de invocar la herramienta.
-// Codex Desktop interpreta texto sin function_call como fin de turno y cierra con
-// task_complete sin ejecutar nada (el usuario pierde tiempo verificando). Tres
-// capas: (A) directiva preventiva en el prompt cuando hay tools, (B) detección de
-// la narrativa + UN reintento (nudge) pidiendo ejecutar la acción, (C) telemetría
-// con kinds nudge_retry / nudge_noop / nudge_error.
+// DeepSeek a veces cierra con texto sin invocar la herramienta ("Voy a escanear
+// los .md...", "Sigo la auditoría leyendo...", "I will check..."), y Codex
+// Desktop interpreta texto sin function_call como fin de turno y cierra con
+// task_complete sin ejecutar nada. Capas: (A) directiva preventiva en el prompt
+// cuando hay tools; (B) HOOK UNIVERSAL de confirmación: toda respuesta final sin
+// tool_calls recibe UN reintento preguntando si realmente terminó ("ok" cierra;
+// cualquier otra cosa continúa con la acción); (C) telemetría con kinds
+// nudge_retry / nudge_confirm / nudge_noop / nudge_error. La heurística
+// isFutureIntentNarration ya no decide el gatillo: solo aporta el campo `intent`
+// de telemetría (quedó corta ante redacciones como "Sigo ... leyendo").
 function isFutureIntentNarration(text) {
   if (!text) return false;
   // ES + EN: la narración de intención futura sin ejecución ocurre en ambos
@@ -1250,8 +1266,28 @@ function isFutureIntentNarration(text) {
   );
 }
 
-// El retry reenvía el texto narrativo como mensaje assistant (contexto de lo
-// anunciado) y añade la directiva de ejecución como user.
+// isConfirmationText: "ok"/"done"/"listo"/"sí"... — la respuesta concreta con
+// la que el modelo confirma el cierre SIN re-activar el hook. Corta y de
+// acuerdo; "ok, pero falta X" o cualquier narración no cuenta como confirmación.
+function isConfirmationText(text) {
+  if (!text) return false;
+  const t = String(text)
+    .trim()
+    .toLowerCase()
+    .replace(/[.,!¡¿?;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const okVariant = /^(ok|okay|okey|kk)( done| listo| hecho| terminado| gracias| si| sí| de acuerdo)?$/;
+  return (
+    /^(ok|okay|okey|kk|done|yes|si|sí|listo|hecho|terminado|completado|finished|complete|all done|that.s (it|all)|eso es todo|ya está|ya esta|nada más|nothing (else|more)|perfecto|vale|de acuerdo|entendido|confirmo|confirmado)$/.test(
+      t,
+    ) ||
+    okVariant.test(t)
+  );
+}
+
+// El retry reenvía el texto final como mensaje assistant (contexto de lo
+// anunciado) y añade la directiva de confirmación de cierre como user.
 function buildNudgeChat(chat, finalText) {
   return {
     ...chat,
@@ -1259,14 +1295,14 @@ function buildNudgeChat(chat, finalText) {
     messages: [
       ...(chat.messages || []),
       { role: 'assistant', content: finalText || '' },
-      { role: 'user', content: NUDGE_DIRECTIVE },
+      { role: 'user', content: CONFIRM_DIRECTIVE },
     ],
   };
 }
 
-// Devuelve { toolCalls, reasoning, routedVia } del retry, o null si el request
-// falló (el llamador decide qué hacer; nunca propaga el error como fallo del
-// turno original).
+// Devuelve { toolCalls, reasoning, routedVia, text } del retry, o null si el
+// request falló (el llamador decide qué hacer; nunca propaga el error como fallo
+// del turno original). text = contenido del retry (para decidir si confirmó).
 async function nudgeForToolCalls(chat, authorization, finalText) {
   const nudgeChat = buildNudgeChat(chat, finalText);
   try {
@@ -1277,6 +1313,7 @@ async function nudgeForToolCalls(chat, authorization, finalText) {
       toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
       reasoning: message.reasoning_content || '',
       routedVia: json.__routedVia || null,
+      text: typeof message.content === 'string' ? message.content : '',
     };
   } catch (error) {
     logRequest({
@@ -1859,6 +1896,12 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
     { ...chat, messages: [...(chat.messages || [])], stream: false },
     chat.__gloryRequestId,
   );
+  // El spread no copia propiedades no-enumerables; el hook de confirmación
+  // necesita __userTools en el working para saber si el cliente expuso tools.
+  Object.defineProperty(working, '__userTools', {
+    value: chat.__userTools === true,
+    enumerable: false,
+  });
   const aggregateUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, reasoning_tokens: 0 };
   let lastPromptTokens = 0;
 
@@ -2308,20 +2351,24 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     return;
   }
 
-  // Anti falso-complete (capa B, 2026-08-10): si el modelo narró intención sin
-  // invocar herramientas teniendo tools disponibles, reintentamos una vez con
-  // una directiva de ejecución para que el turno continúe con tool_calls reales.
-  // El texto narrativo ya se emitió como deltas (no hay vuelta atrás); las
-  // tool_calls del retry se incorporan al Map y las emite el loop de abajo. Si
-  // el retry vuelve sin tools, se descarta y se cierra con la respuesta original.
+  // Anti falso-complete (capa B, 2026-08-10; hook universal 2026-08-11): si el
+  // modelo cierra con texto sin tool_calls teniendo tools disponibles, le
+  // preguntamos (UN request de confirmación) si realmente terminó: "ok" confirma
+  // el cierre; cualquier otra cosa le pide ejecutar la acción pendiente. Cubre
+  // cualquier redacción (ES/EN, "Sigo...", "I will...") sin depender de una
+  // heurística. El texto original ya se emitió como deltas (no hay vuelta atrás);
+  // las tool_calls del retry se incorporan al Map y las emite el loop de abajo.
+  // Si el retry confirma "ok" o vuelve sin tools, se descarta y se cierra con la
+  // respuesta original.
   let nudgeReasoning = '';
   if (
     toolCalls.size === 0 &&
     text &&
+    chat.__userTools === true &&
     Array.isArray(chat.tools) &&
     chat.tools.length &&
-    NUDGE_RETRIES > 0 &&
-    isFutureIntentNarration(text)
+    !chat.messages.some((m) => m.role === 'tool') &&
+    NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), text);
     if (nudge && nudge.toolCalls.length) {
@@ -2343,6 +2390,17 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         textLen: text.length,
         toolCalls: nudge.toolCalls.length,
         toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+        intent: isFutureIntentNarration(text),
+      });
+    } else if (nudge && isConfirmationText(nudge.text)) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_confirm',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: text.length,
+        intent: isFutureIntentNarration(text),
       });
     } else if (nudge) {
       logRequest({
@@ -2352,6 +2410,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         status: 200,
         routedVia: nudge.routedVia,
         textLen: text.length,
+        intent: isFutureIntentNarration(text),
       });
     }
   }
@@ -2477,10 +2536,12 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
   const msgId = rand('msg');
   let json;
   let responseUsage = null;
+  let gateChat = chat;
   try {
     if (hasWebTool(toolMap)) {
       const resolved = await runInternalWebToolLoop(chat, toolMap, upstreamAuthHeader());
       json = resolved.json;
+      gateChat = resolved.working;
       responseUsage = {
         prompt_tokens: resolved.aggregateUsage.prompt_tokens,
         completion_tokens: resolved.aggregateUsage.completion_tokens,
@@ -2539,15 +2600,18 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       output.push(item);
     }
   }
-  // Anti falso-complete (capa B, 2026-08-10): misma detección que en el path
-  // streaming; las tool_calls del retry se añaden al output final.
+  // Anti falso-complete (capa B, 2026-08-10; hook universal 2026-08-11): misma
+  // lógica que en el path streaming — toda respuesta final sin tool_calls recibe
+  // el request de confirmación; las tool_calls del retry se añaden al output
+  // final, y "ok" confirma el cierre con el texto original.
   if (
     !(message.tool_calls || []).length &&
     message.content &&
-    Array.isArray(chat.tools) &&
-    chat.tools.length &&
-    NUDGE_RETRIES > 0 &&
-    isFutureIntentNarration(message.content)
+    gateChat.__userTools === true &&
+    Array.isArray(gateChat.tools) &&
+    gateChat.tools.length &&
+    !gateChat.messages.some((m) => m.role === 'tool') &&
+    NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), message.content);
     if (nudge && nudge.toolCalls.length) {
@@ -2591,6 +2655,17 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         textLen: (message.content || '').length,
         toolCalls: nudge.toolCalls.length,
         toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+        intent: isFutureIntentNarration(message.content),
+      });
+    } else if (nudge && isConfirmationText(nudge.text)) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_confirm',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: (message.content || '').length,
+        intent: isFutureIntentNarration(message.content),
       });
     } else if (nudge) {
       logRequest({
@@ -2600,6 +2675,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         status: 200,
         routedVia: nudge.routedVia,
         textLen: (message.content || '').length,
+        intent: isFutureIntentNarration(message.content),
       });
     }
   }

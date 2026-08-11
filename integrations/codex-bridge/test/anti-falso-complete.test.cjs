@@ -1,16 +1,21 @@
-// Anti falso-complete (2026-08-10).
+// Anti falso-complete (2026-08-10; hook de confirmación 2026-08-11).
 //
-// Protege tres comportamientos del bridge frente al "falso complete": cuando
-// DeepSeek narra intención ("Voy a escanear los .md...", "Necesito ajustar el
-// fork... lo reintento") sin invocar herramientas, Codex Desktop cierra el turno
-// con task_complete sin ejecutar nada.
-//   1. Detector `isFutureIntentNarration` (extraído del server.js real).
-//   2. Nudge (capa B streaming): texto narrativo + tools disponibles => el
-//      bridge hace un segundo request no-streaming y, si devuelve tool_calls,
-//      las emite como function_call para que el turno continúe.
-//   3. Nudge noop: el retry vuelve sin tools => se descarta y se cierra con el
-//      texto original (nunca duplica contenido ni inventa tools).
-//   4. Control: sin tools el nudge NO se dispara (las respuestas legítimas).
+// Protege al bridge del "falso complete": cuando DeepSeek cierra con texto sin
+// invocar herramientas ("Voy a escanear los .md...", "Sigo la auditoría
+// leyendo...", "I will check..."), Codex Desktop cierra el turno con
+// task_complete sin ejecutar nada. El hook (capa B) es UNIVERSAL: toda respuesta
+// final sin tool_calls con tools disponibles recibe UN request de confirmación;
+// el modelo responde "ok" (cierra de verdad, sin re-activar el hook) o continúa
+// con la acción (tool_calls reales).
+//   1. Heurísticas `isFutureIntentNarration` e `isConfirmationText` (extraídas
+//      del server.js real; la primera solo alimenta telemetría `intent`).
+//   2. Hook streaming: texto final + tools => segundo request no-streaming; si
+//      devuelve tool_calls, las emite como function_call (el turno continúa).
+//   3. Confirmación: el retry responde "ok" => se cierra con el texto original,
+//      sin function_call ni texto duplicado.
+//   4. Nudge noop: el retry vuelve con otro texto => se descarta y se cierra con
+//      el texto original (nunca duplica contenido ni inventa tools).
+//   5. Control: sin tools el hook NO se dispara (las respuestas legítimas).
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -25,37 +30,43 @@ const bridgeFile = path.resolve(__dirname, '..', 'bridge', 'server.js');
 // Bloque estático: extrae isFutureIntentNarration del server.js real
 // ---------------------------------------------------------------------------
 const src = fs.readFileSync(bridgeFile, 'utf8');
-const start = src.indexOf('function isFutureIntentNarration');
-if (start < 0) {
-  console.error('FAIL: isFutureIntentNarration no encontrada');
-  process.exit(1);
-}
-let i = start;
-let depth = 0;
-let inStr = null;
-let esc = false;
-for (; i < src.length; i += 1) {
-  const c = src[i];
-  if (inStr) {
-    if (esc) esc = false;
-    else if (c === '\\') esc = true;
-    else if (c === inStr) inStr = null;
-    continue;
+
+// Extrae una función del server.js real (respeta strings/escapes y llaves).
+function extractFunction(fnName) {
+  const start = src.indexOf(`function ${fnName}`);
+  if (start < 0) {
+    console.error(`FAIL: ${fnName} no encontrada`);
+    process.exit(1);
   }
-  if (c === '"' || c === "'" || c === '`') {
-    inStr = c;
-    continue;
-  }
-  if (c === '{') depth += 1;
-  else if (c === '}') {
-    depth -= 1;
-    if (depth === 0) {
-      i += 1;
-      break;
+  let i = start;
+  let depth = 0;
+  let inStr = null;
+  let esc = false;
+  for (; i < src.length; i += 1) {
+    const c = src[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === inStr) inStr = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      inStr = c;
+      continue;
+    }
+    if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        i += 1;
+        break;
+      }
     }
   }
+  return new Function('return ' + src.slice(start, i))();
 }
-const isFutureIntentNarration = new Function('return ' + src.slice(start, i))();
+const isFutureIntentNarration = extractFunction('isFutureIntentNarration');
+const isConfirmationText = extractFunction('isConfirmationText');
 
 test('isFutureIntentNarration: narrativas reales (positivos)', () => {
   const positives = [
@@ -118,6 +129,57 @@ test('isFutureIntentNarration: respuestas normales (negativos)', () => {
       false,
       `no debe detectar: ${String(text).slice(0, 60)}`,
     );
+  }
+});
+
+test('isConfirmationText: confirmaciones de cierre (positivos)', () => {
+  const positives = [
+    'ok',
+    'Ok.',
+    'OK',
+    'ok, listo',
+    'done',
+    'Done!',
+    'yes',
+    'sí',
+    'si',
+    'listo',
+    'hecho',
+    'terminado',
+    'completado',
+    'finished',
+    'all done',
+    'eso es todo',
+    'ya está',
+    'nada más',
+    'perfecto',
+    'vale',
+    'de acuerdo',
+    'entendido',
+    'confirmado',
+    "that's all",
+  ];
+  for (const text of positives) {
+    assert.equal(isConfirmationText(text), true, `debe confirmar: ${String(text).slice(0, 40)}`);
+  }
+});
+
+test('isConfirmationText: no confirmaciones (negativos)', () => {
+  const negatives = [
+    'Sigo la auditoría leyendo el contenido del template en main.',
+    'Voy a escanear los .md y extraer las fechas.',
+    'Ya está hecho, no requiere herramienta.',
+    'Aquí está la lista ordenada por fecha: A, B, C.',
+    'El timeout fue de 180 segundos.',
+    'ok, pero falta revisar el archivo X',
+    'perfecto, ahora continúo con la siguiente tarea',
+    '',
+    null,
+    undefined,
+    'Let me check the roadmap first.',
+  ];
+  for (const text of negatives) {
+    assert.equal(isConfirmationText(text), false, `no debe confirmar: ${String(text).slice(0, 40)}`);
   }
 });
 
@@ -305,7 +367,7 @@ test('nudge: narrativa sin tools + retry con tool_calls => function_call emitido
   assert.equal(bridge.upstreamBodies.length, 2, 'debe haber 2 requests upstream (original + nudge)');
   assert.equal(bridge.upstreamBodies[1].stream, false, 'el nudge debe ir no-streaming');
   const lastMessage = bridge.upstreamBodies[1].messages[bridge.upstreamBodies[1].messages.length - 1];
-  assert.match(lastMessage.content, /Continúa: ejecuta ahora/, 'el nudge debe llevar la directiva de ejecución');
+  assert.match(lastMessage.content, /Confirmación de cierre/, 'el nudge debe llevar la directiva de confirmación');
   // El texto narrativo se reenvía como assistant antes de la directiva.
   const assistantIndex = bridge.upstreamBodies[1].messages.findIndex((m) => m.role === 'assistant');
   assert.ok(assistantIndex >= 0, 'el nudge debe incluir el anuncio como assistant');
@@ -353,6 +415,52 @@ test('nudge noop: retry sin tools => respuesta original, sin function_call', asy
   const completed = events.find((entry) => entry.event === 'response.completed');
   assert.ok(completed, 'debe cerrar con response.completed');
   assert.equal(bridge.upstreamBodies.length, 2, 'intentó el nudge (2 requests)');
+});
+
+// ---------------------------------------------------------------------------
+// E2E: confirmación — el retry responde "ok" => el cierre es real: se conserva
+// el texto original, no se inventan function_call ni se re-activa el hook.
+// ---------------------------------------------------------------------------
+test('confirm: retry responde "ok" => cierra con el texto original, sin function_call', async (t) => {
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) {
+      return { sse: NORMAL_SSE };
+    }
+    return {
+      json: {
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok', finish_reason: 'stop' } }],
+        usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'ordena los .md por fecha' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  assert.equal(response.status, 200);
+  const events = sseEvents(await response.text());
+
+  assert.ok(
+    !events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item && entry.data.item.type === 'function_call'),
+    'si el modelo confirma el cierre no debe inventar function_call'
+  );
+  assert.ok(events.some((entry) => entry.event === 'response.completed'), 'debe cerrar con response.completed');
+  const textItems = events
+    .filter((entry) => entry.event === 'response.output_item.done' && entry.data.item && entry.data.item.type === 'message')
+    .map((entry) => JSON.stringify(entry.data.item.content || ''));
+  assert.ok(
+    textItems.some((content) => content.includes('Aquí está la lista ordenada por fecha')),
+    'el texto visible debe ser el original, no el "ok" del retry'
+  );
+  assert.ok(!textItems.some((content) => /"ok"/i.test(content)), 'el "ok" de confirmación no debe aparecer como texto');
+  assert.equal(bridge.upstreamBodies.length, 2, 'hace el request de confirmación (2 requests)');
 });
 
 // ---------------------------------------------------------------------------
