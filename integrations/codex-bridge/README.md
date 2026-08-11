@@ -51,6 +51,19 @@ sin commit por indicación del usuario.
   disconnected before completion"). Esto evita cortar la conexión cuando un round
   con contexto grande (100k+ tokens, prefix cache 0) excede el timeout base aunque
   el modelo esté trabajando.
+- Una respuesta del proveedor con `tool_calls` sin texto es una continuación válida:
+  el bridge emite los `function_call` y `response.completed` lleva `end_turn=false`.
+  El `FALLBACK_REASONING` usado solo para satisfacer DeepSeek en mensajes históricos
+  se filtra y nunca se devuelve como razonamiento visible al cliente.
+- Una respuesta vacía o solo de razonamiento no cierra el turno. El bridge hace
+  como máximo una recuperación acotada (`BRIDGE_EMPTY_RECOVERY_RETRIES`, por defecto
+  1; timeout `BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS`, 90 s) con una directiva explícita;
+  si tampoco hay texto final ni tools, devuelve `response.failed` con
+  `empty_upstream_response` y registra `empty_recovery_*`.
+- La red de seguridad de contexto compacta antes cuando la autocompactación nativa
+  no actuó (`BRIDGE_COMPACTION_SAFETY_FACTOR=1.25` por defecto), y el system prompt
+  reenviado queda limitado a 120000 caracteres (`BRIDGE_MAX_SYSTEM_CHARS`). Ambos
+  límites siguen siendo configurables.
 - `bridge.requests.log` guarda metadatos; los errores remotos conservan solo clase,
   status y tamaño. El cuerpo completo
   solo se habilita conscientemente con `BRIDGE_REQUEST_LOG_FULL=1`.

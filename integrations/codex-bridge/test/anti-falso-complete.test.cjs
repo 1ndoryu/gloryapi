@@ -311,6 +311,22 @@ const NORMAL_SSE = [
   'data: [DONE]',
 ].join('\n\n') + '\n\n';
 
+const TOOL_ONLY_SSE = [
+  'data: {"choices":[{"index":0,"delta":{"reasoning_content":"El asistente analizó la petición y decidió invocar una herramienta para completar la tarea."}}]}',
+  'data: {"choices":[{"index":0,"delta":{"reasoning_content":" Acción verificada antes de llamar."}}]}',
+  'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_tool_only_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.md\\"}"}}]}}]}',
+  'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}',
+  'data: {"choices":[{"index":0,"delta":{},"usage":{"prompt_tokens":10,"completion_tokens":14,"total_tokens":24}}]}',
+  'data: [DONE]',
+].join('\n\n') + '\n\n';
+
+const REASONING_ONLY_SSE = [
+  'data: {"choices":[{"index":0,"delta":{"reasoning_content":"razonamiento interno sin respuesta final"}}]}',
+  'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+  'data: {"choices":[{"index":0,"delta":{},"usage":{"prompt_tokens":10,"completion_tokens":4,"total_tokens":14}}]}',
+  'data: [DONE]',
+].join('\n\n') + '\n\n';
+
 // ---------------------------------------------------------------------------
 // E2E: nudge retry (streaming) — texto narrativo + tools => el retry devuelve
 // tool_calls y el bridge las emite como function_call (el turno continúa).
@@ -563,4 +579,124 @@ test('control: turno actual con tools ejecutadas => nudge NO se dispara', async 
   const events = sseEvents(await response.text());
   assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
   assert.equal(bridge.upstreamBodies.length, 1, 'turno actual con tools => sin nudge (1 request)');
+});
+
+test('tool-only: el function_call continúa el turno y el fallback no se muestra', async (t) => {
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) return { sse: TOOL_ONLY_SSE };
+    return { status: 500, json: { error: 'unexpected recovery request' } };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'lee a.md' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const raw = await response.text();
+  const events = sseEvents(raw);
+  assert.equal(response.status, 200);
+  assert.match(raw, /call_tool_only_1/);
+  assert.doesNotMatch(raw, /El asistente analizó la petición/);
+  assert.ok(
+    events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call'),
+    'el tool-only debe salir como function_call'
+  );
+  const completed = events.find((entry) => entry.event === 'response.completed');
+  assert.ok(completed, 'la respuesta termina después de emitir el call');
+  assert.equal(completed.data.response.end_turn, false, 'un tool-call no es un cierre de turno');
+  assert.equal(bridge.upstreamBodies.length, 1, 'un tool-only no activa nudge ni un segundo loop');
+});
+
+test('reasoning-only: se recupera con un request acotado y no se cierra vacío', async (t) => {
+  let requestCount = 0;
+  const bridge = await startBridge(() => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        json: {
+          choices: [{ index: 0, message: { role: 'assistant', content: '', reasoning_content: 'razonamiento interno' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        },
+      };
+    }
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: 'call_recovered_1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.md"}' } }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: false,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'lee a.md' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.output[0].type, 'function_call');
+  assert.equal(body.end_turn, false);
+  assert.equal(bridge.upstreamBodies.length, 2, 'el reasoning-only debe activar una sola recuperación');
+  assert.match(JSON.stringify(bridge.upstreamBodies[1].messages), /Recuperación obligatoria/);
+});
+
+test('reasoning-only streaming: recovery emite un solo function_call y no cierra antes', async (t) => {
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) return { sse: REASONING_ONLY_SSE };
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: 'call_stream_recovered_1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.md"}' } }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'lee a.md' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const raw = await response.text();
+  const events = sseEvents(raw);
+  assert.equal(response.status, 200);
+  assert.doesNotMatch(raw, /El asistente analizó la petición/);
+  assert.equal(bridge.upstreamBodies.length, 2, 'streaming reasoning-only debe recuperar una vez');
+  assert.equal(
+    events.filter((entry) => entry.event === 'response.completed').length,
+    1,
+    'debe existir un solo cierre terminal'
+  );
+  assert.ok(events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call'));
+  assert.equal(events.find((entry) => entry.event === 'response.completed').data.response.end_turn, false);
 });

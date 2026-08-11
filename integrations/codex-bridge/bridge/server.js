@@ -30,7 +30,7 @@
  * Context window: when the translated messages exceed the limit, the oldest
  * messages are compacted into a single system summary (native autocompaction,
  * like ChatGPT) keeping the most recent turns intact.
- *   CONTEXT_LIMIT_TOKENS   context window      (default 150000)
+ *   CONTEXT_LIMIT_TOKENS   context window      (default 120000)
  *   COMPACT_KEEP_TOKENS    recent tokens kept intact (default 30000)
  */
 
@@ -112,6 +112,13 @@ const UPSTREAM_TIMEOUT_MS = boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_MS', 360000, 
 // extendida (default 2x) suele completar rondas con contexto grande (100k+
 // tokens, prefix cache 0) sin cortar la conexión con el cliente.
 const UPSTREAM_TIMEOUT_RECOVERY_MS = boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_RECOVERY_MS', 720000, 1000, 1200000);
+// Empty upstream recovery (2026-08-11): an upstream response containing only
+// reasoning, or no assistant payload at all, is not a completed turn. Give the
+// model one bounded chance to answer after an explicit continuation directive.
+// This is intentionally separate from the nudge: the nudge repairs a visible
+// text-only turn, while this path repairs a provider-side empty/tool-only turn.
+const EMPTY_RECOVERY_RETRIES = boundedEnvInt('BRIDGE_EMPTY_RECOVERY_RETRIES', 1, 0, 1);
+const EMPTY_RECOVERY_TIMEOUT_MS = boundedEnvInt('BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS', 90000, 1000, 300000);
 // Anti falso-complete (2026-08-10, hook de confirmación 2026-08-11): número
 // máximo de reintentos (nudge) cuando el modelo cierra con texto sin invocar
 // herramientas, y timeout acotado para ese segundo request (no debe duplicar la
@@ -132,6 +139,10 @@ const CONFIRM_DIRECTIVE =
   'hacer (leer, buscar, editar, ejecutar, verificar, reintentar...), continúa ' +
   'AHORA en este mismo turno invocando la herramienta correspondiente. No ' +
   'repitas el plan: ejecútalo.';
+const EMPTY_RECOVERY_DIRECTIVE =
+  'Recuperación obligatoria: la respuesta anterior no produjo texto final ni una llamada de herramienta. ' +
+  'Continúa ahora. Si necesitas actuar, invoca una herramienta en este turno; si ya terminaste, responde ' +
+  'con un resultado breve y visible. No devuelvas solo razonamiento interno.';
 const UPSTREAM_MAX_RESPONSE_BYTES = boundedEnvInt('BRIDGE_UPSTREAM_MAX_BYTES', 32 * 1024 * 1024, 1024, 64 * 1024 * 1024);
 const REQUEST_LOG_MAX_BYTES = boundedEnvInt('BRIDGE_REQUEST_LOG_MAX_BYTES', 4 * 1024 * 1024, 64 * 1024, 32 * 1024 * 1024);
 const REQUEST_LOG_RETENTION = boundedEnvInt('BRIDGE_REQUEST_LOG_RETENTION', 3, 1, 9);
@@ -171,6 +182,32 @@ const FALLBACK_REASONING =
   'El asistente analizó la petición y decidió invocar una herramienta para completar la tarea.';
 const reasoningByCallId = new Map();
 
+function normalizeReasoningText(text) {
+  return String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+}
+
+function removeSyntheticReasoning(text) {
+  const value = String(text == null ? '' : text);
+  const pattern = normalizeReasoningText(FALLBACK_REASONING)
+    .split(' ')
+    .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\s+');
+  return value.replace(new RegExp(pattern, 'gi'), '').replace(/\s+/g, ' ').trim();
+}
+
+// This text exists only to satisfy DeepSeek's assistant-tool-call contract. It
+// is not model reasoning and must never cross back over the Responses boundary
+// as visible output. Keep the check exact after whitespace normalization so a
+// provider can split/rejoin the value without making it user-visible.
+function isSyntheticReasoning(text) {
+  return normalizeReasoningText(text) === normalizeReasoningText(FALLBACK_REASONING);
+}
+
+function visibleReasoning(text) {
+  const value = typeof text === 'string' ? removeSyntheticReasoning(text) : '';
+  return value && !isSyntheticReasoning(value) ? value : '';
+}
+
 let saveTimer = null;
 function scheduleReasoningSave() {
   if (saveTimer) return;
@@ -183,19 +220,24 @@ function scheduleReasoningSave() {
 }
 
 function loadReasoningCache() {
+  let changed = false;
   try {
     const raw = fs.readFileSync(REASONING_CACHE_FILE, 'utf8');
     const obj = JSON.parse(raw);
     for (const [k, v] of Object.entries(obj)) {
-      if (typeof v === 'string' && v) reasoningByCallId.set(k, v);
+      const visible = typeof v === 'string' ? visibleReasoning(v) : '';
+      if (visible) reasoningByCallId.set(k, visible);
+      if (visible !== v) changed = true;
     }
     if (reasoningByCallId.size) log(`reasoning cache loaded: ${reasoningByCallId.size} entries`);
   } catch {}
+  if (changed) scheduleReasoningSave();
 }
 
 function rememberReasoning(callId, text) {
-  if (!callId || !text) return;
-  reasoningByCallId.set(callId, text);
+  const visible = visibleReasoning(text);
+  if (!callId || !visible) return;
+  reasoningByCallId.set(callId, visible);
   if (reasoningByCallId.size > 2000) {
     const oldest = reasoningByCallId.keys().next().value;
     reasoningByCallId.delete(oldest);
@@ -204,7 +246,7 @@ function rememberReasoning(callId, text) {
 }
 
 function reasoningFor(callId) {
-  if (callId && reasoningByCallId.has(callId)) return reasoningByCallId.get(callId);
+  if (callId && reasoningByCallId.has(callId)) return visibleReasoning(reasoningByCallId.get(callId));
   return null;
 }
 
@@ -1124,15 +1166,16 @@ const COMPACTION_DISABLED = true;
 const CONTEXT_LIMIT = parseInt(process.env.CONTEXT_LIMIT_TOKENS || '120000', 10);
 const COMPACT_KEEP = parseInt(process.env.COMPACT_KEEP_TOKENS || '30000', 10);
 const COMPACT_MAX_TOKENS = parseInt(process.env.COMPACT_MAX_TOKENS || '16000', 10);
-// Red de seguridad de compactación: cuando la nativa de la app NO dispara
-// (evidencia: sesiones del navegador con 1.7M reales sin compactar y stall del
-// modelo), el bridge compacta por su cuenta SOLO si el contexto real supera
-// COMPACTION_SAFETY_FACTOR x CONTEXT_LIMIT. Con la nativa funcionando el
-// contexto queda por debajo de CONTEXT_LIMIT y esta red jamás actúa (no pisa
-// los resúmenes nativos). 0 desactiva la red (comportamiento previo).
+// Red de seguridad de compactación: cuando la nativa de la app NO dispara, el
+// bridge compacta por su cuenta si el contexto real supera
+// COMPACTION_SAFETY_FACTOR x CONTEXT_LIMIT. El valor anterior (2x) dejaba
+// apenas margen frente a la ventana del proveedor (~258k) y permitía que una
+// sesión degradada llegara demasiado cerca del límite antes de recuperarse.
+// Con la nativa funcionando el contexto queda por debajo de CONTEXT_LIMIT y la
+// red no actúa. 0 desactiva la red.
 const COMPACTION_SAFETY_FACTOR = (() => {
-  const parsed = Number.parseFloat(process.env.BRIDGE_COMPACTION_SAFETY_FACTOR || '2');
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 2;
+  const parsed = Number.parseFloat(process.env.BRIDGE_COMPACTION_SAFETY_FACTOR || '1.25');
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1.25;
 })();
 // Límite de caracteres del system prompt reenviado al upstream. Codex Desktop
 // inyecta un system ENORME en cada request (plugins de navegador, doc de
@@ -1142,7 +1185,7 @@ const MAX_SYSTEM_CHARS = (() => {
   const parsed = Number.parseInt(process.env.BRIDGE_MAX_SYSTEM_CHARS || '', 10);
   if (Number.isSafeInteger(parsed) && parsed === 0) return 0;
   if (Number.isSafeInteger(parsed) && parsed > 0) return Math.min(4000000, Math.max(10000, parsed));
-  return 200000;
+  return 120000;
 })();
 const COMPACT_SYSTEM_PROMPT = `Eres un motor de resumen. Tu ÚNICA tarea es producir un resumen extenso, completo y fiel de la conversación anterior. Está PROHIBIDO continuar el trabajo, actuar como el asistente, proponer acciones, ejecutar tareas o responder en presente: tu respuesta empieza y termina exclusivamente con el resumen.
 
@@ -1526,10 +1569,13 @@ async function summarizeHistory(oldMessages, auth) {
  * returns it. Fail-open: if nothing can be compacted the messages are kept as
  * close to the limit as possible without breaking tool_call adjacency.
  */
-async function compactContext(chat, auth) {
+async function compactContext(chat, auth, options = {}) {
   const messages = chat.messages || [];
   const total = totalTokens(messages);
   const totalReal = realTokens(messages);
+  const emergency = options.emergency === true;
+  const nonSystemCount = messages.filter((message) => message && message.role !== 'system').length;
+  const emergencyCompaction = emergency && nonSystemCount > 8 && total > 20000;
   // Compactación nativa del bridge: activa cuando COMPACTION_DISABLED=false, o
   // como RED DE SEGURIDAD cuando el contexto real supera
   // COMPACTION_SAFETY_FACTOR x CONTEXT_LIMIT y la nativa de la app no está
@@ -1537,15 +1583,17 @@ async function compactContext(chat, auth) {
   // jamás actúa (no recompacta los resúmenes nativos).
   const safetyNet = COMPACTION_DISABLED && COMPACTION_SAFETY_FACTOR > 0;
   const effectiveLimit = safetyNet ? Math.round(CONTEXT_LIMIT * COMPACTION_SAFETY_FACTOR) : CONTEXT_LIMIT;
-  if (totalReal <= effectiveLimit) return chat;
-  if (COMPACTION_DISABLED && !safetyNet) {
+  if (totalReal <= effectiveLimit && !emergencyCompaction) return chat;
+  if (COMPACTION_DISABLED && !safetyNet && !emergencyCompaction) {
     // La compactación la hace Codex nativo en la app (auto_compact_token_limit
     // en models.json). Esta línea SOLO aparece si el contexto real supera el
     // límite; el bridge no modifica ni resume la conversación.
     log(`compaction disabled (native); context ${totalReal} real tokens > limit ${CONTEXT_LIMIT}; native NOT firing?`);
     return chat;
   }
-  if (safetyNet) {
+  if (emergencyCompaction) {
+    log(`emergency compaction after empty upstream: context ${totalReal} real tokens (${total} heuristic)`);
+  } else if (safetyNet) {
     log(
       `safety-net compaction: context ${totalReal} real tokens > safety limit ${effectiveLimit}; native NOT firing; compacting`,
     );
@@ -1624,6 +1672,156 @@ async function compactContext(chat, auth) {
 
 function sseEvent(res, kind, data) {
   res.write(`event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function assistantMessageFrom(json) {
+  return json && json.choices && json.choices[0] && json.choices[0].message
+    ? json.choices[0].message
+    : {};
+}
+
+function assistantText(message) {
+  return message && typeof message.content === 'string' ? message.content : '';
+}
+
+function assistantToolCalls(message) {
+  return message && Array.isArray(message.tool_calls) ? message.tool_calls : [];
+}
+
+// Reasoning alone is internal work, not a visible answer. A tool-only message
+// is valid and must be surfaced as a function_call so the client can execute it.
+// Only text or a tool call is therefore sufficient to close this adapter turn.
+function hasVisibleAssistantAction(message) {
+  return Boolean(assistantText(message).trim() || assistantToolCalls(message).length);
+}
+
+function collaborationTool(name) {
+  return name === 'spawn_agent' || name === 'send_message' || name === 'followup_task';
+}
+
+function responseItemForToolCall(tc, toolMap, customTools) {
+  const wireName = tc && tc.function && tc.function.name;
+  const route = lookupToolCall(wireName, toolMap, customTools);
+  const args = (tc && tc.function && tc.function.arguments) || '{}';
+  if (route.web) return { error: { type: 'web_loop_error', message: 'unresolved internal web tool' } };
+  if (route.search) {
+    return {
+      item: {
+        type: 'tool_search_call',
+        call_id: tc.id,
+        name: route.name,
+        arguments: args,
+        status: 'completed',
+      },
+    };
+  }
+  if (route.custom) {
+    let rawInput = args;
+    try {
+      const parsed = JSON.parse(args);
+      if (parsed && typeof parsed.input === 'string') rawInput = parsed.input;
+      else if (typeof parsed === 'string') rawInput = parsed;
+    } catch {}
+    return { item: { type: 'custom_tool_call', call_id: tc.id, name: route.name, input: rawInput } };
+  }
+  const item = {
+    type: 'function_call',
+    call_id: tc.id,
+    name: route.name,
+    arguments: withSpawnForkFix(route.name, args),
+  };
+  if (route.namespace) item.namespace = route.namespace;
+  if (route.namespace === 'collaboration' && collaborationTool(route.name)) item.encrypted_function_args = [];
+  return { item };
+}
+
+function responseItemsForToolCalls(toolCalls, toolMap, customTools) {
+  const items = [];
+  for (const tc of toolCalls || []) {
+    const result = responseItemForToolCall(tc, toolMap, customTools);
+    if (result.error) return { items, error: result.error };
+    items.push(result.item);
+  }
+  return { items, error: null };
+}
+
+function responseUsageFromChatUsage(usage) {
+  return {
+    input_tokens: usage ? usage.prompt_tokens || 0 : 0,
+    input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    output_tokens: usage ? usage.completion_tokens || 0 : 0,
+    output_tokens_details: {
+      reasoning_tokens:
+        usage && usage.completion_tokens_details ? usage.completion_tokens_details.reasoning_tokens || 0 : 0,
+    },
+    total_tokens: usage ? usage.total_tokens || 0 : 0,
+  };
+}
+
+function emitResponseCompleted(res, responseId, usage, hasToolCalls, routedVia, requestId, textLen, toolNames, internalWebLoop = false) {
+  sseEvent(res, 'response.completed', {
+    type: 'response.completed',
+    response: {
+      id: responseId,
+      usage: responseUsageFromChatUsage(usage),
+      // A function_call is a continuation boundary. `end_turn: true` here was
+      // interpreted by the desktop client as a completed task before the tool
+      // result could be sent back, especially for tool-only model responses.
+      end_turn: !hasToolCalls,
+    },
+  });
+  logRequest({
+    ts: new Date().toISOString(),
+    kind: 'result',
+    requestId,
+    status: 200,
+    routedVia,
+    textLen,
+    toolCalls: toolNames.length,
+    toolNames,
+    ...(internalWebLoop ? { internalWebLoop: true } : {}),
+  });
+}
+
+// Keep reasoning streaming for real model output, but hold a prefix long
+// enough to detect the exact synthetic fallback. This prevents both a whole
+// fallback and a fragmented fallback from becoming visible in the app.
+function createReasoningForwarder(res, reasoningId) {
+  let pending = '';
+  let emitted = false;
+  const emit = (text) => {
+    const visible = visibleReasoning(text);
+    if (!visible) return;
+    if (!emitted) {
+      emitted = true;
+      sseEvent(res, 'response.output_item.added', {
+        type: 'response.output_item.added',
+        item: { type: 'reasoning', id: reasoningId, summary: [{ type: 'summary_text', text: '' }] },
+      });
+    }
+    sseEvent(res, 'response.reasoning_text.delta', {
+      type: 'response.reasoning_text.delta',
+      item_id: reasoningId,
+      content_index: 0,
+      delta: visible,
+    });
+  };
+  return {
+    add(chunk) {
+      if (!chunk) return;
+      pending += chunk;
+      const normalized = normalizeReasoningText(pending);
+      const fallback = normalizeReasoningText(FALLBACK_REASONING);
+      if (fallback.startsWith(normalized) && normalized.length <= fallback.length) return;
+      emit(pending);
+      pending = '';
+    },
+    finish() {
+      emit(pending);
+      pending = '';
+      return emitted;
+    },
+  };
 }
 
 function lookupToolCall(wireName, toolMap, customTools) {
@@ -1965,7 +2163,7 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
   let lastPromptTokens = 0;
 
   for (let round = 0; round < 3; round += 1) {
-    const json = await fetchWithTimeoutRecovery(working, authorization);
+    let json = await fetchWithTimeoutRecovery(working, authorization);
     const usage = json.usage || {};
     lastPromptTokens = usage.prompt_tokens || 0;
     aggregateUsage.prompt_tokens += usage.prompt_tokens || 0;
@@ -1974,13 +2172,22 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
     aggregateUsage.reasoning_tokens +=
       (usage.completion_tokens_details && usage.completion_tokens_details.reasoning_tokens) || 0;
 
-    const message = json.choices && json.choices[0] && json.choices[0].message;
-    if (!message) {
+    let message = assistantMessageFrom(json);
+    if (!message || !Object.keys(message).length) {
       const error = new Error('upstream response has no assistant message');
       error.statusCode = 502;
       throw error;
     }
-    const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+    if (!hasVisibleAssistantAction(message)) {
+      const recovered = await recoverEmptyCompletion(working, authorization, 'web-loop');
+      if (recovered) {
+        working.messages = recovered.chat.messages;
+        json = recovered.json;
+        message = assistantMessageFrom(json);
+        lastPromptTokens = (json.usage && json.usage.prompt_tokens) || lastPromptTokens;
+      }
+    }
+    const calls = assistantToolCalls(message);
     const classified = calls.map((call) => ({
       call,
       route: lookupToolCall(call.function && call.function.name, toolMap, new Set()),
@@ -1998,7 +2205,14 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
       content: message.content == null ? '' : message.content,
       tool_calls: calls,
     };
-    if (message.reasoning_content) assistantMessage.reasoning_content = message.reasoning_content;
+    if (visibleReasoning(message.reasoning_content || '')) {
+      assistantMessage.reasoning_content = message.reasoning_content;
+    } else if (calls.length) {
+      // The internal loop also sends assistant.tool_calls back to DeepSeek.
+      // Satisfy its thinking-mode contract without ever exposing this value to
+      // the Responses client.
+      assistantMessage.reasoning_content = reasoningFor(calls[0].id) || FALLBACK_REASONING;
+    }
     working.messages.push(assistantMessage);
 
     for (const { call } of webCalls) {
@@ -2016,6 +2230,71 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
   const error = new Error('upstream exceeded the internal web-tool round limit');
   error.statusCode = 502;
   throw error;
+}
+
+function cloneForEmptyRecovery(chat) {
+  const recovered = {
+    ...chat,
+    stream: false,
+    messages: [...(chat.messages || [])],
+  };
+  attachRequestId(recovered, chat.__gloryRequestId);
+  Object.defineProperty(recovered, '__userTools', {
+    value: chat.__userTools === true,
+    enumerable: false,
+  });
+  return recovered;
+}
+
+async function recoverEmptyCompletion(chat, authorization, source) {
+  if (EMPTY_RECOVERY_RETRIES <= 0) return null;
+  const recoveryChat = cloneForEmptyRecovery(chat);
+  // Only pay the summarization cost after the provider has already returned an
+  // unusable completion. This gives long-context sessions a smaller second
+  // request without changing the healthy path or Codex's native compaction.
+  await compactContext(recoveryChat, authorization, { emergency: true });
+  recoveryChat.messages.push({ role: 'system', content: EMPTY_RECOVERY_DIRECTIVE });
+
+  for (let attempt = 1; attempt <= EMPTY_RECOVERY_RETRIES; attempt += 1) {
+    try {
+      const json = await fetchUpstreamCompletion(recoveryChat, authorization, EMPTY_RECOVERY_TIMEOUT_MS);
+      const message = assistantMessageFrom(json);
+      if (hasVisibleAssistantAction(message)) {
+        logRequest({
+          ts: new Date().toISOString(),
+          kind: 'empty_recovery_success',
+          requestId: chat.__gloryRequestId,
+          status: 200,
+          source,
+          attempt,
+          routedVia: json.__routedVia || null,
+          textLen: assistantText(message).length,
+          toolCalls: assistantToolCalls(message).length,
+        });
+        return { json, chat: recoveryChat };
+      }
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'empty_recovery_noop',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        source,
+        attempt,
+        routedVia: json.__routedVia || null,
+      });
+    } catch (error) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'empty_recovery_error',
+        requestId: chat.__gloryRequestId,
+        status: error.statusCode || 502,
+        source,
+        attempt,
+        error: error.message,
+      });
+    }
+  }
+  return null;
 }
 
 async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customTools) {
@@ -2052,11 +2331,13 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
   }
   clearInterval(keepAlive);
 
-  const message = resolved.json.choices[0].message;
-  const reasoningText = message.reasoning_content || '';
-  const text = message.content || '';
-  // Empty completion from a web-loop round: same stall guard as the main path.
-  if (!text && !reasoningText && !(message.tool_calls || []).length) {
+  const message = assistantMessageFrom(resolved.json);
+  const reasoningText = visibleReasoning(message.reasoning_content || '');
+  const text = assistantText(message);
+  const toolCalls = assistantToolCalls(message);
+  // Reasoning-only output is incomplete; tool-only output is a valid
+  // continuation and is rendered below.
+  if (!text && toolCalls.length === 0) {
     logRequest({
       ts: new Date().toISOString(),
       kind: 'empty_upstream',
@@ -2074,7 +2355,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
         error: {
           type: 'empty_upstream_response',
           message:
-            'El modelo devolvió una respuesta vacía (sin texto, razonamiento ni llamadas a herramientas). Reduce el contexto o reintenta el mensaje.',
+            'El modelo no devolvió texto final ni llamadas a herramientas. Reduce el contexto o reintenta el mensaje.',
         },
       },
     });
@@ -2105,61 +2386,32 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
     });
   }
 
-  for (const tc of message.tool_calls || []) {
-    const wireName = tc.function && tc.function.name;
-    const { namespace, name, custom, search, web } = lookupToolCall(wireName, toolMap, customTools);
-    const args = (tc.function && tc.function.arguments) || '{}';
-    if (web) {
+  const renderedTools = responseItemsForToolCalls(toolCalls, toolMap, customTools);
+  if (renderedTools.error) {
       sseEvent(res, 'response.failed', {
         type: 'response.failed',
-        response: { id: responseId, error: { type: 'web_loop_error', message: 'unresolved internal web tool' } },
+        response: { id: responseId, error: renderedTools.error },
       });
       res.end();
       return;
-    }
-    if (search) {
-      sseEvent(res, 'response.output_item.done', {
-        type: 'response.output_item.done',
-        item: { type: 'tool_search_call', call_id: tc.id, name, arguments: args, status: 'completed' },
-      });
-    } else if (custom) {
-      let rawInput = args;
-      try {
-        const parsed = JSON.parse(args);
-        if (parsed && typeof parsed.input === 'string') rawInput = parsed.input;
-        else if (typeof parsed === 'string') rawInput = parsed;
-      } catch {}
-      sseEvent(res, 'response.output_item.done', {
-        type: 'response.output_item.done',
-        item: { type: 'custom_tool_call', call_id: tc.id, name, input: rawInput },
-      });
-    } else {
-      const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, args) };
-      if (namespace) item.namespace = namespace;
-      if (namespace === 'collaboration' && (name === 'spawn_agent' || name === 'send_message' || name === 'followup_task')) {
-        item.encrypted_function_args = [];
-      }
-      sseEvent(res, 'response.output_item.done', { type: 'response.output_item.done', item });
-    }
+  }
+  for (const item of renderedTools.items) {
+    sseEvent(res, 'response.output_item.done', { type: 'response.output_item.done', item });
   }
 
   const usage = resolved.aggregateUsage;
   calibrate(totalTokens(resolved.working.messages || []), resolved.lastPromptTokens);
-  sseEvent(res, 'response.completed', {
-    type: 'response.completed',
-    response: {
-      id: responseId,
-      usage: {
-        input_tokens: usage.prompt_tokens,
-        input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
-        output_tokens: usage.completion_tokens,
-        output_tokens_details: { reasoning_tokens: usage.reasoning_tokens },
-        total_tokens: usage.total_tokens,
-      },
-      end_turn: true,
-    },
-  });
-  logRequest({ ts: new Date().toISOString(), kind: 'result', requestId: chat.__gloryRequestId, status: 200, routedVia: resolved.json.__routedVia || null, textLen: text.length, internalWebLoop: true });
+  emitResponseCompleted(
+    res,
+    responseId,
+    usage,
+    toolCalls.length > 0,
+    resolved.json.__routedVia || null,
+    chat.__gloryRequestId,
+    text.length,
+    toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+    true,
+  );
   res.write('data: [DONE]\n\n');
   res.end();
 }
@@ -2261,8 +2513,9 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   let reasoningText = '';
   let usage = null;
   let msgAdded = false;
-  let reasoningAdded = false;
   const toolCalls = new Map(); // index -> { id, name, args }
+  const reasoningForwarder = createReasoningForwarder(res, reasoningId);
+  let nextToolIndex = 0;
 
   const reader = upstreamRes.body.getReader();
   const sseParser = new SseStreamParser();
@@ -2292,27 +2545,14 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
 
     if (delta.reasoning_content) {
       reasoningText += delta.reasoning_content;
-      // Codex requires response.output_item.added (reasoning) BEFORE reasoning deltas,
-      // otherwise it logs "ReasoningRawContentDelta without active item".
-      if (!reasoningAdded) {
-        reasoningAdded = true;
-        sseEvent(res, 'response.output_item.added', {
-          type: 'response.output_item.added',
-          item: {
-            type: 'reasoning',
-            id: reasoningId,
-            summary: [{ type: 'summary_text', text: '' }],
-          },
-        });
-      }
-      sseEvent(res, 'response.reasoning_text.delta', {
-        type: 'response.reasoning_text.delta',
-        item_id: reasoningId,
-        content_index: 0,
-        delta: delta.reasoning_content,
-      });
+      reasoningForwarder.add(delta.reasoning_content);
     }
-    if (delta.content) {
+    const message = choice.message || {};
+    if (!delta.reasoning_content && message.reasoning_content) {
+      reasoningText += message.reasoning_content;
+      reasoningForwarder.add(message.reasoning_content);
+    }
+    if (typeof delta.content === 'string' && delta.content) {
       // Codex requires response.output_item.added (message) BEFORE text deltas,
       // otherwise it logs "OutputTextDelta without active item".
       if (!msgAdded) {
@@ -2336,16 +2576,30 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         delta: delta.content,
       });
     }
-    if (Array.isArray(delta.tool_calls)) {
-      for (const tc of delta.tool_calls) {
-        let acc = toolCalls.get(tc.index);
-        if (!acc) {
-          acc = { id: tc.id || rand('call'), name: '', args: '' };
-          toolCalls.set(tc.index, acc);
+    const incomingToolCalls = Array.isArray(delta.tool_calls)
+      ? delta.tool_calls
+      : Array.isArray(message.tool_calls)
+        ? message.tool_calls
+        : [];
+    for (const tc of incomingToolCalls) {
+      let key = Number.isInteger(tc.index) ? tc.index : null;
+      let acc = key == null ? null : toolCalls.get(key);
+      if (!acc && tc.id) {
+        for (const candidate of toolCalls.values()) {
+          if (candidate.id === tc.id) {
+            key = candidate.key;
+            acc = candidate;
+            break;
+          }
         }
-        if (tc.function && tc.function.name) acc.name = tc.function.name;
-        if (tc.function && tc.function.arguments) acc.args += tc.function.arguments;
       }
+      if (!acc) {
+        key = key == null ? `call_${nextToolIndex++}` : key;
+        acc = { key, id: tc.id || rand('call'), name: '', args: '' };
+        toolCalls.set(key, acc);
+      }
+      if (tc.function && tc.function.name) acc.name = tc.function.name;
+      if (tc.function && tc.function.arguments) acc.args += tc.function.arguments;
     }
     if (json.usage) usage = json.usage;
   };
@@ -2380,11 +2634,50 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     return;
   }
 
-  // Empty upstream completion (no text, no reasoning, no tool calls) means the
-  // model stalled. A response.completed with empty output would look like a
-  // ghost turn (the app hangs showing "..." forever); surface an explicit
-  // failure so the user sees a terminal, actionable error instead.
-  if (!text && !reasoningAdded && toolCalls.size === 0) {
+  const forwardedReasoning = reasoningForwarder.finish();
+
+  // Reasoning-only output is still incomplete. A tool-only output is valid and
+  // continues below as a function_call; it must not be mistaken for an empty
+  // response or closed with end_turn=true.
+  if (!text && toolCalls.size === 0) {
+    const recovered = await recoverEmptyCompletion(chat, upstreamAuthHeader(), 'stream');
+    if (recovered) {
+      const recoveredMessage = assistantMessageFrom(recovered.json);
+      chat.messages = recovered.chat.messages;
+      text = assistantText(recoveredMessage);
+      reasoningText = visibleReasoning(recoveredMessage.reasoning_content || '');
+      usage = recovered.json.usage || usage;
+      if (reasoningText) {
+        reasoningForwarder.add(reasoningText);
+        reasoningForwarder.finish();
+      }
+      for (const tc of assistantToolCalls(recoveredMessage)) {
+        const key = Number.isInteger(tc.index) ? tc.index : `recovery_${nextToolIndex++}`;
+        toolCalls.set(key, {
+          key,
+          id: tc.id || rand('call'),
+          name: (tc.function && tc.function.name) || '',
+          args: (tc.function && tc.function.arguments) || '',
+        });
+      }
+      if (text && !msgAdded) {
+        msgAdded = true;
+        sseEvent(res, 'response.output_item.added', {
+          type: 'response.output_item.added',
+          item: { type: 'message', role: 'assistant', id: msgId, content: [{ type: 'output_text', text: '' }] },
+        });
+        sseEvent(res, 'response.output_text.delta', {
+          type: 'response.output_text.delta',
+          item_id: msgId,
+          output_index: 0,
+          content_index: 0,
+          delta: text,
+        });
+      }
+    }
+  }
+
+  if (!text && toolCalls.size === 0) {
     logRequest({
       ts: new Date().toISOString(),
       kind: 'empty_upstream',
@@ -2392,6 +2685,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
       status: 200,
       routedVia,
       contextReal: realTokens(chat.messages || []),
+      forwardedReasoning,
       body: chat,
     });
     sseEvent(res, 'response.failed', {
@@ -2401,7 +2695,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         error: {
           type: 'empty_upstream_response',
           message:
-            'El modelo devolvió una respuesta vacía (sin texto, razonamiento ni llamadas a herramientas). Reduce el contexto o reintenta el mensaje.',
+            'El modelo no devolvió texto final ni llamadas a herramientas. Reduce el contexto o reintenta el mensaje.',
         },
       },
     });
@@ -2491,101 +2785,44 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     });
   }
 
-  // Function call items (restore namespace + name for Codex's router).
-  // Freeform/custom tools (e.g. apply_patch) MUST come back as a
-  // `custom_tool_call` with the raw `input` payload; codex 0.147 rejects a
-  // function_call with "tool apply_patch invoked with incompatible payload".
-  for (const tc of toolCalls.values()) {
-    const itemReasoning = reasoningText || nudgeReasoning;
+  // Render all tool variants through the same adapter used by the web-loop and
+  // non-streaming path. This is the seam that prevents one transport from
+  // reintroducing the old fallback/namespace behavior.
+  const upstreamToolCalls = [...toolCalls.values()].map((tc) => ({
+    id: tc.id,
+    type: 'function',
+    function: { name: tc.name, arguments: tc.args || '{}' },
+  }));
+  const itemReasoning = visibleReasoning(reasoningText) || visibleReasoning(nudgeReasoning);
+  for (const tc of upstreamToolCalls) {
     if (itemReasoning) rememberReasoning(tc.id, itemReasoning);
-    const { namespace, name, custom, search, web } = lookupToolCall(tc.name, toolMap, customTools);
-    if (search) {
-      // Tool discovery stays app-handled: emit tool_search_call so the app can
-      // answer with the discovered tools (tool_search_output / additional_tools).
-      sseEvent(res, 'response.output_item.done', {
-        type: 'response.output_item.done',
-        item: {
-          type: 'tool_search_call',
-          call_id: tc.id,
-          name,
-          arguments: tc.args || '{}',
-          status: 'completed',
-        },
-      });
-    } else if (web) {
-      // Requests exposing a web tool are routed through the internal loop
-      // before this streaming path. Fail visibly if that invariant regresses.
-      sseEvent(res, 'response.failed', {
-        type: 'response.failed',
-        response: { id: responseId, error: { type: 'web_loop_error', message: 'unresolved internal web tool' } },
-      });
-      res.end();
-      return;
-    } else if (custom) {
-      let rawInput = tc.args || '';
-      try {
-        const parsed = JSON.parse(tc.args);
-        if (parsed && typeof parsed.input === 'string') rawInput = parsed.input;
-        else if (parsed && typeof parsed === 'string') rawInput = parsed;
-      } catch {}
-      sseEvent(res, 'response.output_item.done', {
-        type: 'response.output_item.done',
-        item: { type: 'custom_tool_call', call_id: tc.id, name, input: rawInput },
-      });
-    } else {
-      const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, tc.args || '{}') };
-      if (namespace) item.namespace = namespace;
-      // Multi-agent v2 collaboration tools carry the task in `arguments`, but
-      // Codex's router (router.rs `direct_source`) treats spawn_agent /
-      // send_message / followup_task as ENCRYPTED unless `encrypted_function_args`
-      // is an empty array. When encrypted, the subagent receives an
-      // EncryptedContent blob it cannot read (it sees only its role, never the
-      // task/message). Emit the empty array so the message travels as
-      // DirectPlaintextMessage and reaches the subagent in clear text.
-      if (
-        namespace === 'collaboration' &&
-        (name === 'spawn_agent' || name === 'send_message' || name === 'followup_task')
-      ) {
-        item.encrypted_function_args = [];
-      }
-      sseEvent(res, 'response.output_item.done', { type: 'response.output_item.done', item });
-    }
   }
-
-  const input_tokens = usage ? usage.prompt_tokens || 0 : 0;
-  const output_tokens = usage ? usage.completion_tokens || 0 : 0;
-  const total_tokens = usage ? usage.total_tokens || 0 : 0;
-  const reasoning_tokens =
-    usage && usage.completion_tokens_details ? usage.completion_tokens_details.reasoning_tokens || 0 : 0;
+  const renderedTools = responseItemsForToolCalls(upstreamToolCalls, toolMap, customTools);
+  if (renderedTools.error) {
+    sseEvent(res, 'response.failed', {
+      type: 'response.failed',
+      response: { id: responseId, error: renderedTools.error },
+    });
+    res.end();
+    return;
+  }
+  for (const item of renderedTools.items) {
+    sseEvent(res, 'response.output_item.done', { type: 'response.output_item.done', item });
+  }
 
   // Feed the real prompt-token count back into the compaction calibration so
   // that "context limit" decisions use real tokens, not the chars/4 heuristic.
-  calibrate(totalTokens(chat.messages || []), input_tokens);
-
-  sseEvent(res, 'response.completed', {
-    type: 'response.completed',
-    response: {
-      id: responseId,
-      usage: {
-        input_tokens,
-        input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
-        output_tokens,
-        output_tokens_details: { reasoning_tokens },
-        total_tokens,
-      },
-      end_turn: true,
-    },
-  });
-  logRequest({
-    ts: new Date().toISOString(),
-    kind: 'result',
-    requestId: chat.__gloryRequestId,
-    status: 200,
+  calibrate(totalTokens(chat.messages || []), usage ? usage.prompt_tokens || 0 : 0);
+  emitResponseCompleted(
+    res,
+    responseId,
+    usage,
+    upstreamToolCalls.length > 0,
     routedVia,
-    textLen: text.length,
-    toolCalls: toolCalls.size,
-    toolNames: [...toolCalls.values()].map((t) => t.name),
-  });
+    chat.__gloryRequestId,
+    text.length,
+    upstreamToolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+  );
   res.write('data: [DONE]\n\n');
   res.end();
 }
@@ -2623,91 +2860,56 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     res.end(JSON.stringify({ type: 'error', error: { message: redactText(error.message) } }));
     return;
   }
-  const message = json.choices && json.choices[0] && json.choices[0].message ? json.choices[0].message : {};
-  const reasoningText = (message && message.reasoning_content) || '';
-  const output = [];
-  if (message.content) {
-    output.push({ type: 'message', role: 'assistant', id: msgId, content: [{ type: 'output_text', text: message.content }] });
-  }
-  for (const tc of message.tool_calls || []) {
-    if (reasoningText) rememberReasoning(tc.id, reasoningText);
-    const wireName = tc.function && tc.function.name;
-    const { namespace, name, custom, search, web } = lookupToolCall(wireName, toolMap, customTools);
-    const args = (tc.function && tc.function.arguments) || '{}';
-    if (search) {
-      output.push({ type: 'tool_search_call', call_id: tc.id, name, arguments: args, status: 'completed' });
-    } else if (web) {
-      res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { message: 'unresolved internal web tool' } }));
-      return;
-    } else if (custom) {
-      let rawInput = args;
-      try {
-        const parsed = JSON.parse(args);
-        if (parsed && typeof parsed.input === 'string') rawInput = parsed.input;
-        else if (parsed && typeof parsed === 'string') rawInput = parsed;
-      } catch {}
-      output.push({ type: 'custom_tool_call', call_id: tc.id, name, input: rawInput });
-    } else {
-      const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, args) };
-      if (namespace) item.namespace = namespace;
-      // Same as the SSE path: collaboration spawn/send/followup need
-      // encrypted_function_args: [] so Codex routes them as
-      // DirectPlaintextMessage and the subagent receives the task in clear.
-      if (
-        namespace === 'collaboration' &&
-        (name === 'spawn_agent' || name === 'send_message' || name === 'followup_task')
-      ) {
-        item.encrypted_function_args = [];
-      }
-      output.push(item);
+  let message = assistantMessageFrom(json);
+  if (!hasVisibleAssistantAction(message)) {
+    const recovered = await recoverEmptyCompletion(chat, upstreamAuthHeader(), 'non-stream');
+    if (recovered) {
+      json = recovered.json;
+      gateChat = recovered.chat;
+      responseUsage = recovered.json.usage || responseUsage;
+      message = assistantMessageFrom(json);
     }
   }
+  const reasoningText = visibleReasoning(message.reasoning_content || '');
+  const toolCalls = assistantToolCalls(message);
+  let hasToolOutput = toolCalls.length > 0;
+  const output = [];
+  if (assistantText(message)) {
+    output.push({ type: 'message', role: 'assistant', id: msgId, content: [{ type: 'output_text', text: assistantText(message) }] });
+  }
+  for (const tc of toolCalls) {
+    if (reasoningText) rememberReasoning(tc.id, reasoningText);
+  }
+  let renderedTools = responseItemsForToolCalls(toolCalls, toolMap, customTools);
+  if (renderedTools.error) {
+    res.writeHead(502, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ type: 'error', error: renderedTools.error }));
+    return;
+  }
+  output.push(...renderedTools.items);
   // Anti falso-complete (capa B, 2026-08-10; hook universal 2026-08-11): misma
   // lógica que en el path streaming — toda respuesta final sin tool_calls recibe
   // el request de confirmación; las tool_calls del retry se añaden al output
   // final, y "ok" confirma el cierre con el texto original.
   if (
-    !(message.tool_calls || []).length &&
-    message.content &&
+    toolCalls.length === 0 &&
+    assistantText(message) &&
     gateChat.__userTools === true &&
     Array.isArray(gateChat.tools) &&
     gateChat.tools.length &&
     !currentTurnHasToolMessages(gateChat.messages) &&
     NUDGE_RETRIES > 0
   ) {
-    const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), message.content);
+    const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), assistantText(message));
     if (nudge && nudge.toolCalls.length) {
       const nudgeReasoning = nudge.reasoning || '';
       for (const tc of nudge.toolCalls) {
         if (nudgeReasoning) rememberReasoning(tc.id, nudgeReasoning);
-        const wireName = tc.function && tc.function.name;
-        const { namespace, name, custom, search, web } = lookupToolCall(wireName, toolMap, customTools);
-        const args = (tc.function && tc.function.arguments) || '{}';
-        if (search) {
-          output.push({ type: 'tool_search_call', call_id: tc.id, name, arguments: args, status: 'completed' });
-        } else if (web) {
-          // No debería ocurrir: este path no corre con web tools (guard arriba).
-          continue;
-        } else if (custom) {
-          let rawInput = args;
-          try {
-            const parsed = JSON.parse(args);
-            if (parsed && typeof parsed.input === 'string') rawInput = parsed.input;
-            else if (parsed && typeof parsed === 'string') rawInput = parsed;
-          } catch {}
-          output.push({ type: 'custom_tool_call', call_id: tc.id, name, input: rawInput });
-        } else {
-          const item = { type: 'function_call', call_id: tc.id, name, arguments: withSpawnForkFix(name, args) };
-          if (namespace) item.namespace = namespace;
-          if (
-            namespace === 'collaboration' &&
-            (name === 'spawn_agent' || name === 'send_message' || name === 'followup_task')
-          ) {
-            item.encrypted_function_args = [];
-          }
-          output.push(item);
-        }
+      }
+      const nudgeItems = responseItemsForToolCalls(nudge.toolCalls, toolMap, customTools);
+      if (!nudgeItems.error) {
+        output.push(...nudgeItems.items);
+        hasToolOutput = hasToolOutput || nudgeItems.items.length > 0;
       }
       logRequest({
         ts: new Date().toISOString(),
@@ -2715,10 +2917,10 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         requestId: chat.__gloryRequestId,
         status: 200,
         routedVia: nudge.routedVia,
-        textLen: (message.content || '').length,
+        textLen: assistantText(message).length,
         toolCalls: nudge.toolCalls.length,
         toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
-        intent: isFutureIntentNarration(message.content),
+        intent: isFutureIntentNarration(assistantText(message)),
       });
     } else if (nudge && isConfirmationText(nudge.text)) {
       logRequest({
@@ -2727,8 +2929,8 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         requestId: chat.__gloryRequestId,
         status: 200,
         routedVia: nudge.routedVia,
-        textLen: (message.content || '').length,
-        intent: isFutureIntentNarration(message.content),
+        textLen: assistantText(message).length,
+        intent: isFutureIntentNarration(assistantText(message)),
       });
     } else if (nudge) {
       logRequest({
@@ -2737,8 +2939,8 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         requestId: chat.__gloryRequestId,
         status: 200,
         routedVia: nudge.routedVia,
-        textLen: (message.content || '').length,
-        intent: isFutureIntentNarration(message.content),
+        textLen: assistantText(message).length,
+        intent: isFutureIntentNarration(assistantText(message)),
       });
     }
   }
@@ -2761,7 +2963,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         error: {
           type: 'empty_upstream_response',
           message:
-            'El modelo devolvió una respuesta vacía (sin texto, razonamiento ni llamadas a herramientas). Reduce el contexto o reintenta el mensaje.',
+            'El modelo no devolvió texto final ni llamadas a herramientas. Reduce el contexto o reintenta el mensaje.',
         },
       })
     );
@@ -2773,9 +2975,9 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     requestId: chat.__gloryRequestId,
     status: 200,
     routedVia: json.__routedVia || null,
-    textLen: (message.content || '').length,
-    toolCalls: (message.tool_calls || []).length,
-    toolNames: (message.tool_calls || []).map((tc) => tc.function && tc.function.name).filter(Boolean),
+    textLen: assistantText(message).length,
+    toolCalls: toolCalls.length,
+    toolNames: toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
   });
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(
@@ -2786,17 +2988,8 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       status: 'completed',
       model: MODEL,
       output,
-      usage: responseUsage
-        ? {
-            input_tokens: responseUsage.prompt_tokens || 0,
-            input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
-            output_tokens: responseUsage.completion_tokens || 0,
-            output_tokens_details: {
-              reasoning_tokens: (responseUsage.completion_tokens_details && responseUsage.completion_tokens_details.reasoning_tokens) || 0,
-            },
-            total_tokens: responseUsage.total_tokens || 0,
-          }
-        : null,
+      usage: responseUsage ? responseUsageFromChatUsage(responseUsage) : null,
+      end_turn: !hasToolOutput,
     })
   );
 }

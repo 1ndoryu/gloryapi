@@ -196,14 +196,13 @@ durante la validación posterior al cutover reversible.
   UTF-8 fragmentado, stream sin `[DONE]`, abort al cerrar el cliente y readiness/capabilities; el contrato HTTP
   también verifica `/lifecycle`, estado `blocked` fail-closed y la transición documentada de shutdown; el bridge continúa
   detenido y no se anuncia compatibilidad completa de Codex Desktop ni de proveedores reales.
-- El nudge anti-falso-complete del bridge quedó limitado al turno actual
-  (`currentTurnHasToolMessages`): el guard anterior escaneaba TODO el historial, por lo que en hilos
-  largos con tools de turnos previos el hook quedaba desactivado y el modelo podía cerrar con texto
-  sin ejecutar (falso complete real observado 2026-08-11, turno `019fefb5` de `019fee99`: "Sigo ahora
-  con eso."). Ahora solo decide el turno en curso: si ya ejecutó tools no interrumpe; si cerró sin
-  tools, nudgea. Evidencia: `anti-falso-complete.test.cjs` 10/10 PASS, suite bridge 37/38 (único
-  fallo `vision-error-redaction` pre-existente), commit `35e9861`, bridge activo PID 20024
-  (lifecycle=ready). Falta validar en producción con "listo?" / tarea `ong-agape`.
+- El nudge anti-falso-complete quedó limitado al turno actual (`currentTurnHasToolMessages`) y el
+  refactor posterior del bridge centralizó la salida de tools en streaming/non-streaming. Las respuestas
+  tool-only ahora emiten `function_call` con `end_turn=false`, el `FALLBACK_REASONING` sintético se filtra
+  también de la caché persistida y reasoning-only/vacío tiene una recuperación única y bounded antes de
+  `response.failed`. Evidencia del bloque 11826-4: regresiones dirigidas 18/18, build PASS y gate PASS
+  con 0 errores. El bridge permanece detenido y ChatGPT normal es la ruta activa; falta validar E2E desde
+  Desktop únicamente cuando se reactive explícitamente el canary.
 
 
 ## Bloqueos y decisiones pendientes
