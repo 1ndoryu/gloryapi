@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createDeterministicUpstream } = require('../../integrations/codex-bridge/test/deterministic-upstream.cjs');
 const { createBoundedCapture } = require('./bounded-output.cjs');
+const { readResponseTextBounded, requestResponsesStream } = require('./http-helpers.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const node = process.execPath;
@@ -85,7 +86,9 @@ function getUnifiedKey() {
 
 async function requestJson(url, options) {
   const response = await fetch(url, options);
-  const body = await response.json().catch(() => null);
+  const raw = await readResponseTextBounded(response);
+  let body = null;
+  try { body = JSON.parse(raw); } catch {}
   if (!response.ok) throw new Error(`${options?.method || 'GET'} ${url} returned ${response.status}: ${JSON.stringify(body)}`);
   return body;
 }
@@ -309,6 +312,85 @@ async function main() {
   const nonStreamingText = nonStreaming?.output?.[0]?.content?.[0]?.text;
   if (nonStreamingText !== 'CANARY_OK') throw new Error('non-stream canary response contract failed');
 
+  const streamed = await requestResponsesStream(`${bridgeBase}/v1/responses`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${localToken}`,
+      'X-Glory-Canary-Provider': 'opencode-zen',
+    },
+    body: JSON.stringify({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'CANARY_STREAM_CASE' }] }],
+    }),
+  });
+  const streamedText = streamed.events
+    .filter(entry => entry.event === 'response.output_text.delta')
+    .map(entry => entry.data.delta || '')
+    .join('');
+  if (streamedText !== 'CANARY_OK'
+    || streamed.events.some(entry => entry.event === 'response.failed')
+    || !streamed.events.some(entry => entry.event === 'response.completed')
+    || streamed.events.at(-1)?.data !== '[DONE]') {
+    throw new Error(`stream canary response contract failed: ${JSON.stringify(streamed.events).slice(0, 4000)}`);
+  }
+
+  const continuityInput = [
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'CANARY_CONTINUITY_START' }] },
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'CANARY_CONTEXT_PRESERVED' }] },
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'CANARY_CONTINUITY_NEXT' }] },
+  ];
+  for (const provider of ['andoryyu', 'opencode-zen', 'opencode-go']) {
+    const switched = await requestJson(`${bridgeBase}/v1/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localToken}`,
+        'X-Glory-Canary-Provider': provider,
+      },
+      body: JSON.stringify({ model: 'deepseek-v4-flash', stream: false, input: continuityInput }),
+    });
+    if (switched?.output?.[0]?.content?.[0]?.text !== 'CANARY_OK') {
+      throw new Error(`provider switch continuity failed for ${provider}`);
+    }
+  }
+  if (JSON.stringify(upstream.state.continuityPlatforms) !== JSON.stringify(['andoryyu', 'opencode-zen', 'opencode-go'])) {
+    throw new Error(`provider switch continuity routing failed: ${JSON.stringify(upstream.state.continuityPlatforms)}`);
+  }
+
+  let pluginToolset;
+  try {
+    pluginToolset = await requestJson(`${bridgeBase}/v1/responses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
+      body: JSON.stringify({
+        model: 'deepseek-v4-flash',
+        stream: false,
+        tools: [
+          {
+            type: 'namespace',
+            name: 'mcp__node_repl',
+            tools: [{ type: 'function', name: 'js', description: 'Run plugin JavaScript.' }],
+          },
+          {
+            type: 'namespace',
+            name: 'collaboration',
+            tools: [{ type: 'function', name: 'spawn_agent', description: 'Start a bounded agent.' }],
+          },
+          { type: 'tool_search', name: 'tool_search', description: 'Discover additional plugin tools.' },
+          { type: 'function', name: 'plugin_tool', description: 'A plugin-provided function.' },
+        ],
+        input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'CANARY_PLUGIN_CASE' }] }],
+      }),
+    });
+  } catch (error) {
+    throw new Error(`${error.message}; translated tools=${JSON.stringify(upstream.state.pluginToolNames)}`);
+  }
+  if (pluginToolset?.output?.[0]?.content?.[0]?.text !== 'CANARY_OK' || !upstream.state.pluginToolsetObserved) {
+    throw new Error(`plugin/MCP toolset canary response contract failed: ${JSON.stringify(upstream.state.pluginToolNames)}`);
+  }
+
   const toolLoop = await requestJson(`${bridgeBase}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localToken}` },
@@ -421,6 +503,8 @@ async function main() {
     foreignToolset: true,
     foreignToolsetNoCooldown: true,
     stream: true,
+    providerSwitching: true,
+    pluginTooling: true,
     isolated: true,
     providerCoverage,
   }) + '\n');

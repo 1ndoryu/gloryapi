@@ -210,7 +210,7 @@ durante la validación posterior al cutover reversible.
   y centralizó la configuración agnóstica (`BRIDGE_*`, con aliases legacy); `server.js` quedó en 276 líneas.
   La auditoría 2026-08-11 añadió timeout total/idle al streaming, perfiles de tools `codex-desktop|generic`
   y selección canary autenticada y restringida a overrides declarados para las tres rutas activas. Evidencia actual:
-  68/68 tests dirigidos; la suite del servidor conserva evidencia histórica 270/270 pero no inició en la verificación actual por un error externo de resolución/esbuild,
+  72/72 tests dirigidos; la suite del servidor conserva evidencia histórica 270/270 pero no inició en la verificación actual por un error externo de resolución/esbuild,
   `npm run build:server` PASS y `npm run canary:codex` PASS con cobertura directa Andoryyu/Zen/Go, fallback,
   stream, tool loop, ejecución real de shell_command y Codex CLI aislado. El bridge permanece detenido y ChatGPT normal es la ruta activa;
   el E2E real de Desktop/proveedores externos sigue siendo una validación operativa pendiente, no se declara

@@ -111,7 +111,14 @@ function streamCompletion(response, requestBody, state, authorization) {
 }
 
 function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
-  const state = { cancelObserved: false, truncatedObserved: false, codexToolObserved: false };
+  const state = {
+    cancelObserved: false,
+    truncatedObserved: false,
+    codexToolObserved: false,
+    pluginToolsetObserved: false,
+    pluginToolNames: [],
+    continuityPlatforms: [],
+  };
   const server = http.createServer((request, response) => {
     if (!authorized(request, token)) {
       json(response, 401, { error: { message: 'invalid canary credential' } });
@@ -140,6 +147,37 @@ function createDeterministicUpstream({ token = DEFAULT_TOKEN, port = 0 } = {}) {
         return;
       }
       const serialized = serializedMessages(body);
+      if (serialized.includes('CANARY_CONTINUITY_NEXT')) {
+        const markers = ['CANARY_CONTINUITY_START', 'CANARY_CONTEXT_PRESERVED', 'CANARY_CONTINUITY_NEXT'];
+        const positions = markers.map(marker => serialized.indexOf(marker));
+        const complete = positions.every(position => position >= 0)
+          && positions.every((position, index) => index === 0 || position > positions[index - 1]);
+        if (!complete) {
+          json(response, 422, { error: { message: 'canary continuity history was incomplete or out of order' } });
+          return;
+        }
+        const provider = {
+          'Bearer canary-andoryyu-fail': 'andoryyu',
+          'Bearer canary-zen': 'opencode-zen',
+          'Bearer canary-go': 'opencode-go',
+        }[request.headers.authorization] || 'unknown';
+        state.continuityPlatforms.push(provider);
+      }
+      if (serialized.includes('CANARY_PLUGIN_CASE')) {
+        const toolNames = new Set((body.tools || []).map(tool => tool?.function?.name).filter(Boolean));
+        state.pluginToolNames = [...toolNames];
+        const required = [
+          'mcp__node_repl__js',
+          'tool_search',
+          'codex_app__automation_update',
+          'collaboration__spawn_agent',
+        ];
+        if (!required.every(name => toolNames.has(name))) {
+          json(response, 422, { error: { message: 'canary plugin toolset was not preserved' } });
+          return;
+        }
+        state.pluginToolsetObserved = true;
+      }
       if (serialized.includes('CANARY_CODEX_TOOL_CASE')
         && Array.isArray(body.messages)
         && body.messages.some(message => message

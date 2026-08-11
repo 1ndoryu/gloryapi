@@ -94,3 +94,48 @@ test('deterministic upstream records only the expected Codex tool result', async
   assert.equal(expectedBody.choices[0].message.content, 'CANARY_CODEX_TOOL_OK');
   assert.equal(upstream.state.codexToolObserved, true);
 });
+
+test('deterministic upstream validates the Codex plugin and MCP toolset', async t => {
+  const upstream = await createDeterministicUpstream({ token: 'canary-plugin', port: 0 });
+  t.after(() => new Promise(resolve => upstream.server.close(resolve)));
+  const response = await fetch(`http://127.0.0.1:${upstream.port}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer canary-plugin', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'deepseek-v4-flash',
+      tools: [
+        { type: 'function', function: { name: 'mcp__node_repl__js' } },
+        { type: 'function', function: { name: 'tool_search' } },
+        { type: 'function', function: { name: 'codex_app__automation_update' } },
+        { type: 'function', function: { name: 'collaboration__spawn_agent' } },
+      ],
+      messages: [{ role: 'user', content: 'CANARY_PLUGIN_CASE' }],
+    }),
+  });
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  assert.equal(upstream.state.pluginToolsetObserved, true);
+});
+
+test('deterministic upstream rejects incomplete or reordered continuity history', async t => {
+  const upstream = await createDeterministicUpstream({ token: 'canary-continuity', port: 0 });
+  t.after(() => new Promise(resolve => upstream.server.close(resolve)));
+  const post = input => fetch(`http://127.0.0.1:${upstream.port}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer canary-continuity', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'deepseek-v4-flash', messages: input }),
+  });
+  const incomplete = await post([
+    { role: 'user', content: 'CANARY_CONTINUITY_START' },
+    { role: 'user', content: 'CANARY_CONTINUITY_NEXT' },
+  ]);
+  assert.equal(incomplete.status, 422);
+  await incomplete.arrayBuffer();
+  const reordered = await post([
+    { role: 'user', content: 'CANARY_CONTINUITY_NEXT' },
+    { role: 'assistant', content: 'CANARY_CONTEXT_PRESERVED' },
+    { role: 'user', content: 'CANARY_CONTINUITY_START' },
+  ]);
+  assert.equal(reordered.status, 422);
+  await reordered.arrayBuffer();
+});
