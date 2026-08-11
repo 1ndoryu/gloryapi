@@ -106,7 +106,12 @@ function boundedEnvInt(name, fallback, minimum, maximum) {
 const MAX_BODY_BYTES = boundedEnvInt('BRIDGE_MAX_BODY_BYTES', 8 * 1024 * 1024, 1024, 16 * 1024 * 1024);
 const MAX_ACTIVE_REQUESTS = 32;
 const MAX_PATH_BYTES = 512;
-const UPSTREAM_TIMEOUT_MS = boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_MS', 180000, 100, 300000);
+const UPSTREAM_TIMEOUT_MS = boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_MS', 360000, 100, 600000);
+// Ventana de recuperación para el reintento por timeout (2026-08-11): si el
+// request principal aborta por timeout, un segundo intento con esta ventana
+// extendida (default 2x) suele completar rondas con contexto grande (100k+
+// tokens, prefix cache 0) sin cortar la conexión con el cliente.
+const UPSTREAM_TIMEOUT_RECOVERY_MS = boundedEnvInt('BRIDGE_UPSTREAM_TIMEOUT_RECOVERY_MS', 720000, 1000, 1200000);
 // Anti falso-complete (2026-08-10, hook de confirmación 2026-08-11): número
 // máximo de reintentos (nudge) cuando el modelo cierra con texto sin invocar
 // herramientas, y timeout acotado para ese segundo request (no debe duplicar la
@@ -1859,6 +1864,9 @@ async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM
         : `upstream request failed: ${redactText(cause && cause.message)}`,
     );
     error.statusCode = 502;
+    // Marca explícita para que la capa de recuperación distinga un timeout real
+    // (posible reintento con ventana extendida) de cualquier otro fallo upstream.
+    if (timedOut) error.__timedOut = true;
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -1886,6 +1894,33 @@ async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM
 }
 
 /**
+ * Recuperación por timeout (2026-08-11): el web loop y el path non-streaming
+ * usan fetchUpstreamCompletion con un timeout acotado. Si un round aborta por
+ * timeout (no por otro fallo upstream), se reintenta UNA vez con la ventana
+ * extendida: un contexto grande (100k+ tokens, cached_input_tokens 0) puede
+ * exceder el timeout base aunque el modelo esté trabajando. Sin esto, el bridge
+ * corta el SSE y el cliente muestra "stream disconnected before completion"
+ * aunque el agente nunca se quedó atorado.
+ */
+async function fetchWithTimeoutRecovery(chat, authorization) {
+  try {
+    return await fetchUpstreamCompletion(chat, authorization);
+  } catch (error) {
+    if (error && error.__timedOut === true) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'upstream_timeout_retry',
+        requestId: chat.__gloryRequestId,
+        status: 502,
+        error: error.message,
+      });
+      return await fetchUpstreamCompletion(chat, authorization, UPSTREAM_TIMEOUT_RECOVERY_MS);
+    }
+    throw error;
+  }
+}
+
+/**
  * Resolve provider-requested web tools entirely behind the Responses boundary.
  * The client receives only the final assistant response (or external tool
  * calls). This follows the public function-calling loop without asking Codex
@@ -1906,7 +1941,7 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
   let lastPromptTokens = 0;
 
   for (let round = 0; round < 3; round += 1) {
-    const json = await fetchUpstreamCompletion(working, authorization);
+    const json = await fetchWithTimeoutRecovery(working, authorization);
     const usage = json.usage || {};
     lastPromptTokens = usage.prompt_tokens || 0;
     aggregateUsage.prompt_tokens += usage.prompt_tokens || 0;
@@ -2550,7 +2585,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       };
       calibrate(totalTokens(resolved.working.messages || []), resolved.lastPromptTokens);
     } else {
-      json = await fetchUpstreamCompletion(chat, upstreamAuthHeader());
+      json = await fetchWithTimeoutRecovery(chat, upstreamAuthHeader());
       responseUsage = json.usage || null;
     }
   } catch (error) {

@@ -42,6 +42,15 @@ sin commit por indicación del usuario.
 - El cuerpo se limita a 8 MiB, configurable con `BRIDGE_MAX_BODY_BYTES`.
 - Cada respuesta de backend de búsqueda se limita a 1 MiB, configurable con
   `BRIDGE_SEARCH_MAX_BYTES`.
+- El timeout de cada request upstream (web loop interno y non-streaming) es de 6 min
+  por defecto, configurable con `BRIDGE_UPSTREAM_TIMEOUT_MS` (rango 100-600000 ms).
+  Si un request aborta por timeout, se reintenta UNA vez con la ventana extendida
+  `BRIDGE_UPSTREAM_TIMEOUT_RECOVERY_MS` (default 720000 = 2×, rango 1000-1200000 ms)
+  y se registra `kind: 'upstream_timeout_retry'` en el log; si el reintento también
+  falla, el bridge responde `response.failed` (el cliente muestra "stream
+  disconnected before completion"). Esto evita cortar la conexión cuando un round
+  con contexto grande (100k+ tokens, prefix cache 0) excede el timeout base aunque
+  el modelo esté trabajando.
 - `bridge.requests.log` guarda metadatos; los errores remotos conservan solo clase,
   status y tamaño. El cuerpo completo
   solo se habilita conscientemente con `BRIDGE_REQUEST_LOG_FULL=1`.

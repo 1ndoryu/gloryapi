@@ -91,6 +91,7 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
       BRIDGE_PORT: String(bridgePort),
       BRIDGE_MAX_BODY_BYTES: '4096',
       BRIDGE_UPSTREAM_TIMEOUT_MS: '300',
+      BRIDGE_UPSTREAM_TIMEOUT_RECOVERY_MS: '500',
       BRIDGE_CLIENT_TOKEN: 'test',
       GLORY_API_KEY: 'upstream-test',
       BRIDGE_REQUEST_LOG: requestLog,
@@ -243,6 +244,10 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
     }),
   });
   assert.equal(hanging.status, 502, JSON.stringify(upstreamBodies.at(-1)));
-  assert.match(JSON.stringify(await hanging.json()), /upstream timed out after 300 ms/);
+  assert.match(JSON.stringify(await hanging.json()), /upstream timed out after \d+ ms/);
   assert.ok(Date.now() - hangingStartedAt < 2000, 'the hanging body must be aborted promptly');
+  // La recuperación por timeout (2026-08-11) reintenta UNA vez con la ventana
+  // extendida: deben verse 2 bodies colgados (intento base + reintento).
+  const hangBodies = upstreamBodies.filter((body) => JSON.stringify(body.messages).includes('hang-body'));
+  assert.equal(hangBodies.length, 2, 'the timeout must retry once with the recovery window');
 });
