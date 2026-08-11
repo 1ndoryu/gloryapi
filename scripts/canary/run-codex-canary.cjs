@@ -8,6 +8,7 @@ const { createBoundedCapture } = require('./bounded-output.cjs');
 const { readResponseTextBounded, requestResponsesStream } = require('./http-helpers.cjs');
 const { sanitizePluginConfig } = require('./plugin-config.cjs');
 const { summarizeRoutingTrace } = require('./routing-evidence.cjs');
+const { runCodexAppServerCanary } = require('./app-server-canary.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const node = process.execPath;
@@ -548,8 +549,18 @@ async function main() {
     throw new Error(`sanitized fallback attribution contract failed: ${JSON.stringify(fallbackAttribution)}`);
   }
 
-  await prepareProfile(bridgePort);
+  const profilePath = await prepareProfile(bridgePort);
   const codexLauncher = resolveCodexLauncher();
+  const appServerRun = await runCodexAppServerCanary({
+    launcher: codexLauncher,
+    codexHome,
+    dbPath,
+    cwd: root,
+    profilePath,
+  });
+  if (!appServerRun.text || !appServerRun.tool || !appServerRun.compaction || !upstream.state.codexToolObserved) {
+    throw new Error(`Codex app-server canary did not complete: ${JSON.stringify(appServerRun)}`);
+  }
   const textRun = await runCodexExec(
     codexLauncher,
     codexHome,
@@ -609,6 +620,9 @@ async function main() {
     stream: true,
     providerSwitching: true,
     providerToolSwitching: true,
+    appServer: true,
+    appServerToolExecution: true,
+    appServerCompaction: true,
     pluginTooling: true,
     isolated: true,
     providerCoverage,

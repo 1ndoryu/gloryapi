@@ -53,6 +53,9 @@ test('vision aborts a response that sends headers and leaves the body open', asy
   const started = Date.now();
   const result = await adapter.describeImage('data:image/png;base64,iVBORw0KGgo=', 'describe');
   assert.equal(result, null);
+  for (let attempt = 0; attempt < 30 && requests < 3; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
   assert.equal(requests, 3, 'vision keeps its bounded retry policy');
   for (let attempt = 0; attempt < 30 && closedResponses < requests; attempt += 1) {
     await new Promise(resolve => setTimeout(resolve, 20));

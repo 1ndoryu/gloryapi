@@ -215,7 +215,8 @@ perfil temporal. El canary debe ejecutarse con GloryAPI y el bridge ya listos, y
 su rollback es seleccionar el perfil ChatGPT y detener el bridge. `npm run canary:codex`
 usa un upstream local determinista y ahora prueba rutas directas a Andoryyu, OpenCode
 Zen y OpenCode Go, continuidad de historial y de una llamada de herramienta al cambiar
-de Andoryyu a Go, además del fallback; no cambia la configuración activa ni demuestra
+de Andoryyu a Go, además de un `codex app-server` aislado con turnos, `shell_command` y
+compaction, y el fallback; no cambia la configuración activa ni demuestra
 disponibilidad de las cuentas externas.
 
 Para repetir una auditoría contra las cuentas reales sin activar Desktop, se puede
