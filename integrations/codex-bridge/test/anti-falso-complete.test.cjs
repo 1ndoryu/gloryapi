@@ -69,6 +69,19 @@ test('isFutureIntentNarration: narrativas reales (positivos)', () => {
     'Intentaré de nuevo con un contexto reducido.',
     'Voy a hacer el commit después de validar.',
     'Voy a leer el archivo AGENTS.md para ver la política.',
+    'I will scan the .md files and extract the dates from their names.',
+    "I'll check the roadmap first, one moment.",
+    "I'm going to open the browser and read the documentation.",
+    'Let me review the plans directory before continuing.',
+    'I need to fix the fork configuration for the specialized role.',
+    'I will retry with a reduced context.',
+    'First I will read the AGENTS.md file.',
+    'I should look at the roadmap before proceeding.',
+    'I have to verify the health endpoint again.',
+    'I want to run the tests to confirm.',
+    "I'd like to create the missing file now.",
+    'Let me start by listing the projects.',
+    'I am going to try running the suite once more.',
   ];
   for (const text of positives) {
     assert.equal(
@@ -90,6 +103,14 @@ test('isFutureIntentNarration: respuestas normales (negativos)', () => {
     undefined,
     '¿Qué debería hacer a continuación?',
     'El timeout fue de 180 segundos y el flujo se desconectó.',
+    'Here is the sorted list of .md files by date.',
+    'Done. The operation completed successfully.',
+    'The file was already modified, no changes needed.',
+    'I checked the logs and found nothing useful.',
+    'The status is healthy and the bridge responds correctly.',
+    'Let me know if you need anything else.',
+    'Please let me know when it is ready.',
+    'All done, everything is in order.',
   ];
   for (const text of negatives) {
     assert.equal(

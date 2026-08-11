@@ -1239,7 +1239,13 @@ function withSpawnForkFix(name, argsString) {
 // con kinds nudge_retry / nudge_noop / nudge_error.
 function isFutureIntentNarration(text) {
   if (!text) return false;
-  return /(voy a|vamos a|necesito|debo|lo reintento|reintento|procedo a|ahora voy|primero voy|lo haré|intentaré|voy a intentar|voy a hacer|voy a (escanear|revisar|buscar|crear|editar|modificar|comprobar|listar|ejecutar|probar|analizar|leer|abrir|instalar|configurar|correr|verificar))/i.test(
+  // ES + EN: la narración de intención futura sin ejecución ocurre en ambos
+  // idiomas ("Voy a escanear...", "I will scan...", "I'm going to...",
+  // "Let me check...", "I need to..."). Las contracciones evitan apóstrofes
+  // literales (i.ll / i.m / i.d) para no romper el parser estático del test.
+  // Un falso positivo solo añade un request de nudge descartable; un falso
+  // negativo deja escapar el falso complete.
+  return /(voy a|vamos a|necesito|debo|lo reintento|reintento|procedo a|ahora voy|primero voy|lo haré|intentaré|voy a intentar|voy a hacer|voy a (escanear|revisar|buscar|crear|editar|modificar|comprobar|listar|ejecutar|probar|analizar|leer|abrir|instalar|configurar|correr|verificar)|\bi (will|am going to|need to|should|have to|want to|would like to)\b|\bi.ll\b|\bi.m\b|\bi.d\b|let me (try|check|start|look|scan|review|open|read|run|test|verify|search|list))/i.test(
     text,
   );
 }
