@@ -1,11 +1,8 @@
 import Database from 'better-sqlite3'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { credentialVault, DPAPI_ENCRYPTION_SCHEME } from '../lib/dpapi-vault.js'
+import { resolveDatabasePath } from '../config/database-path.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const defaultDbPath = path.resolve(__dirname, '../../data/gloryapi.db')
-const dbPath = path.resolve(process.env.GLORYAPI_DB_PATH?.trim() || defaultDbPath)
+const dbPath = resolveDatabasePath()
 // The legacy settings key `unified_api_key` is migrated to this DPAPI token.
 const tokenName = 'gloryapi-unified-api-key'
 

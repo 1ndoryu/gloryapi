@@ -5,7 +5,7 @@ durante la validación posterior al cutover reversible.
 
 ## Siguiente bloque
 
-1. Mantener el snapshot real externo y protegido durante la ventana de rollback; ya fue verificado con `integrity_check=ok` y el importador versionado e idempotente migró 22/22 credenciales.
+1. Mantener el snapshot real externo y protegido durante la ventana de rollback; la base operativa canónica queda en `%USERPROFILE%\\.gloryapi\\gloryapi.db`, el snapshot fue verificado con `integrity_check=ok` y el importador versionado e idempotente migró/verificó 22/22 credenciales.
 2. Ejecutar `npm run task:check:local -- <ID>` como preflight de cada bloque y repetir `npm run task:check -- GLORY-BASELINE` después de cada bloque de cambios; el cierre conserva el perfil full/CI.
 3. Mantener la política de cambios del legado: sin modificaciones durante la migración; cualquier corrección operativa futura debe quedar registrada, probada y evaluada para portabilidad.
 4. Conservar el bootstrap sanitizado por `git archive` + overlay: el escaneo histórico de 518 commits/4.018 blobs y del overlay quedó documentado sin exponer valores.
@@ -99,6 +99,9 @@ durante la validación posterior al cutover reversible.
 - GloryAPI ya tiene `POST /api/settings/backup`, autenticado con la clave unificada y con destino externo por
   `GLORYAPI_BACKUP_DIR`. El snapshot real del legado fue creado fuera del workspace, verificado con
   `integrity_check=ok` y protegido con ACL del usuario actual.
+- El runtime y los helpers usan por defecto `%USERPROFILE%\\.gloryapi\\gloryapi.db`; `GLORYAPI_DB_PATH` y
+  `-DatabasePath` permiten una ruta persistente alternativa. La copia antigua de `server/data` fue retirada a
+  `C:\\Users\\Owner\\.gloryapi\\backups\\local-runtime-before-external-20260811` para evitar divergencia.
 - GloryAPI incorpora un bundle portable v1 en `server/src/lib/vault-bundle.ts`, con Argon2id + AES-256-GCM,
   y `server/src/lib/portable-bundle-file.ts` lo persiste atómicamente con límite de tamaño y ACL local fail-closed;
   fingerprints SHA-256 y pruebas de round-trip/tampering para 22 credenciales sintéticas. El importador específico

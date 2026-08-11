@@ -7,7 +7,8 @@ param(
     [switch]$Runtime,
     [ValidateRange(1, 65535)]
     [int]$Port = 4100,
-    [string]$RuntimeDataDir = ''
+    [string]$RuntimeDataDir = '',
+    [string]$DatabasePath = ''
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
@@ -17,7 +18,7 @@ $BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
 
 if ($Runtime) {
     $ProjectRoot = (Resolve-Path (Join-Path $BridgeDir '..\..\..')).Path
-    $DataDir = Join-Path $ProjectRoot 'server\data'
+    $DataDir = Join-Path (Join-Path $env:USERPROFILE '.gloryapi') 'runtime'
     $RuntimePidFile = Join-Path $DataDir 'gloryapi.pid'
     $RuntimeServer = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'server\dist\index.js'))
     $RuntimePort = 3101
@@ -73,7 +74,7 @@ if ($Runtime) {
 }
 
 Write-Host 'Reiniciando bridge (stop + start + health)...'
-& (Join-Path $BridgeDir 'start-bridge.ps1') -Restart -Force:$Force -Port $Port -RuntimeDataDir $RuntimeDataDir
+& (Join-Path $BridgeDir 'start-bridge.ps1') -Restart -Force:$Force -Port $Port -RuntimeDataDir $RuntimeDataDir -DatabasePath $DatabasePath
 if ($LASTEXITCODE -ne 0) {
     throw "start-bridge.ps1 falló con código $LASTEXITCODE."
 }

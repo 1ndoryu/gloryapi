@@ -14,8 +14,7 @@ $BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
     (Resolve-Path -LiteralPath ([string](@($bridgeLink.Target) | Select-Object -First 1))).Path
 } else { $PSScriptRoot }
 $RuntimeDir = if ([string]::IsNullOrWhiteSpace($RuntimeDataDir)) {
-    $serverData = (Resolve-Path (Join-Path $BridgeDir '..\..\..\server\data')).Path
-    Join-Path $serverData 'bridge-runtime'
+    Join-Path (Join-Path $env:USERPROFILE '.gloryapi') 'runtime\bridge-runtime'
 } else {
     [System.IO.Path]::GetFullPath($RuntimeDataDir)
 }

@@ -4,7 +4,8 @@ param(
     [string]$NodeScriptOverride = '',
     [string]$EnvironmentProbePath = '',
     [int]$Port = 3101,
-    [string]$RuntimeDataDir = ''
+    [string]$RuntimeDataDir = '',
+    [string]$DatabasePath = ''
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
@@ -13,7 +14,21 @@ $BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
 } else { $PSScriptRoot }
 $ProjectRoot = (Resolve-Path (Join-Path $BridgeDir '..\..\..')).Path
 $ServerFile = Join-Path $ProjectRoot 'server\dist\index.js'
-$DataDir = if ([string]::IsNullOrWhiteSpace($RuntimeDataDir)) { Join-Path $ProjectRoot 'server\data' } else { [IO.Path]::GetFullPath($RuntimeDataDir) }
+$DefaultDataRoot = Join-Path $env:USERPROFILE '.gloryapi'
+$DataDir = if ([string]::IsNullOrWhiteSpace($RuntimeDataDir)) { Join-Path $DefaultDataRoot 'runtime' } else { [IO.Path]::GetFullPath($RuntimeDataDir) }
+$ConfiguredDatabasePath = if (-not [string]::IsNullOrWhiteSpace($DatabasePath)) {
+    $DatabasePath
+} elseif (-not [string]::IsNullOrWhiteSpace($env:GLORYAPI_DB_PATH)) {
+    $env:GLORYAPI_DB_PATH
+} else {
+    Join-Path $DefaultDataRoot 'gloryapi.db'
+}
+if ($ConfiguredDatabasePath -eq ':memory:') { throw 'GLORYAPI_DB_PATH debe apuntar a una SQLite persistente para el runtime.' }
+$DatabasePath = [IO.Path]::GetFullPath($ConfiguredDatabasePath)
+if ($DatabasePath -match '(?i)(^|[\\/])freellmapi([\\/]|$)') { throw 'GLORYAPI_DB_PATH no puede apuntar al árbol legado FreeLLMAPI.' }
+if (-not (Test-Path -LiteralPath $DatabasePath -PathType Leaf)) {
+    throw "No existe la base GloryAPI configurada: $DatabasePath"
+}
 New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
 $PidFile = Join-Path $DataDir 'gloryapi.pid'
 $LogOut = Join-Path $DataDir 'gloryapi.out.log'
@@ -58,6 +73,7 @@ function Start-IsolatedGloryApi {
                 [Environment]::SetEnvironmentVariable($name, $snapshot[$name], 'Process')
             }
         }
+        $env:GLORYAPI_DB_PATH = $DatabasePath
         if (-not [string]::IsNullOrWhiteSpace($EnvironmentProbePath)) {
             $env:GLORYAPI_ENV_PROBE_PATH = $EnvironmentProbePath
         }
@@ -86,7 +102,7 @@ try {
             exit 0
         }
     }
-    throw 'GloryAPI no respondió en 3101; revisa server/data/gloryapi.err.log.'
+    throw "GloryAPI no respondió en 3101; revisa $LogErr."
 } catch {
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue

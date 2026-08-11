@@ -146,10 +146,10 @@ token-only `server/dist/scripts/bridge-upstream-auth.js`, que lee `unified_api_k
 en modo SQLite `readonly`. El helper nunca imprime el valor salvo con `--print`
 para entregarlo directamente al proceso del bridge y no lo persiste en archivos.
 `unified_api_key` ya está migrada a `local_auth_tokens` con DPAPI `CurrentUser`;
-el helper solo acepta esa fila DPAPI y falla cerrado si falta. `server/data`
-conserva además ACL explícita sin herencia (solo Owner, SYSTEM y Administrators)
-como defensa en profundidad. El helper abre SQLite en modo `readonly` y no tiene
-código de escritura.
+el helper solo acepta esa fila DPAPI y falla cerrado si falta. La base operativa
+se guarda por defecto fuera del repositorio en `%USERPROFILE%\.gloryapi\gloryapi.db`;
+`GLORYAPI_DB_PATH` o `-DatabasePath` permiten seleccionar otra ruta persistente.
+El helper abre SQLite en modo `readonly` y no tiene código de escritura.
 Antes de iniciar el sidecar, el mismo script levanta el runtime local de GloryAPI
 en 3101 mediante `start-gloryapi.ps1` si `/api/ping` aún no responde.
 
@@ -191,10 +191,11 @@ Detalles de robustez:
 - `restart-bridge.ps1 -Runtime` detiene el runtime solo si el proceso coincide con
   `server/dist/index.js`; un ocupante ajeno en `:3101` exige `-Force`.
 - `start-bridge.ps1`, `stop-bridge.ps1` y `restart-bridge.ps1` aceptan
-  `-RuntimeDataDir` y `-Port`; los defaults siguen siendo
-  `server/data/bridge-runtime` y `4100`. Esto permite ejecutar el bridge en una
-  carpeta temporal o con otra instancia local cuando `server/data` está protegido,
-  sin editar el perfil de ChatGPT ni mover credenciales a archivos.
+  `-RuntimeDataDir`, `-DatabasePath` y `-Port`; los defaults son
+  `%USERPROFILE%\.gloryapi\runtime\bridge-runtime`,
+  `%USERPROFILE%\.gloryapi\gloryapi.db` y `4100`. Esto permite ejecutar el bridge
+  en una carpeta temporal o con otra instancia local sin editar el perfil de
+  ChatGPT ni mover credenciales a archivos.
 - `stop-bridge.ps1 -Force` no convierte un PID stale en permiso para matar un
   proceso: si CIM no puede verificar la línea de comandos, exige además que el
   PID figure escuchando en el `-Port` solicitado; de lo contrario falla cerrado.

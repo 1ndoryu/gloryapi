@@ -6,16 +6,30 @@ param(
     [switch]$Force,
     [ValidateRange(1, 65535)]
     [int]$Port = 4100,
-    [string]$RuntimeDataDir = ''
+    [string]$RuntimeDataDir = '',
+    [string]$DatabasePath = ''
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
 $BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
     (Resolve-Path -LiteralPath ([string](@($bridgeLink.Target) | Select-Object -First 1))).Path
 } else { $PSScriptRoot }
+$DefaultDataRoot = Join-Path $env:USERPROFILE '.gloryapi'
+$ConfiguredDatabasePath = if (-not [string]::IsNullOrWhiteSpace($DatabasePath)) {
+    $DatabasePath
+} elseif (-not [string]::IsNullOrWhiteSpace($env:GLORYAPI_DB_PATH)) {
+    $env:GLORYAPI_DB_PATH
+} else {
+    Join-Path $DefaultDataRoot 'gloryapi.db'
+}
+if ($ConfiguredDatabasePath -eq ':memory:') { throw 'GLORYAPI_DB_PATH debe apuntar a una SQLite persistente para el bridge.' }
+$DatabasePath = [System.IO.Path]::GetFullPath($ConfiguredDatabasePath)
+if ($DatabasePath -match '(?i)(^|[\\/])freellmapi([\\/]|$)') { throw 'GLORYAPI_DB_PATH no puede apuntar al árbol legado FreeLLMAPI.' }
+if (-not (Test-Path -LiteralPath $DatabasePath -PathType Leaf)) {
+    throw "No existe la base GloryAPI configurada: $DatabasePath"
+}
 $RuntimeDir = if ([string]::IsNullOrWhiteSpace($RuntimeDataDir)) {
-    $serverData = (Resolve-Path (Join-Path $BridgeDir '..\..\..\server\data')).Path
-    Join-Path $serverData 'bridge-runtime'
+    Join-Path $DefaultDataRoot 'runtime\bridge-runtime'
 } else {
     [System.IO.Path]::GetFullPath($RuntimeDataDir)
 }
@@ -66,6 +80,7 @@ if ($occupant) {
 
 $node = (Get-Command node -ErrorAction Stop).Source
 $env:BRIDGE_RUNTIME_DIR = $RuntimeDir
+$env:GLORYAPI_DB_PATH = $DatabasePath
 
 # Arranca y verifica GloryAPI antes de resolver secretos del bridge. El runtime
 # se inicia con un entorno aislado y nunca recibe las credenciales siguientes.
@@ -73,7 +88,7 @@ $runtimeScript = Join-Path $BridgeDir 'start-gloryapi.ps1'
 if (Test-Path -LiteralPath $runtimeScript) {
     # Ejecutarlo en este mismo host evita que un PowerShell anidado termine el
     # proceso GloryAPI cuando el hijo deba permanecer como runtime persistente.
-    & $runtimeScript
+    & $runtimeScript -DatabasePath $DatabasePath -RuntimeDataDir (Split-Path -Parent $RuntimeDir)
     if ($LASTEXITCODE -ne 0) { throw 'GloryAPI runtime no está listo; se rechaza iniciar el bridge.' }
 }
 

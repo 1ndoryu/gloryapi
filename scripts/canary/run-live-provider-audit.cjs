@@ -301,19 +301,20 @@ async function main() {
     const stream = await auditDirectStream(bridgeBase, serverBase, provider);
     providers[provider] = { ...direct, stream };
   }
-  process.stdout.write(JSON.stringify({
+  return {
     schemaVersion: 'glory-live-provider-audit-v1',
     status: 'PASS',
     isolated: true,
     activeCodexConfigChanged: false,
     normalFallback,
     providers,
-  }) + '\n');
+  };
 }
 
 (async () => {
+  let report = null;
   try {
-    await main();
+    report = await main();
   } catch (error) {
     process.stderr.write(`LIVE_AUDIT_FAIL: ${error.message}\n`);
     process.exitCode = 1;
@@ -326,6 +327,9 @@ async function main() {
     if (cleanupErrors.length) {
       process.stderr.write(`LIVE_AUDIT_CLEANUP_FAIL: ${cleanupErrors.map(error => error.message).join('; ')}\n`);
       process.exitCode = 1;
+    }
+    if (!process.exitCode && report) {
+      process.stdout.write(JSON.stringify(report) + '\n');
     }
   }
 })();

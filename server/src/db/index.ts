@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { initEncryptionKey } from '../lib/crypto.js';
 import { ensureUnifiedKey, getUnifiedApiKey as readUnifiedApiKey, regenerateUnifiedKey as rotateUnifiedKey } from './security/unified-key.js';
 import { migrateModelsV22, migrateModelsV23, migrateModelsV24 } from './migrations-v22-v23.js';
@@ -12,11 +11,9 @@ import { migrateModelsV27, migrateModelsV28, migrateModelsV32 } from './migratio
 import { migrateModelsV29, migrateModelsV30, migrateModelsV31, migrateModelsV33, migrateModelsV34, migrateModelsV35 } from './migrations-v29-v35.js';
 import { normalizeGloryCatalog } from './catalog/normalize.js';
 import { seedLegacyModels } from './catalog/legacy-seed.js';
+import { resolveDatabasePath } from '../config/database-path.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.GLORYAPI_DB_PATH
-  ? path.resolve(process.env.GLORYAPI_DB_PATH)
-  : path.resolve(__dirname, '../../data/gloryapi.db');
+const DB_PATH = resolveDatabasePath()
 
 let db: Database.Database;
 
@@ -30,7 +27,7 @@ export interface InitDbOptions {
 }
 
 export function initDb(dbPath?: string, options: InitDbOptions = {}): Database.Database {
-  const resolvedPath = dbPath ?? DB_PATH;
+  const resolvedPath = resolveDatabasePath(dbPath ?? DB_PATH);
   const isMemory = resolvedPath === ':memory:';
   if (!isMemory) {
     const dataDir = path.dirname(resolvedPath);

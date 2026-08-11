@@ -351,6 +351,10 @@ test('the stop script verifies process identity before terminating', () => {
   assert.match(startRuntime, /127\.0\.0\.1:3101\/api\/ping/);
   assert.match(startRuntime, /Get-NetTCPConnection -LocalPort 3101/);
   assert.match(startRuntime, /server\\dist\\index\.js/);
+  assert.match(startRuntime, /\[string\]\$DatabasePath/);
+  assert.match(startRuntime, /GLORYAPI_DB_PATH/);
+  assert.match(startRuntime, /freellmapi/);
+  assert.match(startRuntime, /\.gloryapi/);
   assert.match(startRuntime, /WindowStyle Hidden/);
   assert.match(start, /start-gloryapi\.ps1/);
   assert.match(start, /bridgeLink/);
@@ -358,6 +362,9 @@ test('the stop script verifies process identity before terminating', () => {
   assert.match(start, /BRIDGE_RUNTIME_DIR/);
   assert.match(start, /bridge-runtime/);
   assert.match(start, /\[string\]\$RuntimeDataDir/);
+  assert.match(start, /\[string\]\$DatabasePath/);
+  assert.match(start, /-DatabasePath \$DatabasePath/);
+  assert.match(start, /freellmapi/);
   assert.match(start, /\[int\]\$Port = 4100/);
   assert.match(start, /GetFullPath\(\$RuntimeDataDir\)/);
   assert.match(stop, /Get-CimInstance Win32_Process/);
@@ -381,12 +388,14 @@ test('restart delegates to start-bridge -Restart and waits for port release', ()
   assert.match(restart, /\[switch\]\$Runtime/);
   assert.match(restart, /gloryapi\.pid/);
   assert.match(restart, /server\\dist\\index\.js/);
-  assert.match(restart, /server\s*\\?\s*data/);
+  assert.match(restart, /\.gloryapi/);
   assert.match(start, /\[switch\]\$Restart/);
   assert.match(start, /\[switch\]\$Force/);
   assert.match(restart, /\[string\]\$RuntimeDataDir/);
+  assert.match(restart, /\[string\]\$DatabasePath/);
   assert.match(restart, /\[int\]\$Port = 4100/);
   assert.match(restart, /-RuntimeDataDir \$RuntimeDataDir/);
+  assert.match(restart, /-DatabasePath \$DatabasePath/);
   assert.match(start, /Reinicio solicitado/);
   assert.match(start, /usa -Restart para sustituirlo/);
   assert.match(stop, /\[switch\]\$Force/);
