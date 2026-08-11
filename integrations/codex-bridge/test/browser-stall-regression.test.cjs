@@ -63,6 +63,11 @@ async function startBridge(handler, extraEnv = {}) {
         response.writeHead(500).end('no mock handler');
         return;
       }
+      if (outcome.hangingBody) {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.write('{"choices":[');
+        return;
+      }
       if (outcome.sse) {
         response.writeHead(200, { 'Content-Type': 'text/event-stream' });
         response.end(outcome.sse);
@@ -306,4 +311,52 @@ test('red de seguridad compacta cuando la nativa no dispara', async (t) => {
   const finalText = JSON.stringify(finalBody.messages);
   assert.ok(!finalText.includes(giantMarker), 'el historial gigante se resumió');
   assert.match(finalText, /Resumen de la conversación anterior/, 'el resumen reemplaza al historial viejo');
+});
+
+test('compactación no queda colgada si el resumen entrega headers y deja el body abierto', async (t) => {
+  let summaryCalls = 0;
+  let summaryResponse = null;
+  const bridge = await startBridge(
+    (body) => {
+      const firstSystem = body.messages.find((message) => message.role === 'system');
+      const isSummary = body.stream === false && firstSystem && /motor de resumen/i.test(String(firstSystem.content || ''));
+      if (isSummary) {
+        summaryCalls += 1;
+        return { hangingBody: true };
+      }
+      summaryResponse = body;
+      return {
+        sse: [
+          'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"continuó tras fallback"}}]}',
+          'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+          'data: {"choices":[{"index":0,"delta":{},"usage":{"prompt_tokens":20,"completion_tokens":4,"total_tokens":24}}]}',
+          'data: [DONE]',
+        ].join('\n\n') + '\n\n',
+      };
+    },
+    {
+      BRIDGE_COMPACTION_DISABLED: '0',
+      CALIB_RATIO: '1',
+      CONTEXT_LIMIT_TOKENS: '1000',
+      COMPACT_KEEP_TOKENS: '100',
+      BRIDGE_UPSTREAM_TIMEOUT_MS: '300',
+    },
+  );
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'historial '.repeat(800) }] },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'último turno' }] },
+      ],
+    }),
+  );
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /continuó tras fallback/);
+  assert.equal(summaryCalls, 1);
+  assert.ok(summaryResponse, 'debe llegar al upstream el request final tras el fallback');
 });

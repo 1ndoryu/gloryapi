@@ -1,3 +1,5 @@
+const { readResponseTextLimited } = require('./response-body');
+
 function createResponseHandlers({
   config,
   rand,
@@ -16,6 +18,7 @@ function createResponseHandlers({
   rememberReasoning,
 }) {
   const MODEL = config.upstream.model;
+  const UPSTREAM_MAX_RESPONSE_BYTES = config.upstream.maxResponseBytes;
   const NUDGE_RETRIES = config.recovery.nudgeRetries;
   const { sseEvent, assistantMessageFrom, assistantText, assistantToolCalls, hasVisibleAssistantAction,
     responseItemsForToolCalls, responseUsageFromChatUsage, emitResponseCompleted, createReasoningForwarder } = responseHelpers;
@@ -75,7 +78,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
       status: 200,
       internalWebLoop: true,
       routedVia: resolved.json.__routedVia || null,
-      contextReal: realTokens(chat.messages || []),
+      contextReal: realTokens(chat),
       body: chat,
     });
     sseEvent(res, 'response.failed', {
@@ -130,7 +133,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
   }
 
   const usage = resolved.aggregateUsage;
-  calibrate(totalTokens(resolved.working.messages || []), resolved.lastPromptTokens);
+  calibrate(totalTokens(resolved.working), resolved.lastPromptTokens);
   emitResponseCompleted(
     res,
     responseId,
@@ -192,7 +195,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   if (!upstreamRes.ok) {
     let errText = '';
     try {
-      errText = redactText((await upstreamRes.text()).slice(0, 1000));
+      errText = redactText((await readResponseTextLimited(upstreamRes, UPSTREAM_MAX_RESPONSE_BYTES, 'upstream error')).slice(0, 1000));
     } catch {}
     logRequest({
       ts: new Date().toISOString(),
@@ -221,7 +224,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     // Non-streaming upstream response (shouldn't happen; we always request stream)
     let raw = '';
     try {
-      raw = redactText((await upstreamRes.text()).slice(0, 500));
+      raw = redactText((await readResponseTextLimited(upstreamRes, UPSTREAM_MAX_RESPONSE_BYTES, 'upstream response')).slice(0, 500));
     } catch {}
     sseEvent(res, 'response.failed', {
       type: 'response.failed',
@@ -408,7 +411,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
       requestId: chat.__gloryRequestId,
       status: 200,
       routedVia,
-      contextReal: realTokens(chat.messages || []),
+      contextReal: realTokens(chat),
       forwardedReasoning,
       body: chat,
     });
@@ -536,7 +539,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
 
   // Feed the real prompt-token count back into the compaction calibration so
   // that "context limit" decisions use real tokens, not the chars/4 heuristic.
-  calibrate(totalTokens(chat.messages || []), usage ? usage.prompt_tokens || 0 : 0);
+  calibrate(totalTokens(chat), usage ? usage.prompt_tokens || 0 : 0);
   emitResponseCompleted(
     res,
     responseId,
@@ -572,7 +575,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         total_tokens: resolved.aggregateUsage.total_tokens,
         completion_tokens_details: { reasoning_tokens: resolved.aggregateUsage.reasoning_tokens },
       };
-      calibrate(totalTokens(resolved.working.messages || []), resolved.lastPromptTokens);
+      calibrate(totalTokens(resolved.working), resolved.lastPromptTokens);
     } else {
       json = await fetchWithTimeoutRecovery(chat, upstreamAuthHeader());
       responseUsage = json.usage || null;
@@ -677,7 +680,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       requestId: chat.__gloryRequestId,
       status: 502,
       routedVia: json.__routedVia || null,
-      contextReal: realTokens(chat.messages || []),
+      contextReal: realTokens(chat),
       body: chat,
     });
     res.writeHead(502, { 'Content-Type': 'application/json' });

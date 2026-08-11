@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const crypto = require('node:crypto');
+const { readResponseTextLimited } = require('./response-body');
 
 function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFailure, log }) {
   const { vision, limits } = config;
@@ -105,14 +106,12 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFai
           body: JSON.stringify(body),
           signal: controller.signal,
         });
-        clearTimeout(timer);
+        const raw = await readResponseTextLimited(response, vision.maxResponseBytes, 'vision response');
         if (!response.ok) {
-          let bytes = 0;
-          try { bytes = (await response.arrayBuffer()).byteLength; } catch {}
-          lastFailure = { kind: 'http', status: response.status, bytes };
+          lastFailure = { kind: 'http', status: response.status, bytes: Buffer.byteLength(raw, 'utf8') };
           continue;
         }
-        const json = await response.json();
+        const json = JSON.parse(raw);
         const message = json.choices && json.choices[0] && json.choices[0].message;
         let text = (message && message.content) || '';
         if (!String(text).trim() && message && message.reasoning_content) text = message.reasoning_content;
@@ -129,6 +128,7 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFai
         return text;
       } catch (error) {
         lastFailure = { kind: error && error.name === 'AbortError' ? 'timeout' : 'transport', status: 'none', bytes: 0 };
+      } finally {
         if (timer) clearTimeout(timer);
       }
     }

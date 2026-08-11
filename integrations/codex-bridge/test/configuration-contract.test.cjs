@@ -35,13 +35,14 @@ test('generic bridge aliases configure the upstream without provider-specific na
   assert.equal(output.contract.actual, 'chat-completions-v2');
 });
 
-test('context compaction uses the configured completions path and loopback guard', () => {
+test('context compaction delegates summaries to the bounded upstream transport', () => {
   const env = {
     ...process.env,
     BRIDGE_COMPACTION_DISABLED: '0',
     CONTEXT_LIMIT_TOKENS: '1000',
     COMPACT_KEEP_TOKENS: '100',
     COMPACT_MAX_TOKENS: '256',
+    BRIDGE_COMPACTION_MODEL: 'summary-model',
     BRIDGE_UPSTREAM_BASE_URL: 'http://127.0.0.1:9999/v1',
     BRIDGE_UPSTREAM_COMPLETIONS_PATH: '/responses/chat',
     BRIDGE_UPSTREAM_TIMEOUT_MS: '1000',
@@ -49,10 +50,8 @@ test('context compaction uses the configured completions path and loopback guard
   const script = [
     "const { config } = require('./bridge/config');",
     "const { createContextAdapter } = require('./bridge/context-adapter');",
-    "const { assertSafeLoopbackUpstream } = require('./bridge/endpoint-security');",
     'const calls = [];',
-    "global.fetch = async (url, options) => { calls.push({ url, redirect: options.redirect, hasSignal: Boolean(options.signal) }); return { ok: true, json: async () => ({ choices: [{ message: { content: 'RESUMEN DE LA CONVERSACIÓN: ' + 'detalle fiel. '.repeat(30) } }] }) }; };",
-    "const adapter = createContextAdapter({ config, log: () => {}, logRequest: () => {}, formatRemoteFailure: () => {}, responseByteLength: () => 0, normalizeReasoningText: (value) => value, visibleReasoning: (value) => value, fallbackReasoning: '', assertSafeLoopbackUpstream, fetchUpstreamCompletion: async () => null });",
+    "const adapter = createContextAdapter({ config, log: () => {}, logRequest: () => {}, formatRemoteFailure: () => {}, normalizeReasoningText: (value) => value, visibleReasoning: (value) => value, fallbackReasoning: '', fetchUpstreamCompletion: async (chat, authorization, timeoutMs) => { calls.push({ chat, authorization, timeoutMs }); return { choices: [{ message: { content: 'RESUMEN DE LA CONVERSACIÓN: ' + 'detalle fiel. '.repeat(30) } }] }; } });",
     "const messages = Array.from({ length: 20 }, (_, index) => ({ role: index % 2 ? 'assistant' : 'user', content: 'x'.repeat(2000) }));",
     "adapter.compactContext({ messages }, 'Token test').then(() => process.stdout.write(JSON.stringify(calls)));",
   ].join('\n');
@@ -60,9 +59,35 @@ test('context compaction uses the configured completions path and loopback guard
   assert.equal(result.status, 0, result.stderr);
   const calls = JSON.parse(result.stdout);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'http://127.0.0.1:9999/v1/responses/chat');
-  assert.equal(calls[0].redirect, 'error');
-  assert.equal(calls[0].hasSignal, true);
+  assert.equal(calls[0].chat.model, 'summary-model');
+  assert.equal(calls[0].chat.stream, false);
+  assert.equal(calls[0].chat.max_tokens, 256);
+  assert.equal(calls[0].authorization, 'Token test');
+  assert.equal(calls[0].timeoutMs, 1000);
+});
+
+test('context budget includes serialized tool definitions', () => {
+  const env = {
+    ...process.env,
+    BRIDGE_COMPACTION_DISABLED: '0',
+    CALIB_RATIO: '1',
+    CONTEXT_LIMIT_TOKENS: '1000',
+    COMPACT_KEEP_TOKENS: '100',
+    COMPACT_MAX_TOKENS: '256',
+  };
+  const script = [
+    "const { config } = require('./bridge/config');",
+    "const { createContextAdapter } = require('./bridge/context-adapter');",
+    "let summaryCalls = 0;",
+    "const adapter = createContextAdapter({ config, log: () => {}, logRequest: () => {}, formatRemoteFailure: () => {}, normalizeReasoningText: (value) => value, visibleReasoning: (value) => value, fallbackReasoning: '', fetchUpstreamCompletion: async () => { summaryCalls += 1; return { choices: [{ message: { content: 'RESUMEN DE LA CONVERSACIÓN: ' + 'detalle fiel. '.repeat(30) } }] }; } });",
+    "const chat = { messages: [{ role: 'user', content: 'historial antiguo '.repeat(80) }, { role: 'user', content: 'último turno' }], tools: [{ type: 'function', function: { name: 'plugin_tool', description: 'x'.repeat(8000), parameters: { type: 'object', properties: {} } } }] };",
+    "adapter.compactContext(chat, 'Token test').then(() => process.stdout.write(JSON.stringify({ summaryCalls, messages: chat.messages.length, tools: chat.tools.length })));",
+  ].join('\n');
+  const result = spawnSync(process.execPath, ['-e', script], { cwd: root, env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.summaryCalls, 1);
+  assert.equal(output.tools, 1);
 });
 
 test('bridge host configuration fails closed outside loopback', () => {

@@ -84,11 +84,15 @@ La auditoría mantiene la decisión y fija dos límites adicionales:
 2. El transporte streaming debe mantener un timeout total y uno idle después de
    recibir headers. Un upstream que deja el body abierto no puede convertir el turno
    en una espera indefinida; se emite `response.failed` y nunca `response.completed`.
+3. La lectura de cuerpos no puede crear un camino alternativo sin límites: resumen de
+   compactación, visión y búsqueda reutilizan el lector bounded; el presupuesto de
+   contexto incluye las definiciones serializadas de herramientas y el modelo de resumen
+   es configurable.
 
 La compatibilidad específica del consumidor se separa en `tool-profile.js`:
 `codex-desktop` habilita los aliases de MCP/automation/colaboración necesarios para
 builds con discovery diferido; `generic` solo adapta las herramientas declaradas por
-el cliente. La evidencia local actual es 60/60 tests dirigidos, 270/270 tests del
+el cliente. La evidencia local actual es 68/68 tests dirigidos; la evidencia histórica del servidor es 270/270 tests del
 servidor y `npm run canary:codex` PASS con cobertura determinista directa de los tres
 proveedores, fallback y una ejecución real de `shell_command` desde Codex CLI en un
 `CODEX_HOME` temporal. Esto no

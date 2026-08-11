@@ -11,7 +11,7 @@ responsabilidad para poder probarla y sustituir el proveedor sin editar el servi
 
 - `config.js`: configuración normalizada desde variables de entorno, límites, timeouts, contratos y defaults.
 - `request-translator.js`: Responses → Chat Completions, herramientas, namespaces y mensajes históricos.
-- `context-adapter.js`: límites de contexto, compactación de seguridad, calibración y recuperaciones de cierre.
+- `context-adapter.js`: límites de contexto (incluidos schemas de tools), compactación de seguridad, calibración, modelo de resumen configurable y recuperaciones de cierre.
 - `responses-adapter.js`: serialización Chat Completions → Responses/SSE y routing de tool calls.
 - `upstream-adapter.js`: transporte al proveedor, timeouts total/idle de streaming, recuperación de respuestas vacías y web loop.
 - `response-handlers.js`: paths streaming y non-streaming, con la misma política de recuperación.
@@ -79,11 +79,16 @@ sin commit por indicación del usuario.
   disconnected before completion"). Esto evita cortar la conexión cuando un round
   con contexto grande (100k+ tokens, prefix cache 0) excede el timeout base aunque
   el modelo esté trabajando.
+- El resumen de compactación reutiliza el transporte upstream bounded: conserva timeout
+  durante el body, límite de bytes, `request-id` y directiva canary; `BRIDGE_COMPACTION_MODEL`
+  permite separarlo del modelo principal.
 - El path streaming tiene un deadline total separado y un deadline idle por frame. Si
   el upstream entrega headers pero no vuelve a producir SSE, el bridge aborta el fetch
   y emite `response.failed`; no deja el turno esperando indefinidamente. El idle y el
   total se configuran con `BRIDGE_STREAM_IDLE_TIMEOUT_MS` y
   `BRIDGE_STREAM_TOTAL_TIMEOUT_MS`.
+- Visión y búsqueda web mantienen sus deadlines durante la lectura de respuestas y
+  aplican límites de body (`VISION_MAX_RESPONSE_BYTES` y `BRIDGE_SEARCH_MAX_BYTES`).
 - Una respuesta del proveedor con `tool_calls` sin texto es una continuación válida:
   el bridge emite los `function_call` y `response.completed` lleva `end_turn=false`.
   El `FALLBACK_REASONING` usado solo para satisfacer DeepSeek en mensajes históricos

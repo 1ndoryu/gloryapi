@@ -9,13 +9,15 @@
 
 El bridge es un sidecar local que traduce el protocolo Responses del consumidor ChatGPT/Codex a Chat Completions de GloryAPI. No es un router de proveedores. GloryAPI conserva las credenciales, las capacidades declaradas, health, límites, sticky sessions y fallback.
 
-La auditoría encontró y corrigió cuatro clases de riesgo:
+La auditoría encontró y corrigió siete clases de riesgo:
 
 1. El streaming del bridge hacía `fetch` sin deadline mientras leía el body SSE. Un upstream que enviara headers y luego quedara abierto podía dejar el turno esperando indefinidamente. Ahora hay timeout total e idle, ambos configurables, con `response.failed` explícito y sin `response.completed` falso.
 2. Los shims de herramientas específicas de Codex Desktop estaban embebidos en la traducción genérica. Ahora se seleccionan mediante `BRIDGE_TOOL_PROFILE`: `codex-desktop` conserva compatibilidad con herramientas diferidas; `generic` solo reenvía lo que el cliente anuncia.
 3. La cobertura de proveedores era indirecta: solo había evidencia de fallback Andoryyu → Zen. El canary aislado ahora fuerza, mediante una directiva autenticada solo en modo canary, una llamada Responses completa a cada proveedor y conserva además el caso de fallback.
-4. Dos fallos históricos del baseline impedían una lectura honesta: el preflight no emitía JSON si la bóveda DPAPI no tenía clave y el fixture de visión no coincidía con el endpoint configurado. Ambos quedaron corregidos; además, la suite cubre la preservación de la directiva canary durante nudge/recovery y termina en 60/60.
+4. Dos fallos históricos del baseline impedían una lectura honesta: el preflight no emitía JSON si la bóveda DPAPI no tenía clave y el fixture de visión no coincidía con el endpoint configurado. Ambos quedaron corregidos; además, la suite cubre la preservación de la directiva canary durante nudge/recovery.
 5. El primer diseño del canary permitía que `auto` o un modelo explícito sin override cayeran al routing global. Ahora una directiva autenticada exige un modelo con cadena declarada y restringe la selección a un único proveedor de esa cadena; los casos inválidos fallan cerrado.
+6. La compactación usaba un transporte propio sin límite de body y no contaba las definiciones de herramientas en el presupuesto. Ahora delega en el transporte bounded, propaga timeout/canary/request-id, cuenta schemas de plugins/MCP y permite elegir `BRIDGE_COMPACTION_MODEL`.
+7. Visión y búsqueda web podían detener su deadline al recibir headers. Un lector de cuerpos compartido aplica límite de bytes y mantiene el timeout durante la lectura; los casos de body abierto tienen regresiones HTTP locales.
 
 ## Contrato externo que se está adaptando
 
@@ -80,6 +82,7 @@ Reglas de frontera:
 - **Web:** `web_search` se resuelve internamente como `assistant.tool_calls` → búsqueda bounded → `role=tool` → nueva llamada al modelo. No se descarga una URL arbitraria proporcionada por el modelo y no se fabrica `function_call_output` en `response.output`.
 - **Visión:** los `input_image` se validan por MIME y magic bytes y se adaptan a descripción textual. Es una adaptación lossless respecto a seguridad, pero los pixels no llegan al modelo textual; por eso la capability sigue marcada como `adapted`, no como multimodal nativa.
 - **Compactación:** la continuidad nominal queda en el cliente; el bridge mantiene una red de seguridad configurable para contexto sobredimensionado y una recuperación acotada para respuestas vacías. No se presenta esa red como sustituto de la compactación nativa.
+- El presupuesto de contexto incluye `messages` y schemas serializados de `tools`; el resumen pasa por el mismo transporte bounded que las respuestas normales y usa `BRIDGE_COMPACTION_MODEL` cuando se configura.
 
 ## Configuración canónica
 
@@ -88,16 +91,17 @@ Variables principales (todas opcionales y con límites):
 - Upstream: `BRIDGE_UPSTREAM_BASE_URL`, `BRIDGE_UPSTREAM_COMPLETIONS_PATH`, `BRIDGE_UPSTREAM_AUTH_SCHEME`, `BRIDGE_MODEL`, `BRIDGE_UPSTREAM_TIMEOUT_MS`, `BRIDGE_UPSTREAM_TIMEOUT_RECOVERY_MS`.
 - Streaming: `BRIDGE_STREAM_IDLE_TIMEOUT_MS` (por defecto 180 s) y `BRIDGE_STREAM_TOTAL_TIMEOUT_MS` (por defecto el timeout upstream de 6 min).
 - Cliente/herramientas: `BRIDGE_TOOL_PROFILE=codex-desktop|generic`.
-- Límites: `BRIDGE_MAX_BODY_BYTES`, `BRIDGE_MAX_ACTIVE_REQUESTS`, `BRIDGE_MAX_SYSTEM_CHARS`, `BRIDGE_UPSTREAM_MAX_BYTES`.
+- Límites: `BRIDGE_MAX_BODY_BYTES`, `BRIDGE_MAX_ACTIVE_REQUESTS`, `BRIDGE_MAX_SYSTEM_CHARS`, `BRIDGE_UPSTREAM_MAX_BYTES`, `VISION_MAX_RESPONSE_BYTES`.
+- Compactación: `BRIDGE_COMPACTION_MODEL` selecciona el modelo de resumen sin cambiar el modelo principal.
 - Canario aislado: `GLORYAPI_CANARY_MODE=1`, `GLORYAPI_CANARY_ROUTING_TOKEN`, `BRIDGE_CANARY_MODE=1`, `BRIDGE_CANARY_ROUTING_TOKEN` y el header interno de proveedor generado por el harness. Estos valores no deben aparecer en `config.toml` ni en un despliegue normal.
 
 El bridge escucha loopback por defecto, usa `BRIDGE_CLIENT_TOKEN` para el cliente y una credencial separada para GloryAPI. `C:\Users\Owner\.codex\config.toml` no forma parte de la configuración del bridge y no debe mutarse para esta auditoría.
 
 ## Evidencia ejecutada
 
-- `node --test integrations/codex-bridge/test/*.test.cjs`: **60/60 PASS**. Incluye anti-falso-complete, reasoning-only, tool-only, web loop, compactación de seguridad, UTF-8 fragmentado, truncamiento, cancelación, preflight, perfiles de herramientas, redacción de visión, routing canary preservado en reintentos y stream que queda abierto después de headers.
+- `node --test integrations/codex-bridge/test/*.test.cjs`: **68/68 PASS**. Incluye anti-falso-complete, reasoning-only, tool-only, web loop, compactación de seguridad con schemas de herramientas, resumen configurable, UTF-8 fragmentado, truncamiento, cancelación, preflight, perfiles de herramientas, timers de visión limpiados en éxito/fallo, redacción de visión, límites de body, routing canary preservado en reintentos y streams que quedan abiertos después de headers.
 - `npm run build:server`: **PASS**.
-- `npm test -w server`: **270/270 PASS** en 47 archivos, incluidos los tres casos de routing canary fail-closed.
+- `npm test -w server`: la evidencia histórica de esta rama es **270/270 PASS** en 47 archivos, incluidos los tres casos de routing canary fail-closed. En la verificación actual no llegó a iniciar por un error de resolución/esbuild del entorno (`Access is denied` al resolver `../../../../..` y no encuentra `server/vitest.config.ts`); se repitió sin modificar la configuración.
 - `npm run canary:codex`: **PASS**. Resultado: `readiness`, `lifecycle`, `capabilities`, texto, loop web interno, ejecución real de `shell_command` desde Codex CLI en `CODEX_HOME` temporal (`codexToolExecution`), fallback, foreign toolset sin cooldown, stream, aislamiento y `providerCoverage` directo para `andoryyu`, `opencode-zen` y `opencode-go`.
 - Los scripts E2E con prefijo `_e2e_` no se incluyen en el baseline automático porque requieren un bridge ya activo en `:4100`; el archivo ajeno `_e2e_apply_patch.cjs` se preserva sin modificar.
 - El bridge queda detenido después de las pruebas. ChatGPT normal permanece activo y la configuración del usuario no se cambia.

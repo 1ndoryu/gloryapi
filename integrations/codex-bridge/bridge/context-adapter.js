@@ -3,17 +3,13 @@ function createContextAdapter({
   log,
   logRequest,
   formatRemoteFailure,
-  responseByteLength,
   normalizeReasoningText,
   visibleReasoning,
   fallbackReasoning,
-  assertSafeLoopbackUpstream,
   fetchUpstreamCompletion,
 }) {
   const { context, limits, upstream, recovery, calibration } = config;
-  const MODEL = upstream.model;
-  const UPSTREAM = upstream.baseUrl;
-  const COMPLETIONS_PATH = upstream.completionsPath;
+  const SUMMARY_MODEL = context.summaryModel;
   const UPSTREAM_TIMEOUT_MS = upstream.timeoutMs;
   const COMPACTION_DISABLED = context.disabled;
   const CONTEXT_LIMIT = context.limitTokens;
@@ -29,15 +25,6 @@ function createContextAdapter({
   const CONFIRM_DIRECTIVE = recovery.confirmDirective;
   const NUDGE_RETRIES = recovery.nudgeRetries;
   const NUDGE_TIMEOUT_MS = recovery.nudgeTimeoutMs;
-  const canaryRoutingHeaders = config.canary.enabled && config.canary.routingToken
-    ? (provider) => provider
-      ? {
-          'X-Glory-Canary-Provider': provider,
-          'X-Glory-Canary-Token': config.canary.routingToken,
-        }
-      : {}
-    : () => ({});
-
   function preserveCanaryProvider(source, target) {
     if (typeof source.__canaryProvider === 'string') {
       Object.defineProperty(target, '__canaryProvider', {
@@ -142,7 +129,16 @@ function boundSystemContent(content, maxChars = MAX_SYSTEM_CHARS) {
 }
 
 function totalTokens(messages) {
-  return messages.reduce((s, m) => s + estimateTokens(m), 0);
+  const list = Array.isArray(messages) ? messages : messages && Array.isArray(messages.messages) ? messages.messages : [];
+  let total = list.reduce((s, m) => s + estimateTokens(m), 0);
+  if (!Array.isArray(messages) && messages && Array.isArray(messages.tools) && messages.tools.length) {
+    // Tool schemas are part of the provider prompt even though they do not
+    // appear in `messages`. Omitting them made plugin/MCP-heavy requests look
+    // small enough to skip the safety compaction while exceeding the model's
+    // real context window.
+    total += Math.ceil(JSON.stringify(messages.tools).length / 4) + 4;
+  }
+  return total;
 }
 
 // Multi-agent v2: `spawn_agent` with an explicit `agent_type` is REJECTED by
@@ -385,7 +381,7 @@ function buildTranscript(msgs) {
   return lines.join('\n');
 }
 
-async function summarizeHistory(oldMessages, auth, canaryProvider) {
+async function summarizeHistory(oldMessages, auth, canaryProvider, requestId) {
   // Bound the summarization input so it never exceeds the context window
   // (reserving room for the COMPACT_MAX_TOKENS summary output).
   const budget = Math.min(CONTEXT_LIMIT, CONTEXT_LIMIT - COMPACT_MAX_TOKENS);
@@ -409,38 +405,25 @@ async function summarizeHistory(oldMessages, auth, canaryProvider) {
       { role: 'user', content: userMsg },
     ];
     if (extraInstruction) messages.push({ role: 'user', content: extraInstruction });
-    const body = {
-      model: MODEL,
+    const summaryChat = {
+      model: SUMMARY_MODEL,
       stream: false,
       messages,
       max_tokens: COMPACT_MAX_TOKENS,
     };
-    const endpoint = assertSafeLoopbackUpstream(
-      `${UPSTREAM.replace(/\/$/, '')}${COMPLETIONS_PATH}`,
-    ).toString();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
-    let res;
-    try {
-      res = await fetch(endpoint, {
-        redirect: 'error',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: auth,
-          ...canaryRoutingHeaders(canaryProvider),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
+    if (typeof canaryProvider === 'string') {
+      Object.defineProperty(summaryChat, '__canaryProvider', {
+        value: canaryProvider,
+        enumerable: false,
       });
-    } finally {
-      clearTimeout(timeout);
     }
-    if (!res.ok) {
-      log(formatRemoteFailure('summarize', { kind: 'http', status: res.status, bytes: responseByteLength(res) }));
-      return null;
+    if (typeof requestId === 'string' && requestId) {
+      Object.defineProperty(summaryChat, '__gloryRequestId', {
+        value: requestId,
+        enumerable: false,
+      });
     }
-    const json = await res.json();
+    const json = await fetchUpstreamCompletion(summaryChat, auth, UPSTREAM_TIMEOUT_MS);
     const text = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
     return text && String(text).trim() ? String(text).trim() : null;
   };
@@ -470,8 +453,8 @@ async function summarizeHistory(oldMessages, auth, canaryProvider) {
  */
 async function compactContext(chat, auth, options = {}) {
   const messages = chat.messages || [];
-  const total = totalTokens(messages);
-  const totalReal = realTokens(messages);
+  const total = totalTokens(chat);
+  const totalReal = realTokens(chat);
   const emergency = options.emergency === true;
   const nonSystemCount = messages.filter((message) => message && message.role !== 'system').length;
   const emergencyCompaction = emergency && nonSystemCount > 8 && total > 20000;
@@ -532,7 +515,7 @@ async function compactContext(chat, auth, options = {}) {
 
   let summaryText = null;
   if (old.length) {
-    summaryText = await summarizeHistory(old, auth, chat.__canaryProvider);
+    summaryText = await summarizeHistory(old, auth, chat.__canaryProvider, chat.__gloryRequestId);
   }
   if (summaryText) {
     log(
@@ -548,7 +531,7 @@ async function compactContext(chat, auth, options = {}) {
   // limit, drop the oldest recent messages that are NOT part of a tool pair
   // until it fits (rare; keeps the request from failing upstream).
   let guard = 0;
-  while (realTokens(compacted) > CONTEXT_LIMIT && recent.length > 1 && guard++ < 200) {
+  while (realTokens({ messages: compacted, tools: chat.tools }) > CONTEXT_LIMIT && recent.length > 1 && guard++ < 200) {
     const first = recent[0];
     if (first.role === 'assistant' && Array.isArray(first.tool_calls) && first.tool_calls.length) {
       // Skip a tool_call head: its tool responses follow and must stay.
@@ -561,7 +544,7 @@ async function compactContext(chat, auth, options = {}) {
   }
 
   chat.messages = compacted;
-  log(`compacted ${old.length} old msgs; ${total} -> ${totalTokens(chat.messages)} tokens`);
+  log(`compacted ${old.length} old msgs; ${total} -> ${totalTokens(chat)} tokens`);
   return chat;
 }
 

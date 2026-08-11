@@ -134,6 +134,7 @@ const config = Object.freeze({
     apiKey: env.VISION_API_KEY || '',
     maxTokens: boundedEnvInt('VISION_MAX_TOKENS', 4096, 1, 16384),
     timeoutMs: boundedEnvInt('VISION_TIMEOUT_MS', 180000, 100, 300000),
+    maxResponseBytes: boundedEnvInt('VISION_MAX_RESPONSE_BYTES', 4 * 1024 * 1024, 1024, 32 * 1024 * 1024),
     disabled: env.VISION_DISABLE === '1',
     cacheFile: env.BRIDGE_VISION_CACHE_FILE || path.join(runtimeRoot, 'bridge.vision.json'),
     cacheMax: boundedEnvInt('BRIDGE_VISION_CACHE_MAX', 128, 1, 2048),

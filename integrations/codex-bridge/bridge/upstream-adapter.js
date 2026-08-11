@@ -1,3 +1,5 @@
+const { readResponseTextLimited, readResponseJsonLimited } = require('./response-body');
+
 function createUpstreamAdapter({
   config,
   log,
@@ -91,43 +93,28 @@ function htmlToText(html) {
     .trim();
 }
 
-function fetchWithTimeout(url, opts, ms) {
+async function fetchWithTimeout(url, opts, ms, consume) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), ms || SEARCH_TIMEOUT_MS);
-  return fetch(url, Object.assign({}, opts, { signal: ctl.signal })).finally(() => clearTimeout(t));
-}
-
-async function readResponseTextLimited(response, maxBytes = SEARCH_MAX_RESPONSE_BYTES) {
-  if (!response.body || typeof response.body.getReader !== 'function') {
-    const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new Error(`search response exceeds ${maxBytes} bytes`);
-    return text;
+  try {
+    const response = await fetch(url, Object.assign({}, opts, { signal: ctl.signal }));
+    return consume ? await consume(response) : response;
+  } finally {
+    clearTimeout(t);
   }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel();
-      throw new Error(`search response exceeds ${maxBytes} bytes`);
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-async function readResponseJsonLimited(response) {
-  return JSON.parse(await readResponseTextLimited(response));
 }
 
 async function searchDdgInstant(query, timeoutMs) {
   const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-  const r = await fetchWithTimeout(url, { headers: { 'user-agent': 'Mozilla/5.0 (bridge web search)' } }, timeoutMs);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data = await readResponseJsonLimited(r);
+  const data = await fetchWithTimeout(
+    url,
+    { headers: { 'user-agent': 'Mozilla/5.0 (bridge web search)' } },
+    timeoutMs,
+    async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return readResponseJsonLimited(r, SEARCH_MAX_RESPONSE_BYTES, 'search response');
+    },
+  );
   const results = [];
   if (data.AbstractText) {
     results.push({ title: data.Heading || 'DuckDuckGo Instant Answer', url: data.AbstractURL || '', snippet: data.AbstractText });
@@ -174,16 +161,28 @@ function parseDdgHtml(html) {
 
 async function searchDdgHtml(query, timeoutMs) {
   const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const r = await fetchWithTimeout(url, { headers: { 'user-agent': 'Mozilla/5.0 (bridge web search)' } }, timeoutMs);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return parseDdgHtml(await readResponseTextLimited(r));
+  return fetchWithTimeout(
+    url,
+    { headers: { 'user-agent': 'Mozilla/5.0 (bridge web search)' } },
+    timeoutMs,
+    async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return parseDdgHtml(await readResponseTextLimited(r, SEARCH_MAX_RESPONSE_BYTES, 'search response'));
+    },
+  );
 }
 
 async function searchWikipedia(query, timeoutMs) {
   const url = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=${SEARCH_MAX_RESULTS}&srprop=snippet`;
-  const r = await fetchWithTimeout(url, { headers: { 'user-agent': 'Mozilla/5.0 (bridge web search)' } }, timeoutMs);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data = await readResponseJsonLimited(r);
+  const data = await fetchWithTimeout(
+    url,
+    { headers: { 'user-agent': 'Mozilla/5.0 (bridge web search)' } },
+    timeoutMs,
+    async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return readResponseJsonLimited(r, SEARCH_MAX_RESPONSE_BYTES, 'search response');
+    },
+  );
   const hits = (data.query && data.query.search) || [];
   return hits.map((h) => ({
     title: h.title,

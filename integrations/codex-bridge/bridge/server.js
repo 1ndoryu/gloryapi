@@ -136,11 +136,9 @@ const contextAdapter = createContextAdapter({
   log,
   logRequest,
   formatRemoteFailure,
-  responseByteLength,
   normalizeReasoningText,
   visibleReasoning,
   fallbackReasoning: config.reasoning.fallback,
-  assertSafeLoopbackUpstream,
   fetchUpstreamCompletion: (...args) => upstreamAdapter.fetchUpstreamCompletion(...args),
 });
 const {
