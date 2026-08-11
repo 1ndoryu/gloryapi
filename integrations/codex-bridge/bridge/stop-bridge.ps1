@@ -3,18 +3,24 @@
 #   -WaitReleaseSeconds -> espera a que el puerto quede libre tras el stop (0 desactiva)
 param(
     [switch]$Force,
-    [int]$WaitReleaseSeconds = 10
+    [int]$WaitReleaseSeconds = 10,
+    [ValidateRange(1, 65535)]
+    [int]$Port = 4100,
+    [string]$RuntimeDataDir = ''
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
 $BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
     (Resolve-Path -LiteralPath ([string](@($bridgeLink.Target) | Select-Object -First 1))).Path
 } else { $PSScriptRoot }
-$RuntimeDir = (Resolve-Path (Join-Path $BridgeDir '..\..\..\server\data')).Path
-$RuntimeDir = Join-Path $RuntimeDir 'bridge-runtime'
+$RuntimeDir = if ([string]::IsNullOrWhiteSpace($RuntimeDataDir)) {
+    $serverData = (Resolve-Path (Join-Path $BridgeDir '..\..\..\server\data')).Path
+    Join-Path $serverData 'bridge-runtime'
+} else {
+    [System.IO.Path]::GetFullPath($RuntimeDataDir)
+}
 $PidFile = Join-Path $RuntimeDir 'bridge.pid'
 $ServerFile = [System.IO.Path]::GetFullPath((Join-Path $BridgeDir 'server.js'))
-$Port = 4100
 
 function Test-BridgeProcess([int]$ProcessIdValue) {
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessIdValue" -ErrorAction SilentlyContinue
@@ -26,6 +32,11 @@ function Test-BridgeProcess([int]$ProcessIdValue) {
 
 function Test-PortListening {
     return $null -ne (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+}
+
+function Test-PortOwnedBy([int]$ProcessIdValue) {
+    $connections = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    return @($connections | Where-Object { [int]$_.OwningProcess -eq $ProcessIdValue }).Count -gt 0
 }
 
 function Wait-PortRelease([int]$Seconds) {
@@ -49,6 +60,9 @@ if (Test-Path -LiteralPath $PidFile) {
             if (-not $Force) {
                 throw "El PID $processIdValue no pertenece a $ServerFile; se rechaza detenerlo."
             }
+            if (-not (Test-PortOwnedBy $processIdValue)) {
+                throw "El PID $processIdValue no está verificado como listener del puerto $Port; se rechaza detenerlo."
+            }
             Write-Warning "El PID $processIdValue no pertenece a $ServerFile; se detiene por -Force."
         }
         Stop-Process -Id $processIdValue -Force
@@ -65,7 +79,7 @@ if ($conn) {
     $foreignProcessIds = @($processIds | Where-Object { -not (Test-BridgeProcess ([int]$_)) })
     if ($foreignProcessIds.Count -gt 0) {
         if (-not $Force) {
-            throw 'El puerto 4100 está ocupado total o parcialmente por un proceso ajeno; no se detuvo nada.'
+            throw "El puerto $Port está ocupado total o parcialmente por un proceso ajeno; no se detuvo nada."
         }
         Write-Warning "El puerto $Port está ocupado por procesos ajenos (PID $($foreignProcessIds -join ', ')); se detienen por -Force."
     }

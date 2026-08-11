@@ -323,9 +323,17 @@ test('the stop script verifies process identity before terminating', () => {
   assert.match(start, /Resolve-Path/);
   assert.match(start, /BRIDGE_RUNTIME_DIR/);
   assert.match(start, /bridge-runtime/);
+  assert.match(start, /\[string\]\$RuntimeDataDir/);
+  assert.match(start, /\[int\]\$Port = 4100/);
+  assert.match(start, /GetFullPath\(\$RuntimeDataDir\)/);
   assert.match(stop, /Get-CimInstance Win32_Process/);
   assert.match(stop, /bridgeLink/);
   assert.match(stop, /bridge-runtime/);
+  assert.match(stop, /\[string\]\$RuntimeDataDir/);
+  assert.match(stop, /\[int\]\$Port = 4100/);
+  assert.match(stop, /function Test-PortOwnedBy/);
+  assert.match(stop, /no está verificado como listener del puerto \$Port/);
+  assert.doesNotMatch(stop, /El puerto 4100 está ocupado/);
   assert.match(stop, /IndexOf\(\$ServerFile/);
   assert.match(stop, /se rechaza detenerlo/);
 });
@@ -342,6 +350,9 @@ test('restart delegates to start-bridge -Restart and waits for port release', ()
   assert.match(restart, /server\s*\\?\s*data/);
   assert.match(start, /\[switch\]\$Restart/);
   assert.match(start, /\[switch\]\$Force/);
+  assert.match(restart, /\[string\]\$RuntimeDataDir/);
+  assert.match(restart, /\[int\]\$Port = 4100/);
+  assert.match(restart, /-RuntimeDataDir \$RuntimeDataDir/);
   assert.match(start, /Reinicio solicitado/);
   assert.match(start, /usa -Restart para sustituirlo/);
   assert.match(stop, /\[switch\]\$Force/);

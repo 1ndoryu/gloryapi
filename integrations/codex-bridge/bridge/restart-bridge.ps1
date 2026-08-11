@@ -4,7 +4,10 @@
 #   .\restart-bridge.ps1 -Runtime  -> además reinicia el runtime GloryAPI :3101
 param(
     [switch]$Force,
-    [switch]$Runtime
+    [switch]$Runtime,
+    [ValidateRange(1, 65535)]
+    [int]$Port = 4100,
+    [string]$RuntimeDataDir = ''
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
@@ -70,7 +73,7 @@ if ($Runtime) {
 }
 
 Write-Host 'Reiniciando bridge (stop + start + health)...'
-& (Join-Path $BridgeDir 'start-bridge.ps1') -Restart -Force:$Force
+& (Join-Path $BridgeDir 'start-bridge.ps1') -Restart -Force:$Force -Port $Port -RuntimeDataDir $RuntimeDataDir
 if ($LASTEXITCODE -ne 0) {
     throw "start-bridge.ps1 falló con código $LASTEXITCODE."
 }

@@ -3,20 +3,26 @@
 #   -Force   -> con -Restart, sustituye también un proceso ajeno en :4100
 param(
     [switch]$Restart,
-    [switch]$Force
+    [switch]$Force,
+    [ValidateRange(1, 65535)]
+    [int]$Port = 4100,
+    [string]$RuntimeDataDir = ''
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
 $BridgeDir = if ($bridgeLink.LinkType -eq 'Junction' -and $bridgeLink.Target) {
     (Resolve-Path -LiteralPath ([string](@($bridgeLink.Target) | Select-Object -First 1))).Path
 } else { $PSScriptRoot }
-$RuntimeDir = (Resolve-Path (Join-Path $BridgeDir '..\..\..\server\data')).Path
-$RuntimeDir = Join-Path $RuntimeDir 'bridge-runtime'
+$RuntimeDir = if ([string]::IsNullOrWhiteSpace($RuntimeDataDir)) {
+    $serverData = (Resolve-Path (Join-Path $BridgeDir '..\..\..\server\data')).Path
+    Join-Path $serverData 'bridge-runtime'
+} else {
+    [System.IO.Path]::GetFullPath($RuntimeDataDir)
+}
 New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
 $LogOut = Join-Path $RuntimeDir 'bridge.out.log'
 $LogErr = Join-Path $RuntimeDir 'bridge.err.log'
 $PidFile = Join-Path $RuntimeDir 'bridge.pid'
-$Port = 4100
 $Health = "http://127.0.0.1:$Port/health"
 $StopScript = Join-Path $BridgeDir 'stop-bridge.ps1'
 
@@ -35,7 +41,7 @@ if (Test-ExpectedBridge) {
         exit 0
     }
     Write-Host 'Reinicio solicitado: deteniendo el bridge actual...'
-    & $StopScript -Force:$Force
+    & $StopScript -Force:$Force -Port $Port -RuntimeDataDir $RuntimeDir
     if (Test-ExpectedBridge) {
         throw 'El bridge siguió respondiendo tras el stop; no se inicia uno nuevo sin puerto libre.'
     }
@@ -46,7 +52,7 @@ if ($occupant) {
     $ownerPids = @($occupant | Select-Object -ExpandProperty OwningProcess -Unique)
     if ($Restart) {
         Write-Host "El puerto $Port sigue ocupado (PID $($ownerPids -join ', ')); reintentando el stop..."
-        & $StopScript -Force:$Force
+        & $StopScript -Force:$Force -Port $Port -RuntimeDataDir $RuntimeDir
     }
     else {
         throw "El puerto $Port está ocupado por otro servicio (PID $($ownerPids -join ', ')); usa -Restart para sustituirlo."

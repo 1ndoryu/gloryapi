@@ -169,12 +169,14 @@ libre, lo inicia con el build actual y verifica `/health`:
 .\restart-bridge.ps1            # reinicia solo el bridge
 .\restart-bridge.ps1 -Runtime   # además reinicia el runtime GloryAPI :3101
 .\restart-bridge.ps1 -Force     # sustituye también un proceso ajeno en :4100
+.\restart-bridge.ps1 -RuntimeDataDir "$env:TEMP\gloryapi-bridge-runtime" # runtime/logs fuera de server/data
 ```
 
 El mismo mecanismo está disponible sin el wrapper:
 
 ```powershell
 .\start-bridge.ps1 -Restart     # detiene el bridge actual y lo inicia de nuevo
+.\start-bridge.ps1 -RuntimeDataDir "$env:TEMP\gloryapi-bridge-runtime" -Port 4100
 ```
 
 Detalles de robustez:
@@ -188,6 +190,14 @@ Detalles de robustez:
   con un mensaje que apunta al nuevo conmutador.
 - `restart-bridge.ps1 -Runtime` detiene el runtime solo si el proceso coincide con
   `server/dist/index.js`; un ocupante ajeno en `:3101` exige `-Force`.
+- `start-bridge.ps1`, `stop-bridge.ps1` y `restart-bridge.ps1` aceptan
+  `-RuntimeDataDir` y `-Port`; los defaults siguen siendo
+  `server/data/bridge-runtime` y `4100`. Esto permite ejecutar el bridge en una
+  carpeta temporal o con otra instancia local cuando `server/data` está protegido,
+  sin editar el perfil de ChatGPT ni mover credenciales a archivos.
+- `stop-bridge.ps1 -Force` no convierte un PID stale en permiso para matar un
+  proceso: si CIM no puede verificar la línea de comandos, exige además que el
+  PID figure escuchando en el `-Port` solicitado; de lo contrario falla cerrado.
 
 ## Perfil temporal de canary
 
