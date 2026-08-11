@@ -94,6 +94,23 @@ async function requestJson(url, options) {
   return body;
 }
 
+function summarizeRoutingTrace(trace) {
+  if (!trace || !Array.isArray(trace.attempts)) return null;
+  return {
+    status: trace.status,
+    attempts: trace.attempts.map(attempt => ({
+      platform: attempt.platform,
+      model: attempt.modelId,
+      status: attempt.outcome,
+      classification: attempt.reason,
+      durationMs: attempt.durationMs,
+    })),
+    finalModel: trace.finalModel
+      ? { platform: trace.finalModel.platform, model: trace.finalModel.modelId }
+      : null,
+  };
+}
+
 async function prepareProfile(bridgePort) {
   fs.mkdirSync(codexHome, { recursive: true });
   const result = spawn(powershell, [
@@ -489,6 +506,16 @@ async function main() {
     || fallbackTrace?.attempts?.[0]?.outcome !== 'error') {
     throw new Error(`fallback trace contract failed: ${JSON.stringify(fallbackTrace)}`);
   }
+  const fallbackAttribution = summarizeRoutingTrace(fallbackTrace);
+  if (!fallbackAttribution
+    || fallbackAttribution.attempts[0]?.platform !== 'andoryyu'
+    || fallbackAttribution.attempts[0]?.model !== 'deepseek-v4-flash'
+    || fallbackAttribution.attempts[0]?.status !== 'error'
+    || typeof fallbackAttribution.attempts[0]?.classification !== 'string'
+    || fallbackAttribution.attempts[0].classification.length === 0
+    || fallbackAttribution.finalModel?.platform !== 'opencode-zen') {
+    throw new Error(`sanitized fallback attribution contract failed: ${JSON.stringify(fallbackAttribution)}`);
+  }
 
   await prepareProfile(bridgePort);
   const codexLauncher = resolveCodexLauncher();
@@ -553,6 +580,7 @@ async function main() {
     pluginTooling: true,
     isolated: true,
     providerCoverage,
+    fallbackAttribution,
   }) + '\n');
 }
 
