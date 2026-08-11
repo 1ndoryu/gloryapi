@@ -7,6 +7,7 @@ const { createDeterministicUpstream } = require('../../integrations/codex-bridge
 const { createBoundedCapture } = require('./bounded-output.cjs');
 const { readResponseTextBounded, requestResponsesStream } = require('./http-helpers.cjs');
 const { sanitizePluginConfig } = require('./plugin-config.cjs');
+const { summarizeRoutingTrace } = require('./routing-evidence.cjs');
 
 const root = path.resolve(__dirname, '../..');
 const node = process.execPath;
@@ -92,23 +93,6 @@ async function requestJson(url, options) {
   try { body = JSON.parse(raw); } catch {}
   if (!response.ok) throw new Error(`${options?.method || 'GET'} ${url} returned ${response.status}: ${JSON.stringify(body)}`);
   return body;
-}
-
-function summarizeRoutingTrace(trace) {
-  if (!trace || !Array.isArray(trace.attempts)) return null;
-  return {
-    status: trace.status,
-    attempts: trace.attempts.map(attempt => ({
-      platform: attempt.platform,
-      model: attempt.modelId,
-      status: attempt.outcome,
-      classification: attempt.reason,
-      durationMs: attempt.durationMs,
-    })),
-    finalModel: trace.finalModel
-      ? { platform: trace.finalModel.platform, model: trace.finalModel.modelId }
-      : null,
-  };
 }
 
 async function prepareProfile(bridgePort) {

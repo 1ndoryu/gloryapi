@@ -25,6 +25,7 @@ const endpointSecurity = read('bridge', 'endpoint-security.js');
 const diagnostics = read('bridge', 'diagnostics.js');
 const requestLog = read('bridge', 'request-log.js');
 const canaryRunner = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'run-codex-canary.cjs'), 'utf8');
+const liveCanaryRunner = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'run-live-provider-audit.cjs'), 'utf8');
 const canaryHttp = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'http-helpers.cjs'), 'utf8');
 const pluginConfig = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'plugin-config.cjs'), 'utf8');
   const activationPreflight = read('mode', 'codex-activation-preflight.ps1');
@@ -56,6 +57,17 @@ test('the canonical bridge contains no credential literals', () => {
   assert.match(server, /function clientAuthorized/);
   assert.match(server, /function upstreamAuthHeader/);
   assert.doesNotMatch(server, /Authorization:\s*authHeader\(req\)/);
+});
+
+test('the optional live audit is isolated and metadata-only', () => {
+  assert.match(liveCanaryRunner, /GLORYAPI_LIVE_DB_PATH/);
+  assert.match(liveCanaryRunner, /\.backup\(dbPath\)/);
+  assert.match(liveCanaryRunner, /activeCodexConfigChanged: false/);
+  assert.match(liveCanaryRunner, /fs\.rmSync\(runtimeDir/);
+  assert.match(liveCanaryRunner, /createSafeChildEnv\(process\.env\)/);
+  assert.match(liveCanaryRunner, /env: createSafeChildEnv\(process\.env, \{ GLORYAPI_DB_PATH: dbPath \}\)/);
+  assert.match(liveCanaryRunner, /removeRuntimeDir/);
+  assert.doesNotMatch(liveCanaryRunner, /config\.toml.*Write|Write.*config\.toml/i);
 });
 
 test('the local HTTP boundary is constrained', () => {

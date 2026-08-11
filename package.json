@@ -18,6 +18,7 @@
     "task:check": "node scripts/quality/task-check.mjs",
     "task:check:local": "node scripts/quality/task-check-local.mjs",
     "canary:codex": "node scripts/canary/run-codex-canary.cjs",
+    "canary:codex:live": "node scripts/canary/run-live-provider-audit.cjs",
     "canary:codex:guard": "node scripts/canary/codex-version-guard.cjs",
     "bench:routing": "npm run build:server && node scripts/bench/routing-load.mjs",
     "recover:bundle": "npm run build:server && node server/dist/scripts/recover-bundle.js",

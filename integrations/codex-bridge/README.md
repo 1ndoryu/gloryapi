@@ -217,6 +217,23 @@ usa un upstream local determinista y ahora prueba rutas directas a Andoryyu, Ope
 Zen y OpenCode Go, además del fallback; no cambia la configuración activa ni demuestra
 disponibilidad de las cuentas externas.
 
+Para repetir una auditoría contra las cuentas reales sin activar Desktop, se puede
+proporcionar explícitamente una ruta de base SQLite y ejecutar:
+
+```powershell
+$env:GLORYAPI_LIVE_DB_PATH = 'C:\ruta\externa\gloryapi.db'
+npm run canary:codex:live
+Remove-Item Env:GLORYAPI_LIVE_DB_PATH
+```
+
+El auditor usa `better-sqlite3.backup()` hacia una carpeta temporal, inicia un
+GloryAPI y un bridge temporales en loopback, ejecuta una ronda normal y rondas
+forzadas por cada proveedor, y lee `/api/fallback/traces` autenticado. Solo emite
+estado HTTP, clasificación y metadatos acotados por intento; un `429` externo se
+registra como observación y no se interpreta como fallo del bridge. No lee ni
+modifica `config.toml`, no hereda credenciales del proceso hacia los servicios
+temporales y elimina la copia SQLite y los procesos al finalizar.
+
 ## Enlace local
 
 La instalación se comprueba con:
