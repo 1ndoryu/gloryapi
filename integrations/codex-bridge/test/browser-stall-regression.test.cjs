@@ -200,6 +200,89 @@ test('web loop con respuesta vacía => response.failed (caso navegador)', async 
   assert.ok(!events.some((entry) => entry.event === 'response.completed'));
 });
 
+test('web loop con intención posterior a búsqueda => reintenta la herramienta del navegador', async (t) => {
+  let requestCount = 0;
+  const bridge = await startBridge((body) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        json: {
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{
+                id: 'call_web_empty_1',
+                type: 'function',
+                function: { name: 'web_search', arguments: '{"query":""}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        },
+      };
+    }
+    if (requestCount === 2) {
+      return {
+        json: {
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'Necesito inspeccionar qué me devuelve la documentación; voy a examinar su estructura directamente.',
+            },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 20, completion_tokens: 16, total_tokens: 36 },
+        },
+      };
+    }
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{
+              id: 'call_browser_1',
+              type: 'function',
+              function: { name: 'read_file', arguments: '{"path":"documentation.md"}' },
+            }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 24, completion_tokens: 8, total_tokens: 32 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'abre la documentación' }] }],
+      tools: [
+        { type: 'function', name: 'read_file', description: 'Lee un archivo' },
+        { type: 'web_search', name: 'web_search' },
+      ],
+    })
+  );
+  const raw = await response.text();
+  const events = sseEvents(raw);
+  assert.equal(response.status, 200);
+  assert.equal(requestCount, 3, 'debe hacer búsqueda interna, respuesta final y un nudge');
+  assert.ok(
+    events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call' && entry.data.item.name === 'read_file'),
+    'la intención posterior a la búsqueda debe continuar como function_call del navegador'
+  );
+  assert.equal(events.find((entry) => entry.event === 'response.completed').data.response.end_turn, false);
+});
+
 test('system prompt gigante se recorta conservando cabeza y cola', async (t) => {
   const head = 'INSTRUCCIONES CRITICAS: no borres nada.\n';
   const tail = '\nFINAL: informa siempre el resultado.';

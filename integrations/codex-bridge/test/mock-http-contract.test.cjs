@@ -209,7 +209,10 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   const bridgeRequestId = result.headers.get('x-glory-request-id');
   assert.match(bridgeRequestId || '', /^req_[a-f0-9]{32}$/);
   const events = await result.text();
-  assert.equal(upstreamBodies.length, 2);
+  // The internal web search is followed by the universal completion audit.
+  // The third request prevents a final narrative from silently ending the
+  // browser turn, even when it does not contain a recognizable intent phrase.
+  assert.equal(upstreamBodies.length, 3);
   const toolMessage = upstreamBodies[1].messages.find((message) => message.role === 'tool');
   assert.match(toolMessage.content, /descarga directa de URL está deshabilitada/);
   assert.match(toolMessage.content, /Contenido web no confiable/);
@@ -229,16 +232,20 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   });
   assert.equal(nonStreaming.status, 200);
   const responseBody = await nonStreaming.json();
-  assert.equal(upstreamBodies.length, 4);
+  assert.equal(upstreamBodies.length, 6);
   assert.equal(responseBody.output[0].content[0].text, 'Respuesta final después de consumir el resultado seguro.');
   assert.equal(responseBody.output.some((item) => item.type === 'function_call_output'), false);
   assert.ok(upstreamAuthorizations.length >= 4);
   assert.ok(upstreamAuthorizations.every((value) => value === 'Bearer upstream-test'));
   assert.ok(upstreamRequestIds.length >= 4);
-  assert.ok(upstreamRequestIds.every((value) => /^req_[a-f0-9]{32}$/.test(value || '')));
+  assert.ok(
+    upstreamRequestIds.every((value) => /^req_[a-f0-9]{32}$/.test(value || '')),
+    `request ids inválidos: ${JSON.stringify(upstreamRequestIds)}`
+  );
   assert.equal(upstreamRequestIds[0], bridgeRequestId);
   assert.equal(upstreamRequestIds[1], bridgeRequestId);
-  assert.notEqual(upstreamRequestIds[2], bridgeRequestId);
+  assert.equal(upstreamRequestIds[2], bridgeRequestId);
+  assert.notEqual(upstreamRequestIds[3], bridgeRequestId);
   assert.equal(upstreamAuthorizations.includes('Bearer test'), false);
 
   const hangingStartedAt = Date.now();

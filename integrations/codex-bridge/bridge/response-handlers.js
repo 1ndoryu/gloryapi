@@ -96,15 +96,69 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
     res.end();
     return;
   }
-  if (reasoningText) {
-    sseEvent(res, 'response.output_item.added', {
-      type: 'response.output_item.added',
-      item: { type: 'reasoning', id: reasoningId, summary: [{ type: 'summary_text', text: '' }] },
-    });
-    sseEvent(res, 'response.reasoning_text.delta', {
-      type: 'response.reasoning_text.delta', item_id: reasoningId, content_index: 0, delta: reasoningText,
-    });
+  // The internal web loop used to return here with a future-intent sentence
+  // and no tool call. That bypassed the universal anti-falso-complete guard,
+  // so Codex closed the browser task even though the model still intended to
+  // inspect the page. Reuse the same one-shot confirmation nudge as streaming.
+  let finalToolCalls = toolCalls;
+  let nudgeReasoning = '';
+  if (
+    toolCalls.length === 0 &&
+    text &&
+    chat.__userTools === true &&
+    Array.isArray(chat.tools) &&
+    chat.tools.length &&
+    NUDGE_RETRIES > 0
+  ) {
+    const nudge = await nudgeForToolCalls(resolved.working, upstreamAuthHeader(), text);
+    if (nudge && nudge.toolCalls.length) {
+      finalToolCalls = nudge.toolCalls;
+      nudgeReasoning = nudge.reasoning || '';
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_retry',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: text.length,
+        toolCalls: nudge.toolCalls.length,
+        toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+        intent: isFutureIntentNarration(text),
+        latencyMs: nudge.latencyMs,
+        internalWebLoop: true,
+      });
+    } else if (nudge && isConfirmationText(nudge.text)) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_confirm',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: text.length,
+        intent: isFutureIntentNarration(text),
+        latencyMs: nudge.latencyMs,
+        internalWebLoop: true,
+      });
+    } else if (nudge) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_noop',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        routedVia: nudge.routedVia,
+        textLen: text.length,
+        intent: isFutureIntentNarration(text),
+        latencyMs: nudge.latencyMs,
+        internalWebLoop: true,
+      });
+    }
   }
+
+  const reasoningForwarder = createReasoningForwarder(res, reasoningId);
+  reasoningForwarder.add(reasoningText);
+  reasoningForwarder.add(nudgeReasoning);
+  reasoningForwarder.finish();
+
   if (text) {
     sseEvent(res, 'response.output_item.added', {
       type: 'response.output_item.added',
@@ -119,7 +173,11 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
     });
   }
 
-  const renderedTools = responseItemsForToolCalls(toolCalls, toolMap, customTools);
+  const itemReasoning = visibleReasoning(reasoningText) || visibleReasoning(nudgeReasoning);
+  for (const tc of finalToolCalls) {
+    if (itemReasoning) rememberReasoning(tc.id, itemReasoning);
+  }
+  const renderedTools = responseItemsForToolCalls(finalToolCalls, toolMap, customTools);
   if (renderedTools.error) {
       sseEvent(res, 'response.failed', {
         type: 'response.failed',
@@ -138,11 +196,11 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
     res,
     responseId,
     usage,
-    toolCalls.length > 0,
+    finalToolCalls.length > 0,
     resolved.json.__routedVia || null,
     chat.__gloryRequestId,
     text.length,
-    toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
+    finalToolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
     true,
   );
   res.write('data: [DONE]\n\n');
@@ -440,10 +498,10 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   // las tool_calls del retry se incorporan al Map y las emite el loop de abajo.
   // Si el retry confirma "ok" o vuelve sin tools, se descarta y se cierra con la
   // respuesta original.
-  // El guard usa el turno actual: si ya ejecutó tools y produjo un resumen
-  // normal, no interrumpimos. Si después de una tool-call todavía narra una
-  // acción futura ("Necesito inspeccionar...", "Voy a revisar..."), sí hacemos
-  // un único nudge: ese es el falso complete observado en hilos reales.
+  // El guard es universal: una respuesta final con tools disponibles recibe
+  // una confirmación acotada aunque ya haya ejecutado tools en este turno. Así
+  // no depende de que el modelo escriba una frase reconocible de intención;
+  // si terminó, responde "ok" y conservamos el texto original.
   let nudgeReasoning = '';
   if (
     toolCalls.size === 0 &&
@@ -451,7 +509,6 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     chat.__userTools === true &&
     Array.isArray(chat.tools) &&
     chat.tools.length &&
-    (!currentTurnHasToolMessages(chat.messages) || isFutureIntentNarration(text)) &&
     NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), text);
@@ -475,6 +532,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         toolCalls: nudge.toolCalls.length,
         toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
         intent: isFutureIntentNarration(text),
+        latencyMs: nudge.latencyMs,
       });
     } else if (nudge && isConfirmationText(nudge.text)) {
       logRequest({
@@ -485,6 +543,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         routedVia: nudge.routedVia,
         textLen: text.length,
         intent: isFutureIntentNarration(text),
+        latencyMs: nudge.latencyMs,
       });
     } else if (nudge) {
       logRequest({
@@ -495,6 +554,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
         routedVia: nudge.routedVia,
         textLen: text.length,
         intent: isFutureIntentNarration(text),
+        latencyMs: nudge.latencyMs,
       });
     }
   }
@@ -601,6 +661,13 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
   const toolCalls = assistantToolCalls(message);
   let hasToolOutput = toolCalls.length > 0;
   const output = [];
+  if (reasoningText) {
+    output.push({
+      type: 'reasoning',
+      id: rand('rs'),
+      summary: [{ type: 'summary_text', text: reasoningText }],
+    });
+  }
   if (assistantText(message)) {
     output.push({ type: 'message', role: 'assistant', id: msgId, content: [{ type: 'output_text', text: assistantText(message) }] });
   }
@@ -624,12 +691,18 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     gateChat.__userTools === true &&
     Array.isArray(gateChat.tools) &&
     gateChat.tools.length &&
-    (!currentTurnHasToolMessages(gateChat.messages) || isFutureIntentNarration(assistantText(message))) &&
     NUDGE_RETRIES > 0
   ) {
-    const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), assistantText(message));
+    const nudge = await nudgeForToolCalls(gateChat, upstreamAuthHeader(), assistantText(message));
     if (nudge && nudge.toolCalls.length) {
       const nudgeReasoning = nudge.reasoning || '';
+      if (!reasoningText && nudgeReasoning) {
+        output.unshift({
+          type: 'reasoning',
+          id: rand('rs'),
+          summary: [{ type: 'summary_text', text: visibleReasoning(nudgeReasoning) }],
+        });
+      }
       for (const tc of nudge.toolCalls) {
         if (nudgeReasoning) rememberReasoning(tc.id, nudgeReasoning);
       }
@@ -648,6 +721,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         toolCalls: nudge.toolCalls.length,
         toolNames: nudge.toolCalls.map((tc) => tc.function && tc.function.name).filter(Boolean),
         intent: isFutureIntentNarration(assistantText(message)),
+        latencyMs: nudge.latencyMs,
       });
     } else if (nudge && isConfirmationText(nudge.text)) {
       logRequest({
@@ -658,6 +732,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         routedVia: nudge.routedVia,
         textLen: assistantText(message).length,
         intent: isFutureIntentNarration(assistantText(message)),
+        latencyMs: nudge.latencyMs,
       });
     } else if (nudge) {
       logRequest({
@@ -668,6 +743,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         routedVia: nudge.routedVia,
         textLen: assistantText(message).length,
         intent: isFutureIntentNarration(assistantText(message)),
+        latencyMs: nudge.latencyMs,
       });
     }
   }

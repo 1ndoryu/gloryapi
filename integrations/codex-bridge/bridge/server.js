@@ -144,6 +144,7 @@ const contextAdapter = createContextAdapter({
   normalizeReasoningText,
   visibleReasoning,
   fallbackReasoning: config.reasoning.fallback,
+  attachRequestId,
   fetchUpstreamCompletion: (...args) => upstreamAdapter.fetchUpstreamCompletion(...args),
 });
 const {

@@ -142,11 +142,22 @@ function createReasoningForwarder(res, reasoningId) {
         type: 'response.output_item.added',
         item: { type: 'reasoning', id: reasoningId, summary: [{ type: 'summary_text', text: '' }] },
       });
+      sseEvent(res, 'response.reasoning_summary_part.added', {
+        type: 'response.reasoning_summary_part.added',
+        item_id: reasoningId,
+        output_index: 0,
+        summary_index: 0,
+        part: { type: 'summary_text', text: '' },
+      });
     }
-    sseEvent(res, 'response.reasoning_text.delta', {
-      type: 'response.reasoning_text.delta',
+    // DeepSeek calls this field reasoning_content, but Responses clients only
+    // render the safe summary stream. The old reasoning_text event was
+    // ignored by Codex Desktop, making an otherwise live turn look stalled.
+    sseEvent(res, 'response.reasoning_summary_text.delta', {
+      type: 'response.reasoning_summary_text.delta',
       item_id: reasoningId,
-      content_index: 0,
+      output_index: 0,
+      summary_index: 0,
       delta: visible,
     });
   };

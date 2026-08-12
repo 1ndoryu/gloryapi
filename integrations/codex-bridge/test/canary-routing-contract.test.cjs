@@ -26,6 +26,10 @@ test('nudge retries preserve the provider directive on non-enumerable request me
     normalizeReasoningText: value => value,
     visibleReasoning: value => value,
     fallbackReasoning: 'internal fallback',
+    attachRequestId: (target, requestId) => {
+      Object.defineProperty(target, '__gloryRequestId', { value: requestId, enumerable: false });
+      return target;
+    },
     assertSafeLoopbackUpstream,
     fetchUpstreamCompletion: async chat => {
       seen.push(chat);
@@ -34,12 +38,15 @@ test('nudge retries preserve the provider directive on non-enumerable request me
   });
   const chat = { messages: [{ role: 'user', content: 'continue' }] };
   Object.defineProperty(chat, '__canaryProvider', { value: 'opencode-go', enumerable: false });
+  Object.defineProperty(chat, '__gloryRequestId', { value: 'req_test_correlation', enumerable: false });
 
   await adapter.nudgeForToolCalls(chat, 'Bearer test', 'I will continue');
 
   assert.equal(seen.length, 1);
   assert.equal(seen[0].__canaryProvider, 'opencode-go');
   assert.equal(Object.prototype.propertyIsEnumerable.call(seen[0], '__canaryProvider'), false);
+  assert.equal(seen[0].__gloryRequestId, 'req_test_correlation');
+  assert.equal(Object.prototype.propertyIsEnumerable.call(seen[0], '__gloryRequestId'), false);
 });
 
 test('upstream adapter emits authenticated canary routing headers', async t => {

@@ -68,8 +68,12 @@ sin commit por indicación del usuario.
   metadata-only bounded; `/health` sigue siendo liveness mínimo.
 - La búsqueda web se resuelve mediante un bucle interno conforme al patrón de function
   calling: llamada upstream, `assistant.tool_calls`, búsqueda, mensaje `role=tool` y
-  segunda llamada upstream. Codex Desktop recibe la respuesta final; el bridge no
-  fabrica un `function_call_output` dentro de `response.output`.
+  segunda llamada upstream. Antes de cerrar cualquier respuesta final con tools
+  disponibles, el mismo bucle aplica una confirmación acotada: si el modelo aún
+  tiene trabajo devuelve la herramienta visible que falta; si terminó responde
+  `ok` y se conserva el resumen original. Esto no depende de una frase concreta
+  de intención. Codex Desktop recibe la respuesta final; el bridge no fabrica un
+  `function_call_output` dentro de `response.output`.
 - La descarga de URLs arbitrarias está deshabilitada para evitar SSRF. Los resultados
   de búsqueda se marcan como contenido web no confiable.
 
@@ -107,6 +111,15 @@ sin commit por indicación del usuario.
   el bridge emite los `function_call` y `response.completed` lleva `end_turn=false`.
   El `FALLBACK_REASONING` usado solo para satisfacer DeepSeek en mensajes históricos
   se filtra y nunca se devuelve como razonamiento visible al cliente.
+- El `reasoning_content` real del proveedor se adapta a un resumen Responses con
+  `response.reasoning_summary_part.added` y
+  `response.reasoning_summary_text.delta`; no se expone la cadena de pensamiento
+  cruda ni el texto sintético de fallback. La ruta no streaming también incluye
+  el resumen como un item `reasoning`.
+- La auditoría de cierre es una única ronda y tiene presupuesto propio:
+  `BRIDGE_NUDGE_TIMEOUT_MS` (8 s por defecto, máximo 30 s). Si agota ese límite,
+  se registra `nudge_error` con `latencyMs` y se entrega el resultado original;
+  no prolonga el turno hasta el timeout general del proveedor.
 - Una respuesta vacía o solo de razonamiento no cierra el turno. El bridge hace
   como máximo una recuperación acotada (`BRIDGE_EMPTY_RECOVERY_RETRIES`, por defecto
   1; timeout `BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS`, 90 s) con una directiva explícita;

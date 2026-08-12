@@ -114,7 +114,9 @@ const config = Object.freeze({
     emptyRetries: boundedEnvInt('BRIDGE_EMPTY_RECOVERY_RETRIES', 1, 0, 3),
     emptyTimeoutMs: boundedEnvInt('BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS', 90000, 1000, 300000),
     nudgeRetries: boundedEnvInt('BRIDGE_NUDGE_RETRIES', 1, 0, 3),
-    nudgeTimeoutMs: boundedEnvInt('BRIDGE_NUDGE_TIMEOUT_MS', 60000, 1000, 300000),
+    // A completion audit must never turn a finished response into another
+    // long stall. Keep it independently bounded from the provider timeout.
+    nudgeTimeoutMs: boundedEnvInt('BRIDGE_NUDGE_TIMEOUT_MS', 8000, 1000, 30000),
     executionDirective:
       'Directiva de ejecución: cuando tu respuesta requiera realizar una acción ' +
       '(leer, buscar, editar, ejecutar, reintentar una operación...), invoca la ' +

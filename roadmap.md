@@ -36,9 +36,9 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 ## Evidencia del bloque actual
 
 - `npm test`: 48 archivos / 274 tests PASS.
-- Suite bridge: 115/115 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
-  CLI/Desktop controlados, switches seguros sin mutación del home normal y la regresión de nudge
-  después de tools con intención futura.
+- Suite bridge: 117/117 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
+  CLI/Desktop controlados, switches seguros sin mutación del home normal, el web loop del navegador,
+  el nudge universal sin depender de frases de intención y su timeout acotado.
 - `npm run build:server`: PASS.
 - `npm run quality:doctor`: `ready=true`; Sentinel 0.7.1 alineado.
 - `task:check -- GLORY-BASELINE`: PASS, 0 errores, 0 warnings; las excepciones de directorios
@@ -51,7 +51,8 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 - La coexistencia quedó preparada y verificada: el home normal es
   `C:\Users\Owner\.codex` y el home aislado es `C:\Users\Owner\.codex-gloryapi`; el segundo
   no copia `auth.json`, SQLite ni conversaciones del primero.
-- Commit del bloque: `89e4506` (`fix(codex): estabiliza bridge aislado y recuperacion de turnos`).
+- El bloque anterior quedó en `89e4506` (`fix(codex): estabiliza bridge aislado y recuperacion de turnos`);
+  el bloque actual añade recuperación del web loop, resúmenes Responses y presupuesto de nudge.
 - Manual operativo: `integrations/codex-bridge/COMANDOS-BRIDGE.md`.
 
 Fuente de detalle: `PLAN-GLORYAPI.md`. Evidencia histórica: `Agente/completados/` y

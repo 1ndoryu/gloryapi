@@ -226,6 +226,11 @@ async function startBridge(handler, extraEnv = {}) {
         response.writeHead(500).end('no mock handler');
         return;
       }
+      if (outcome.hangingBody) {
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.write('{"choices":[');
+        return;
+      }
       if (outcome.sse) {
         response.writeHead(200, { 'Content-Type': 'text/event-stream' });
         response.end(outcome.sse);
@@ -434,6 +439,36 @@ test('nudge noop: retry sin tools => respuesta original, sin function_call', asy
   assert.equal(bridge.upstreamBodies.length, 2, 'intentó el nudge (2 requests)');
 });
 
+test('nudge con upstream colgado => cierra dentro de su presupuesto y conserva el texto', async (t) => {
+  const startedAt = Date.now();
+  const bridge = await startBridge(
+    (body) => body.stream === true ? { sse: NARRATIVE_SSE } : { hangingBody: true },
+    { BRIDGE_NUDGE_TIMEOUT_MS: '1000' }
+  );
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'ordena los .md por fecha' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const raw = await response.text();
+  assert.equal(response.status, 200);
+  assert.ok(raw.includes('Voy a escanear los .md'), 'conserva el texto original');
+  assert.ok(raw.includes('response.completed'), 'el timeout del nudge no deja el turno abierto');
+  assert.ok(Date.now() - startedAt < 2500, 'el nudge no debe heredar el timeout largo del proveedor');
+  let bridgeLog = bridge.bridgeLog;
+  for (let attempt = 0; attempt < 10 && !/"kind":"nudge_error"/.test(bridgeLog); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    bridgeLog = bridge.bridgeLog;
+  }
+  assert.match(bridgeLog, /"kind":"nudge_error"/);
+});
+
 // ---------------------------------------------------------------------------
 // E2E: confirmación — el retry responde "ok" => el cierre es real: se conserva
 // el texto original, no se inventan function_call ni se re-activa el hook.
@@ -554,12 +589,19 @@ test('regresión: historial con tools previas + turno actual sin tools => nudge 
 });
 
 // ---------------------------------------------------------------------------
-// E2E: control — si el turno ACTUAL ya ejecutó tools y termina con un resumen
-// normal, el nudge NO se dispara. La excepción cubierta abajo es una narración
-// de intención futura después de una tool-call.
+// E2E: el nudge universal también confirma un resumen normal después de tools.
+// La confirmación "ok" cierra sin duplicar ni inventar una llamada.
 // ---------------------------------------------------------------------------
-test('control: turno actual con tools ejecutadas => nudge NO se dispara', async (t) => {
-  const bridge = await startBridge(() => ({ sse: NORMAL_SSE }));
+test('control: resumen normal después de tools => nudge confirma sin cambiarlo', async (t) => {
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) return { sse: NORMAL_SSE };
+    return {
+      json: {
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok', finish_reason: 'stop' } }],
+        usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13 },
+      },
+    };
+  });
   t.after(bridge.cleanup);
 
   const response = await fetch(
@@ -578,7 +620,11 @@ test('control: turno actual con tools ejecutadas => nudge NO se dispara', async 
   assert.equal(response.status, 200);
   const events = sseEvents(await response.text());
   assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
-  assert.equal(bridge.upstreamBodies.length, 1, 'turno actual con tools => sin nudge (1 request)');
+  assert.equal(bridge.upstreamBodies.length, 2, 'el cierre universal confirma incluso después de tools (2 requests)');
+  assert.ok(
+    !events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call'),
+    'la confirmación ok no debe inventar function_call'
+  );
 });
 
 test('regresión: tools del turno actual + intención futura => nudge SÍ', async (t) => {
@@ -634,6 +680,8 @@ test('tool-only: el function_call continúa el turno y el fallback no se muestra
   assert.equal(response.status, 200);
   assert.match(raw, /call_tool_only_1/);
   assert.doesNotMatch(raw, /El asistente analizó la petición/);
+  assert.ok(events.some((entry) => entry.event === 'response.reasoning_summary_text.delta'), 'el razonamiento visible debe llegar como resumen');
+  assert.doesNotMatch(raw, /response\.reasoning_text\.delta/, 'no debe emitir el evento antiguo que la app ignora');
   assert.ok(
     events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call'),
     'el tool-only debe salir como function_call'

@@ -7,6 +7,7 @@ function createContextAdapter({
   visibleReasoning,
   fallbackReasoning,
   fetchUpstreamCompletion,
+  attachRequestId,
 }) {
   const { context, limits, upstream, recovery, calibration } = config;
   const SUMMARY_MODEL = context.summaryModel;
@@ -190,8 +191,8 @@ function isFutureIntentNarration(text) {
   // idiomas ("Voy a escanear...", "I will scan...", "I'm going to...",
   // "Let me check...", "I need to..."). Las contracciones evitan apóstrofes
   // literales (i.ll / i.m / i.d) para no romper el parser estático del test.
-  // Un falso positivo solo añade un request de nudge descartable; un falso
-  // negativo deja escapar el falso complete.
+  // Solo alimenta telemetría: un falso negativo ya no puede desactivar el
+  // nudge universal.
   return /(voy a|vamos a|necesito|debo|lo reintento|reintento|procedo a|ahora voy|primero voy|lo haré|intentaré|voy a intentar|voy a hacer|voy a (escanear|revisar|buscar|crear|editar|modificar|comprobar|listar|ejecutar|probar|analizar|leer|abrir|instalar|configurar|correr|verificar)|\bi (will|am going to|need to|should|have to|want to|would like to)\b|\bi.ll\b|\bi.m\b|\bi.d\b|let me (try|check|start|look|scan|review|open|read|run|test|verify|search|list))/i.test(
     text,
   );
@@ -218,14 +219,8 @@ function isConfirmationText(text) {
 }
 
 // ¿El turno ACTUAL (desde el último mensaje del usuario) ya ejecutó tools?
-// El guard original del nudge usaba `messages.some(m => m.role === 'tool')`
-// sobre TODO el historial: en una conversación larga con tools de turnos
-// anteriores (p. ej. 146 mensajes con 71 tool), esa condición es siempre false
-// y el nudge anti-falso-complete quedaba desactivado — el modelo podía cerrar
-// con "Sigo ahora con eso" sin ejecutar y el turno terminaba (falso complete
-// observado 2026-08-11). Solo el turno en curso decide: si el modelo ya está
-// ejecutando tools AHORA (tool messages tras el último user), no interrumpir;
-// si cerró con texto sin tools en este turno, nudgear aunque haya tools previas.
+// Se conserva para telemetría y compatibilidad con consumidores del adaptador;
+// el guard de cierre ya no depende de este dato ni de una frase de intención.
 function currentTurnHasToolMessages(messages) {
   let lastUser = -1;
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -244,7 +239,7 @@ function currentTurnHasToolMessages(messages) {
 // El retry reenvía el texto final como mensaje assistant (contexto de lo
 // anunciado) y añade la directiva de confirmación de cierre como user.
 function buildNudgeChat(chat, finalText) {
-  return preserveCanaryProvider(chat, {
+  const nudgeChat = preserveCanaryProvider(chat, {
     ...chat,
     stream: false,
     messages: [
@@ -253,6 +248,13 @@ function buildNudgeChat(chat, finalText) {
       { role: 'user', content: CONFIRM_DIRECTIVE },
     ],
   });
+  // The spread intentionally drops non-enumerable request metadata. Restore
+  // the correlation id so the nudge remains part of the same bridge turn in
+  // upstream logs and canary routing diagnostics.
+  if (typeof attachRequestId === 'function' && chat.__gloryRequestId) {
+    attachRequestId(nudgeChat, chat.__gloryRequestId);
+  }
+  return nudgeChat;
 }
 
 // Devuelve { toolCalls, reasoning, routedVia, text } del retry, o null si el
@@ -260,6 +262,7 @@ function buildNudgeChat(chat, finalText) {
 // del turno original). text = contenido del retry (para decidir si confirmó).
 async function nudgeForToolCalls(chat, authorization, finalText) {
   const nudgeChat = buildNudgeChat(chat, finalText);
+  const startedAt = Date.now();
   try {
     const json = await fetchUpstreamCompletion(nudgeChat, authorization, NUDGE_TIMEOUT_MS);
     const message =
@@ -269,6 +272,7 @@ async function nudgeForToolCalls(chat, authorization, finalText) {
       reasoning: message.reasoning_content || '',
       routedVia: json.__routedVia || null,
       text: typeof message.content === 'string' ? message.content : '',
+      latencyMs: Date.now() - startedAt,
     };
   } catch (error) {
     logRequest({
@@ -277,6 +281,7 @@ async function nudgeForToolCalls(chat, authorization, finalText) {
       requestId: chat.__gloryRequestId,
       status: error.statusCode || 502,
       error: error.message,
+      latencyMs: Date.now() - startedAt,
     });
     return null;
   }
