@@ -1,22 +1,24 @@
 # =====================================================================
-#  codex-mode.ps1  — CAMBIA CODEX ENTRE PROVEEDORES EN UN SOLO PASO
+#  codex-mode.ps1  — ABRE CODEX NORMAL O UNA SESIÓN AISLADA DEL BRIDGE
 # ---------------------------------------------------------------------
 #  Uso:
 #    .\codex-mode.ps1 -Mode chatgpt   -> proveedor ChatGPT (detiene el bridge)
-#    .\codex-mode.ps1 -Mode deepseek  -> deepseek-v4-flash vía bridge local
+#    .\codex-mode.ps1 -Mode deepseek  -> sesión aislada deepseek-v4-flash
 #    .\codex-mode.ps1                 -> muestra el modo actual
 #
-#  Después de cambiar, CIERRA la app de escritorio (bandeja incluida)
-#  y vuelve a abrirla para que relea config.toml.
+#  La sesión normal conserva su CODEX_HOME e historial. El modo deepseek
+#  usa %USERPROFILE%\.codex-gloryapi y puede convivir con el modo normal.
 # =====================================================================
 param(
     [ValidateSet('chatgpt', 'deepseek', '')]
     [string]$Mode = '',
-    [switch]$Preview
+    [switch]$Preview,
+    [switch]$LegacyGlobalConfig
 )
 
 $ErrorActionPreference = 'Stop'
 $codex = Join-Path $env:USERPROFILE '.codex'
+$isolatedHome = Join-Path $env:USERPROFILE '.codex-gloryapi'
 $bridge = Join-Path $codex 'bridge'
 $configPath = Join-Path $codex 'config.toml'
 $journalPath = Join-Path $codex 'config.toml.gloryapi.journal.json'
@@ -25,6 +27,7 @@ $controllerLink = Get-Item -LiteralPath $MyInvocation.MyCommand.Path -Force
 $modeSource = if ($controllerLink.LinkType -and $controllerLink.Target) {
     Split-Path -Parent ([string](@($controllerLink.Target) | Select-Object -First 1))
 } else { $PSScriptRoot }
+$isolatedLauncher = Join-Path $modeSource 'start-codex-bridge.ps1'
 
 function Get-FileSha256([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
@@ -177,6 +180,8 @@ if ($Mode -eq '') {
     $b = Test-Bridge
     Write-Host "Modo actual: $cur"
     Write-Host "Bridge :4100: $(if($b){'CORRIENDO'}else{'detenido'})"
+    Write-Host "Home normal: $codex"
+    Write-Host "Home bridge: $isolatedHome"
     Write-Host ''
     Write-Host 'Cambiar con:  .\codex-mode.ps1 -Mode chatgpt   |   .\codex-mode.ps1 -Mode deepseek'
     exit 0
@@ -184,21 +189,32 @@ if ($Mode -eq '') {
 
 if ($Preview) {
     if ($Mode -eq 'chatgpt') {
-        if (-not (Test-Path -LiteralPath (Join-Path $codex 'config.chatgpt.toml'))) {
+        if ($LegacyGlobalConfig -and -not (Test-Path -LiteralPath (Join-Path $codex 'config.chatgpt.toml'))) {
             throw 'No existe la configuración fuente de ChatGPT'
         }
-        Write-Host '[PREVIEW] ChatGPT: restauraría config.toml y detendría el bridge si estuviera activo.'
+        if ($LegacyGlobalConfig) {
+            Write-Host '[PREVIEW] ChatGPT legacy: restauraría config.toml y detendría el bridge si estuviera activo.'
+        } else {
+            Write-Host '[PREVIEW] ChatGPT normal: detendría el bridge si estuviera activo, sin tocar config.toml.'
+        }
     } else {
-        Invoke-ActivationPreflight -SkipHealth | Out-Null
-        Write-Host '[PREVIEW] DeepSeek: el contrato del perfil es válido; arrancaría el bridge y aplicaría la configuración.'
+        if (-not (Test-Path -LiteralPath $isolatedLauncher -PathType Leaf)) {
+            throw "Falta el launcher del home aislado: $isolatedLauncher"
+        }
+        Write-Host "[PREVIEW] DeepSeek: prepararía $isolatedHome, arrancaría el bridge y abriría una sesión separada."
+        Write-Host '[PREVIEW] config.toml y el historial del home normal no se modificarían.'
     }
     exit 0
 }
 
-# ---- Modo CHATGPT: restaura config y detiene el bridge ----
+# ---- Modo CHATGPT: conserva el home normal y detiene el bridge ----
 if ($Mode -eq 'chatgpt') {
-    Set-CodexConfig 'config.chatgpt.toml'
-    Write-Host '[OK] config.toml -> CHATGPT'
+    if ($LegacyGlobalConfig) {
+        Set-CodexConfig 'config.chatgpt.toml'
+        Write-Host '[OK] config.toml -> CHATGPT (restauración global legacy explícita)'
+    } else {
+        Write-Host '[OK] ChatGPT normal conserva config.toml e historial; no se hizo cutover global.'
+    }
     if (Test-Bridge) {
         if (Test-Path (Join-Path $bridge 'stop-bridge.ps1')) {
             & (Join-Path $bridge 'stop-bridge.ps1')
@@ -206,22 +222,22 @@ if ($Mode -eq 'chatgpt') {
     }
 }
 
-# ---- Modo DEEPSEEK: arranca el bridge (si falta) y aplica la config ----
+# ---- Modo DEEPSEEK: abre el bridge con home e historial independientes ----
 if ($Mode -eq 'deepseek') {
-    Invoke-ActivationPreflight -SkipHealth | Out-Null
-    if (-not (Test-Bridge)) {
-        Write-Host 'Bridge no está corriendo. Arrancándolo...'
-        if (-not (Test-Path (Join-Path $bridge 'start-bridge.ps1'))) {
-            Write-Error 'Falta el bridge en .codex\bridge\. No se puede pasar a deepseek.'
-        }
-        & (Join-Path $bridge 'start-bridge.ps1')
-        if (-not (Test-Bridge)) {
-            Write-Error 'El bridge no respondió tras el arranque. Revisa .codex\bridge\bridge.err.log'
-        }
+    if (-not (Test-Path -LiteralPath $isolatedLauncher -PathType Leaf)) {
+        throw "Falta el launcher del home aislado: $isolatedLauncher"
     }
-    Invoke-ActivationPreflight | Out-Null
-    Set-CodexConfig 'config.deepseek.toml'
-    Write-Host '[OK] config.toml -> DEEPSEEK (deepseek-v4-flash vía bridge)'
+    & $isolatedLauncher -Desktop
+    if ($LASTEXITCODE -ne 0) {
+        throw 'No se pudo abrir la sesión DeepSeek aislada.'
+    }
+    Write-Host "[OK] DeepSeek vía bridge abierto con historial separado en $isolatedHome"
+    Write-Host '[OK] El config.toml y el historial de ChatGPT normal no fueron reemplazados.'
+    exit 0
+}
+
+if ($Mode -eq 'chatgpt' -and -not $LegacyGlobalConfig) {
+    exit 0
 }
 
 Write-Host 'Cierra la app de escritorio (ChatGPT en la bandeja) y vuelve a abrirla para aplicar.'

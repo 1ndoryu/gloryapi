@@ -220,6 +220,37 @@ Detalles de robustez:
   proceso: si CIM no puede verificar la línea de comandos, exige además que el
   PID figure escuchando en el `-Port` solicitado; de lo contrario falla cerrado.
 
+## Dos historiales aislados: ChatGPT normal y bridge
+
+El modo normal sigue usando `%USERPROFILE%\.codex`. El bridge usa por defecto
+`%USERPROFILE%\.codex-gloryapi`, con su propia base SQLite, historial, logs y perfiles. El preparador
+solo copia `config.toml` como base; no copia `auth.json`, `state_*.sqlite` ni conversaciones. Así se
+pueden mantener abiertas ambas sesiones sin que una cambie el historial de la otra.
+
+Para abrir la sesión bridge en una ventana separada:
+
+```powershell
+.\mode\switch-deepseek.ps1
+```
+
+También se puede preparar sin abrirla todavía, o usar la modalidad CLI/TUI:
+
+```powershell
+.\mode\prepare-isolated-home.ps1 -RefreshConfig
+.\mode\start-codex-bridge.ps1 -PrepareOnly
+.\mode\start-codex-bridge.ps1
+```
+
+`-RefreshConfig` actualiza únicamente la copia de configuración base del home aislado. El home
+normal no se sobrescribe. Si el Desktop ya tiene una instancia gráfica única, la modalidad `-Desktop`
+puede reutilizar esa instancia; en ese caso usa el launcher sin `-Desktop` para obtener una sesión CLI/TUI
+inequívocamente separada.
+
+`switch-chatgpt.ps1` detiene el bridge sin tocar el `config.toml` ni el historial normal. Para la
+restauración global del flujo antiguo existe una opción deliberadamente explícita:
+`codex-mode.ps1 -Mode chatgpt -LegacyGlobalConfig`. El historial del bridge queda en
+`%USERPROFILE%\.codex-gloryapi` para retomarlo después.
+
 ## Perfil temporal de canary
 
 Para preparar una prueba real sin tocar el perfil principal:
@@ -294,17 +325,16 @@ devuelve `ready=true`: los cuatro enlaces apuntan a GloryAPI, el perfil usa Resp
 en 4100 y el bridge/runtime pasan health y readiness. El preflight sigue siendo de
 solo lectura y no activa ni repunta nada por sí mismo.
 
-El controlador `mode/codex-mode.ps1` vuelve a ejecutar esa validación antes de un
-cambio real a DeepSeek y se detiene antes de arrancar procesos o reemplazar
-`config.toml` si falla. Para revisar el resultado sin mutar nada:
+El controlador `mode/codex-mode.ps1` comprueba la existencia del launcher aislado antes de abrir
+DeepSeek y se detiene sin modificar `config.toml`. Para revisar el resultado sin mutar nada:
 
 ```powershell
 .\mode\codex-mode.ps1 -Mode deepseek -Preview
 ```
 
-Si el preflight vuelve a marcar `target-not-gloryapi`, no debe ejecutarse ningún
-script desde `%USERPROFILE%\.codex` hasta restaurar el enlace a GloryAPI; esa fue la
-protección que evitó repetir el incidente del controlador legacy.
+El preflight histórico sigue disponible para auditorías del bridge, pero no forma parte del cambio
+de proveedor del home normal. El launcher aislado valida que sus dos `CODEX_HOME` sean distintos
+antes de ejecutar Codex.
 
 El preflight también comprueba dos prerrequisitos de runtime que antes solo se
 detectaban después de intentar arrancar: los helpers compilados de auth y la

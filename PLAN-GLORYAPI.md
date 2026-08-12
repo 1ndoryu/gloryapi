@@ -58,6 +58,9 @@ Las 22 credenciales permanecen en la bóveda aunque su proveedor no tenga un mod
   Las capacidades no demostradas son `unsupported` o `unverified`, nunca éxito.
 - El fallback interno `FALLBACK_REASONING` queda oculto en la frontera Responses; tool-only,
   reasoning-only y upstream vacío tienen terminación fail-closed y recuperación bounded.
+- La coexistencia de ChatGPT normal y bridge quedó preparada con dos `CODEX_HOME` e historiales
+  independientes: `%USERPROFILE%\.codex` y `%USERPROFILE%\.codex-gloryapi`. El launcher solo copia
+  `config.toml`, nunca `auth.json`, SQLite ni conversaciones; el bridge no se activa automáticamente.
 - Redacción estructurada cubre headers, tokens, tool args, bodies, SSE y errores. El estado JSON
   usa versión compatible, TTL, límites, escritura temp/fsync/rename y recuperación ante corrupción.
 - DNS de visión valida todas las direcciones antes de cada intento y falla cerrado ante rebinding;
@@ -70,7 +73,8 @@ Las 22 credenciales permanecen en la bóveda aunque su proveedor no tenga un mod
 ### Evidencia ejecutada en este bloque
 
 - `npm test`: **48 archivos / 274 tests PASS**; shared y client compilan.
-- Suite bridge aislada: **112/112 PASS** con `node --test --test-concurrency=1`.
+- Suite bridge aislada: **113/113 PASS**, incluyendo CLI/Desktop controlados, `--profile`,
+  `CODEX_HOME` aislado y switches seguros sin mutar el home normal.
 - `npm run build:server`: PASS.
 - `npm run quality:doctor`: `ready=true`, Sentinel 0.7.1 alineado y sin issues.
 - `npm run task:check -- GLORY-BASELINE`: PASS, 0 errores, 0 warnings; las excepciones explícitas
@@ -81,6 +85,19 @@ Las 22 credenciales permanecen en la bóveda aunque su proveedor no tenga un mod
 - `git diff --check`: PASS.
 - No quedan procesos/listeners propios de GloryAPI o bridge; ChatGPT normal, `config.chatgpt.toml`
   y FreeLLMAPI no se modificaron.
+
+### Bloque de coexistencia de historiales — verificado localmente
+
+- Scripts nuevos: `integrations/codex-bridge/mode/prepare-isolated-home.ps1` y
+  `integrations/codex-bridge/mode/start-codex-bridge.ps1`.
+- Selectores actualizados: `codex-mode.ps1`, `switch-deepseek.ps1` y `switch-chatgpt.ps1`.
+- `switch-chatgpt.ps1` es seguro por defecto; la mutación global solo se permite con
+  `-LegacyGlobalConfig`.
+- Evidencia adicional: parser PowerShell **5/5 OK**; `npm test` **48 archivos / 274 tests PASS**
+  y build shared/client; `git diff --check` PASS; `task:check` `GLORY-BASELINE` PASS con cero
+  errores y cero warnings.
+- El archivo untracked `integrations/codex-bridge/test/_e2e_apply_patch.cjs` es preexistente,
+  ajeno a este bloque, no fue tocado y queda fuera del commit.
 
 ## Pendientes verificables reales
 

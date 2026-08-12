@@ -36,7 +36,8 @@ FreeLLMAPI/ChatGPT normal; el bridge queda detenido fuera de canaries temporales
 ## Evidencia del bloque actual
 
 - `npm test`: 48 archivos / 274 tests PASS.
-- Suite bridge: 112/112 PASS.
+- Suite bridge: 113/113 PASS, incluyendo el launcher de dos `CODEX_HOME`, CLI/Desktop
+  controlados y switches seguros sin mutación del home normal.
 - `npm run build:server`: PASS.
 - `npm run quality:doctor`: `ready=true`; Sentinel 0.7.1 alineado.
 - `task:check -- GLORY-BASELINE`: PASS, 0 errores, 0 warnings; las excepciones de directorios
@@ -45,6 +46,9 @@ FreeLLMAPI/ChatGPT normal; el bridge queda detenido fuera de canaries temporales
   **62.6 ms con 32**, todos bajo el presupuesto de 100 ms.
 - El bridge y GloryAPI están detenidos; FreeLLMAPI sigue en `:3001`; ChatGPT normal y
   `C:\Users\Owner\.codex\config.chatgpt.toml` permanecen sin cambios.
+- La coexistencia quedó preparada sin activar el bridge: el home normal es
+  `C:\Users\Owner\.codex` y el home aislado es `C:\Users\Owner\.codex-gloryapi`; el segundo
+  no copia `auth.json`, SQLite ni conversaciones del primero.
 
 Fuente de detalle: `PLAN-GLORYAPI.md`. Evidencia histórica: `Agente/completados/` y
 `Agente/documentacion/migracion/`.
