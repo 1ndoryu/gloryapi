@@ -86,6 +86,8 @@ sin commit por indicación del usuario.
   `VISION_ALLOW_ANONYMOUS=1`. Se pueden configurar rutas alternativas en
   `VISION_FALLBACKS_JSON`; cada entrada usa `baseUrl`, `model`, `completionsPath`
   opcional, `allowAnonymous` y `apiKeyEnv` para que las claves sigan fuera del JSON.
+  El launcher usa por defecto la clave DPAPI local de `opencode-go` como fallback para
+  `mimo-v2.5`, si existe una credencial habilitada.
 - No se habilita CORS para navegadores.
 - El cuerpo se limita a 8 MiB, configurable con `BRIDGE_MAX_BODY_BYTES`.
 - Cada respuesta de backend de búsqueda se limita a 1 MiB, configurable con

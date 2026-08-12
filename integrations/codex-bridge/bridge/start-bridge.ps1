@@ -138,9 +138,26 @@ $ConfiguredVisionModel = if (-not [string]::IsNullOrWhiteSpace($VisionModel)) {
     $env:VISION_MODEL
 } else { 'mimo-v2.5-free' }
 $ConfiguredVisionApiKey = $env:VISION_API_KEY
+$VisionFallbacksExplicit = -not [string]::IsNullOrWhiteSpace($VisionFallbacksJson) -or
+    -not [string]::IsNullOrWhiteSpace($env:VISION_FALLBACKS_JSON)
 $ConfiguredVisionFallbacksJson = if (-not [string]::IsNullOrWhiteSpace($VisionFallbacksJson)) {
     $VisionFallbacksJson
-} else { $env:VISION_FALLBACKS_JSON }
+} elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_FALLBACKS_JSON)) {
+    $env:VISION_FALLBACKS_JSON
+} else {
+    '[{"id":"opencode-go","baseUrl":"https://opencode.ai/zen/go/v1","model":"mimo-v2.5","apiKeyEnv":"OPENCODE_GO_VISION_API_KEY"}]'
+}
+$ConfiguredVisionFallbackApiKey = $env:OPENCODE_GO_VISION_API_KEY
+if (-not $VisionFallbacksExplicit -and [string]::IsNullOrWhiteSpace($ConfiguredVisionFallbackApiKey)) {
+    $visionAuthScript = Join-Path $BridgeDir '..\..\..\server\dist\scripts\bridge-vision-auth.js'
+    if (Test-Path -LiteralPath $visionAuthScript -PathType Leaf) {
+        $visionKeyOutput = @(& $node $visionAuthScript --print 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $visionKeyOutput.Count -eq 1 -and
+            -not [string]::IsNullOrWhiteSpace([string]$visionKeyOutput[0])) {
+            $ConfiguredVisionFallbackApiKey = ([string]$visionKeyOutput[0]).Trim()
+        }
+    }
+}
 $ConfiguredVisionAnonymous = if ($VisionAllowAnonymous) {
     '1'
 } elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_ALLOW_ANONYMOUS)) {
@@ -182,6 +199,7 @@ function Start-IsolatedBridge {
         $env:VISION_API_KEY = $ConfiguredVisionApiKey
         $env:VISION_ALLOW_ANONYMOUS = $ConfiguredVisionAnonymous
         $env:VISION_FALLBACKS_JSON = $ConfiguredVisionFallbacksJson
+        $env:OPENCODE_GO_VISION_API_KEY = $ConfiguredVisionFallbackApiKey
         if (-not [string]::IsNullOrWhiteSpace($ConfiguredVisionFallbacksJson)) {
             try {
                 $fallbackRows = @($ConfiguredVisionFallbacksJson | ConvertFrom-Json)

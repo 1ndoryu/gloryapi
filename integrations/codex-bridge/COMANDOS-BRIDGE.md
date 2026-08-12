@@ -62,8 +62,10 @@ Usa otra base/ruta de runtime solo si se necesita una instalación paralela:
 ## Configurar visión y fallbacks
 
 La visión no depende del modelo de texto de GloryAPI. El bridge envía cada imagen al proveedor de
-visión configurado y entrega la descripción al modelo principal como texto. El proveedor actual es
-configurable con `-VisionBaseUrl` y `-VisionModel`; no pongas claves en el script ni en este documento.
+visión configurado y entrega la descripción al modelo principal como texto. Por defecto prueba
+`mimo-v2.5-free` y, si devuelve `429`, salta a `mimo-v2.5` de OpenCode Go usando automáticamente la
+clave `opencode-go` guardada en la bóveda DPAPI local. También se puede cambiar con
+`-VisionBaseUrl` y `-VisionModel`; no pongas claves en el script ni en este documento.
 
 Para añadir rutas alternativas, define `VISION_FALLBACKS_JSON` en el entorno antes de iniciar el bridge.
 Cada clave se referencia por nombre mediante `apiKeyEnv`, no se guarda dentro del JSON:
