@@ -358,6 +358,10 @@ test('the stop script verifies process identity before terminating', () => {
   assert.match(startRuntime, /\.gloryapi/);
   assert.match(startRuntime, /WindowStyle Hidden/);
   assert.match(start, /start-gloryapi\.ps1/);
+  assert.match(start, /RuntimeHealth = ['"]http:\/\/127\.0\.0\.1:3101\/api\/ping['"]/);
+  assert.match(start, /function Test-ExpectedRuntime/);
+  assert.match(start, /function Ensure-GloryApiRuntime/);
+  assert.match(start, /Ensure-GloryApiRuntime/);
   assert.match(start, /bridgeLink/);
   assert.match(start, /Resolve-Path/);
   assert.match(start, /BRIDGE_RUNTIME_DIR/);

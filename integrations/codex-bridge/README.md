@@ -253,6 +253,9 @@ Detalles de robustez:
   `%USERPROFILE%\.gloryapi\gloryapi.db` y `4100`. Esto permite ejecutar el bridge
   en una carpeta temporal o con otra instancia local sin editar el perfil de
   ChatGPT ni mover credenciales a archivos.
+- `start-bridge.ps1` verifica siempre `/api/ping` de GloryAPI antes de salir por
+  el camino rápido de bridge ya existente; si `:3101` fue cerrado, lo recupera
+  automáticamente. Esto también aplica al acceso directo del modo bridge.
 - `stop-bridge.ps1 -Force` no convierte un PID stale en permiso para matar un
   proceso: si CIM no puede verificar la línea de comandos, exige además que el
   PID figure escuchando en el `-Port` solicitado; de lo contrario falla cerrado.

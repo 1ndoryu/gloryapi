@@ -42,7 +42,9 @@ $LogOut = Join-Path $RuntimeDir 'bridge.out.log'
 $LogErr = Join-Path $RuntimeDir 'bridge.err.log'
 $PidFile = Join-Path $RuntimeDir 'bridge.pid'
 $Health = "http://127.0.0.1:$Port/health"
+$RuntimeHealth = 'http://127.0.0.1:3101/api/ping'
 $StopScript = Join-Path $BridgeDir 'stop-bridge.ps1'
+$RuntimeScript = Join-Path $BridgeDir 'start-gloryapi.ps1'
 
 function Test-ExpectedBridge {
     try {
@@ -51,6 +53,31 @@ function Test-ExpectedBridge {
     }
     catch { return $false }
 }
+
+function Test-ExpectedRuntime {
+    try {
+        $result = Invoke-RestMethod -Uri $RuntimeHealth -TimeoutSec 2
+        return $result.status -eq 'ok'
+    }
+    catch { return $false }
+}
+
+function Ensure-GloryApiRuntime {
+    if (Test-ExpectedRuntime) { return }
+    if (-not (Test-Path -LiteralPath $RuntimeScript -PathType Leaf)) {
+        throw "Falta el launcher de GloryAPI: $RuntimeScript"
+    }
+    Write-Host "GloryAPI no responde en $RuntimeHealth; iniciándolo..."
+    & $RuntimeScript -DatabasePath $DatabasePath -RuntimeDataDir (Split-Path -Parent $RuntimeDir)
+    if ($LASTEXITCODE -ne 0 -or -not (Test-ExpectedRuntime)) {
+        throw 'GloryAPI runtime no está listo; se rechaza continuar con el bridge.'
+    }
+}
+
+# El acceso directo puede abrirse cuando el bridge sigue vivo pero alguien cerró
+# solo el runtime en :3101. La salud del bridge por sí sola no garantiza que el
+# upstream esté disponible, así que reparamos el runtime antes del early-exit.
+Ensure-GloryApiRuntime
 
 # ¿Ya está corriendo?
 if (Test-ExpectedBridge) {
@@ -88,13 +115,8 @@ $env:GLORYAPI_DB_PATH = $DatabasePath
 
 # Arranca y verifica GloryAPI antes de resolver secretos del bridge. El runtime
 # se inicia con un entorno aislado y nunca recibe las credenciales siguientes.
-$runtimeScript = Join-Path $BridgeDir 'start-gloryapi.ps1'
-if (Test-Path -LiteralPath $runtimeScript) {
-    # Ejecutarlo en este mismo host evita que un PowerShell anidado termine el
-    # proceso GloryAPI cuando el hijo deba permanecer como runtime persistente.
-    & $runtimeScript -DatabasePath $DatabasePath -RuntimeDataDir (Split-Path -Parent $RuntimeDir)
-    if ($LASTEXITCODE -ne 0) { throw 'GloryAPI runtime no está listo; se rechaza iniciar el bridge.' }
-}
+# Ensure-GloryApiRuntime ya verificó el runtime antes de resolver secretos y de
+# decidir si el bridge existente permite salir por el camino rápido.
 
 $bridgeClientToken = $env:BRIDGE_CLIENT_TOKEN
 if ([string]::IsNullOrWhiteSpace($bridgeClientToken)) {

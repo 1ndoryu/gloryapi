@@ -36,6 +36,9 @@ Opción por comando, compatible con Windows PowerShell 5.1 y PowerShell 7:
   -RefreshConfig -Desktop
 ```
 
+Al abrirlo, el launcher comprueba tanto el bridge (`4100`) como GloryAPI (`3101`). Si el bridge sigue
+abierto pero GloryAPI fue cerrado, vuelve a iniciar automáticamente el runtime antes de abrir la sesión.
+
 `-RefreshConfig` regenera solo la configuración aislada del bridge. No copia `auth.json`, conversaciones
 ni bases SQLite del home normal.
 
