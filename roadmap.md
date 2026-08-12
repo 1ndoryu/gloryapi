@@ -6,7 +6,7 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 ## Siguiente bloque ejecutable
 
 1. Mantener y verificar el runtime externo: `%USERPROFILE%\.gloryapi\gloryapi.db`, snapshot
-   `freellmapi-live-20260811.db` y 22 credenciales DPAPI; no tocar `freellmapi`.
+   `freellmapi-live-20260811.db` y 23 credenciales DPAPI; no tocar `freellmapi`.
 2. Completar schemas de respuesta/unions, timeouts por fase, idempotency de tools, propagación
    de métricas por salto, SSRF de socket y smoke de scripts Windows sin activar ChatGPT.
 3. Ejecutar preflight de cada bloque: `npm run task:check:local -- <ID>`; al cerrar:
@@ -23,7 +23,10 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Bloques ya cerrados localmente
 
-- Aislamiento, snapshot real, bóveda DPAPI, importación 22/22, recovery y rutas externas.
+- Aislamiento, snapshot real, bóveda DPAPI, importación original 22/22, credencial TokenHarbor,
+  recovery y rutas externas.
+- Catálogo activo de cuatro modelos: Andoryyu, OpenCode Zen, TokenHarbor y OpenCode Go; la ruta
+  explícita `deepseek-v4-flash:free` queda fijada a TokenHarbor.
 - Catálogo/registry/settings/routing/autosave y wizard provider→activación fail-closed.
 - Bridge modular y agnóstico: server.js orquesta; config, HTTP, Responses, SSE, translation,
   tools, upstream, visión, estado, redacción y métricas están separados.
@@ -35,7 +38,7 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Evidencia del bloque actual
 
-- `npm test`: 48 archivos / 274 tests PASS.
+- `npm test`: 49 archivos / 281 tests PASS.
 - Suite bridge: 117/117 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
   CLI/Desktop controlados, switches seguros sin mutación del home normal, el web loop del navegador,
   el nudge universal sin depender de frases de intención y su timeout acotado.

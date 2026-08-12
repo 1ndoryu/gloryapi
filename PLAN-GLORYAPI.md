@@ -5,7 +5,7 @@
 
 ## Objetivo y límites
 
-GloryAPI es un workspace hermano, aislado y configurable de FreeLLMAPI: catálogo de tres
+GloryAPI es un workspace hermano, aislado y configurable de FreeLLMAPI: catálogo de cuatro
 modelos, bóveda recuperable, routing persistente, Control API autenticada, bridge Responses
 modular y bandeja Windows. FreeLLMAPI sigue siendo la ruta operativa y ChatGPT normal sigue
 activo. El bridge permanece detenido fuera de canaries aislados.
@@ -19,8 +19,9 @@ Reglas permanentes:
 - No crear ni publicar un remoto externo sin destino y autorización explícitos.
 
 Catálogo operativo requerido: `andoryyu/deepseek-v4-flash`,
-`opencode-zen/deepseek-v4-flash-free` y `opencode-go/deepseek-v4-flash`, en ese orden.
-Las 22 credenciales permanecen en la bóveda aunque su proveedor no tenga un modelo activo.
+`opencode-zen/deepseek-v4-flash-free`, `tokenharbor/deepseek-v4-flash:free` y
+`opencode-go/deepseek-v4-flash`, en ese orden.
+Las 23 credenciales permanecen en la bóveda aunque su proveedor no tenga un modelo activo.
 
 ## Completado y evidencia compacta
 
@@ -30,9 +31,10 @@ Las 22 credenciales permanecen en la bóveda aunque su proveedor no tenga un mod
   `C:\Users\Owner\OneDrive\Documentos\area-trabajo\freellmapi\server\data\freeapi.db`
   sin modificarla. El snapshot externo es
   `C:\Users\Owner\.gloryapi\backups\freellmapi-live-20260811.db` (`integrity_check=ok`).
-- La base canónica de GloryAPI es `C:\Users\Owner\.gloryapi\gloryapi.db`; contiene 22
-  credenciales protegidas por DPAPI `CurrentUser`. Importación y recuperación son idempotentes,
-  con fingerprints, bundle portable, dry-run y health opt-in.
+- La base canónica de GloryAPI es `C:\Users\Owner\.gloryapi\gloryapi.db`; contiene 23
+  credenciales protegidas por DPAPI `CurrentUser`: las 22 importadas y la credencial TokenHarbor
+  añadida desde el panel local. Importación y recuperación son idempotentes, con fingerprints,
+  bundle portable, dry-run y health opt-in.
 - GloryAPI rechaza rutas que estén dentro del árbol `freellmapi`; runtime, logs y PID usan
   rutas externas configurables. FreeLLMAPI continúa activo en `:3001`.
 - Catálogo, registry, settings `glory-settings-v1`, routing `glory-routing-v1`, autosave,
@@ -72,7 +74,7 @@ Las 22 credenciales permanecen en la bóveda aunque su proveedor no tenga un mod
 
 ### Evidencia ejecutada en este bloque
 
-- `npm test`: **48 archivos / 274 tests PASS**; shared y client compilan.
+- `npm test`: **49 archivos / 281 tests PASS**; shared y client compilan.
 - Suite bridge aislada: **113/113 PASS**, incluyendo CLI/Desktop controlados, `--profile`,
   `CODEX_HOME` aislado y switches seguros sin mutar el home normal.
 - `npm run build:server`: PASS.
@@ -93,7 +95,7 @@ Las 22 credenciales permanecen en la bóveda aunque su proveedor no tenga un mod
 - Selectores actualizados: `codex-mode.ps1`, `switch-deepseek.ps1` y `switch-chatgpt.ps1`.
 - `switch-chatgpt.ps1` es seguro por defecto; la mutación global solo se permite con
   `-LegacyGlobalConfig`.
-- Evidencia adicional: parser PowerShell **5/5 OK**; `npm test` **48 archivos / 274 tests PASS**
+- Evidencia adicional: parser PowerShell **5/5 OK**; `npm test` **49 archivos / 281 tests PASS**
   y build shared/client; `git diff --check` PASS; `task:check` `GLORY-BASELINE` PASS con cero
   errores y cero warnings.
 - El archivo untracked `integrations/codex-bridge/test/_e2e_apply_patch.cjs` es preexistente,

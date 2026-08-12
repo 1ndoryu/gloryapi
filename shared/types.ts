@@ -43,6 +43,7 @@ export type Platform =
   // Added 2026-07-20
   | 'tokenrouter'
   | 'bynara'
+  | 'tokenharbor'
   | 'andoryyu';
 
 export const REGISTRY_SCHEMA_VERSION = 'glory-registry-v1' as const;

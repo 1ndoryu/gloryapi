@@ -25,8 +25,9 @@ function insertCatalogModels(): void {
   `);
   insert.run('andoryyu', 'deepseek-v4-flash', 'DeepSeek V4 Flash (Andoryyu)', 1, 1);
   insert.run('opencode-zen', 'deepseek-v4-flash-free', 'DeepSeek V4 Flash Free (Zen)', 2, 2);
-  insert.run('opencode-go', 'deepseek-v4-flash', 'DeepSeek V4 Flash (Go)', 3, 3);
-  insert.run('andoryyu', 'deepseek-v3', 'DeepSeek V3 (Andoryyu)', 4, 4);
+  insert.run('tokenharbor', 'deepseek-v4-flash:free', 'DeepSeek V4 Flash (TokenHarbor Free)', 3, 3);
+  insert.run('opencode-go', 'deepseek-v4-flash', 'DeepSeek V4 Flash (Go)', 4, 4);
+  insert.run('andoryyu', 'deepseek-v3', 'DeepSeek V3 (Andoryyu)', 5, 5);
 }
 
 function queryCatalogIds(): { andoryyuId: number; zenId: number; goId: number; otherId: number } {
@@ -46,7 +47,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     const selection = resolveProxyModelSelection('deepseek-v4-flash', buildMessages(true));
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
-    expect(selection.restrictedChain).toHaveLength(3);
+    expect(selection.restrictedChain).toHaveLength(4);
   });
 
   it('prefiere el modelo sticky de la sesión aunque el cliente pida modelo explícito', () => {
@@ -60,7 +61,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBe(goId);
     expect(selection.restrictedChain).toContain(goId);
-    expect(selection.restrictedChain).toHaveLength(3);
+    expect(selection.restrictedChain).toHaveLength(4);
   });
 
   it('ignora el sticky si el modelo sticky no pertenece a la cadena', () => {
@@ -72,7 +73,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     const selection = resolveProxyModelSelection('deepseek-v4-flash', messages);
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
-    expect(selection.restrictedChain).toHaveLength(3);
+    expect(selection.restrictedChain).toHaveLength(4);
   });
 
   it('no aplica sticky a requests sin mensaje assistant previo', () => {
@@ -83,6 +84,15 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     const selection = resolveProxyModelSelection('deepseek-v4-flash', buildMessages(false));
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
+  });
+
+  it('mantiene el ID :free fijado a TokenHarbor', () => {
+    const selection = resolveProxyModelSelection('deepseek-v4-flash:free', buildMessages(false));
+    if ('error' in selection) throw new Error(selection.error.message);
+    expect(selection.preferredModel).toBeUndefined();
+    expect(selection.restrictedChain).toHaveLength(1);
+    const row = getDb().prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get('tokenharbor', 'deepseek-v4-flash:free') as { id: number };
+    expect(selection.restrictedChain?.[0]).toBe(row.id);
   });
 });
 

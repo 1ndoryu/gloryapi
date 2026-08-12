@@ -10,7 +10,14 @@ export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; 
   'deepseek-v4-flash': [
     { platform: 'andoryyu', modelId: 'deepseek-v4-flash' },
     { platform: 'opencode-zen', modelId: 'deepseek-v4-flash-free' },
+    { platform: 'tokenharbor', modelId: 'deepseek-v4-flash:free' },
     { platform: 'opencode-go', modelId: 'deepseek-v4-flash' },
+  ],
+  // A provider-qualified :free ID must remain pinned to its provider. A
+  // request for the generic deepseek-v4-flash ID may use the broader chain
+  // above; this explicit ID must not silently become another model.
+  'deepseek-v4-flash:free': [
+    { platform: 'tokenharbor', modelId: 'deepseek-v4-flash:free' },
   ],
 }
 
@@ -35,6 +42,9 @@ export const PROVIDER_FAILURE_POLICY: Record<string, {
   // opencode-zen: un 429 casi siempre es cuota diaria agotada (4M tokens/día).
   // Escalar a 4h evita martillar el pool y deja que opencode-go sirva mientras.
   'opencode-zen': { cooldownMs: 300_000, rateLimitCooldownMs: 4 * 60 * 60 * 1000, recordPenalty: false, recordProviderFailure: true },
+  // TokenHarbor is a free gateway route; treat failures as transient and
+  // avoid hammering the same key while the public pool recovers.
+  tokenharbor: { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
   // Proveedor de pago (opencode-go): último recurso casi nunca falla. Nunca se
   // penaliza (no se hunde en la cola), no entra en cooldown de proveedor y su
   // cooldown de key es 0: tras un fallo puntual se vuelve a intentar de inmediato

@@ -21,24 +21,32 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       contextWindow: 131072,
     },
     {
+      platform: 'tokenharbor',
+      modelId: 'deepseek-v4-flash:free',
+      displayName: 'DeepSeek V4 Flash (TokenHarbor Free)',
+      intelligenceRank: 3,
+      speedRank: 3,
+      sizeLabel: 'Frontier',
+      // TokenHarbor's public compatibility contract does not establish a
+      // context limit; keep the capability gate fail-closed until discovery.
+      contextWindow: null,
+    },
+    {
       platform: 'opencode-go',
       modelId: 'deepseek-v4-flash',
       displayName: 'DeepSeek V4 Flash (Go)',
-      intelligenceRank: 3,
-      speedRank: 3,
+      intelligenceRank: 4,
+      speedRank: 4,
       sizeLabel: 'Frontier',
       contextWindow: 131072,
     },
   ] as const;
 
   const deleteFallback = db.prepare('DELETE FROM fallback_config');
+  const keepModelClauses = targetModels.map(() => '(platform = ? AND model_id = ?)').join(' OR ');
   const deleteOtherModels = db.prepare(`
     DELETE FROM models
-    WHERE NOT (
-      (platform = ? AND model_id = ?)
-      OR (platform = ? AND model_id = ?)
-      OR (platform = ? AND model_id = ?)
-    )
+    WHERE NOT (${keepModelClauses})
   `);
   const insertModel = db.prepare(`
     INSERT OR IGNORE INTO models (
@@ -58,11 +66,7 @@ export function normalizeGloryCatalog(db: Database.Database): void {
 
   db.transaction(() => {
     deleteFallback.run();
-    deleteOtherModels.run(
-      targetModels[0].platform, targetModels[0].modelId,
-      targetModels[1].platform, targetModels[1].modelId,
-      targetModels[2].platform, targetModels[2].modelId,
-    );
+    deleteOtherModels.run(...targetModels.flatMap(model => [model.platform, model.modelId]));
     for (const model of targetModels) {
       insertModel.run(
         model.platform,

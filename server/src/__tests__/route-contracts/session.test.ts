@@ -56,6 +56,17 @@ describe('Dashboard session control plane', () => {
     expect(sameOriginRead.status).toBe(200)
   })
 
+  it('accepts the configured GloryAPI dashboard port 5175', async () => {
+    const origin = 'http://127.0.0.1:5175'
+    const bootstrap = await request(app, 'POST', '/api/session/bootstrap', { origin })
+    expect(bootstrap.status).toBe(200)
+  })
+
+  it('accepts same-origin bootstrap without an Origin header on loopback', async () => {
+    const bootstrap = await request(app, 'POST', '/api/session/bootstrap')
+    expect(bootstrap.status).toBe(200)
+  })
+
   it('requires a matching origin and CSRF token for session mutations', async () => {
     const origin = 'http://localhost:5173'
     const bootstrap = await request(app, 'POST', '/api/session/bootstrap', { origin })

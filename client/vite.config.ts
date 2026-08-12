@@ -21,8 +21,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
-        '/api': `http://localhost:${serverPort}`,
-        '/v1': `http://localhost:${serverPort}`,
+        '/api': `http://127.0.0.1:${serverPort}`,
+        '/v1': `http://127.0.0.1:${serverPort}`,
       },
     },
   }

@@ -16,7 +16,7 @@ function activeDefinition(platform: Platform) {
 
 function register(provider: BaseProvider) {
   // Legacy adapters remain available to migration tests and isolated upgrades,
-  // but a normal GloryAPI process exposes only the three active catalog platforms.
+  // but a normal GloryAPI process exposes only the active catalog platforms.
   if (process.env.NODE_ENV !== 'test' && !isActiveProviderPlatform(provider.platform)) return;
   providers.set(provider.platform, provider);
 }
@@ -123,6 +123,23 @@ register(new OpenAICompatProvider({
   modelReasoningLimits: {
     'mimo': 'high',
     'minimax': 'high',
+  },
+}));
+
+// TokenHarbor — OpenAI-compatible catalog gateway. Its DeepSeek V4 Flash
+// route is exposed to GloryAPI as `deepseek-v4-flash:free`, while the gateway
+// reports the effective upstream model as the bare `deepseek-v4-flash` ID.
+// Sending the bare alias keeps the response identity contract strict without
+// hiding the provider's public catalog ID from clients.
+register(new OpenAICompatProvider({
+  platform: 'tokenharbor',
+  name: activeDefinition('tokenharbor').displayName,
+  baseUrl: activeDefinition('tokenharbor').endpoint,
+  prepareMessages: m => ensureReasoningContent(replaceNullAssistantContent(m)),
+  timeoutMs: 120_000,
+  maxReasoningEffort: 'max',
+  modelAliases: {
+    'deepseek-v4-flash:free': 'deepseek-v4-flash',
   },
 }));
 

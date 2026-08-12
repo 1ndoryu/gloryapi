@@ -67,16 +67,32 @@ describe('Provider registry API', () => {
 
     expect(snapshot.schemaVersion).toBe('glory-registry-v1')
     expect(snapshot.providers.map(provider => provider.platform)).toEqual([
-      'andoryyu', 'opencode-zen', 'opencode-go',
+      'andoryyu', 'opencode-zen', 'tokenharbor', 'opencode-go',
     ])
     expect(snapshot.models.map(model => `${model.platform}:${model.modelId}`)).toEqual([
       'andoryyu:deepseek-v4-flash',
       'opencode-zen:deepseek-v4-flash-free',
+      'tokenharbor:deepseek-v4-flash:free',
       'opencode-go:deepseek-v4-flash',
     ])
     expect(snapshot.providers.every(provider => provider.lifecycle === 'active')).toBe(true)
     expect(JSON.stringify(snapshot)).not.toContain('encrypted_key')
     expect(JSON.stringify(snapshot)).not.toContain('apiKey')
+  })
+
+  it('keeps TokenHarbor capabilities fail-closed until they are verified', async () => {
+    const snapshot = await requestRegistry(app)
+    const provider = snapshot.providers.find(entry => entry.platform === 'tokenharbor')
+    const model = snapshot.models.find(entry => entry.platform === 'tokenharbor')
+
+    expect(provider?.capabilities).toEqual({
+      streaming: true,
+      tools: false,
+      reasoning: false,
+      multimodal: false,
+      maxContextWindow: null,
+    })
+    expect(model?.capabilities).toEqual(provider?.capabilities)
   })
 
   it('creates an inert draft and rejects activation without verification', async () => {
@@ -131,7 +147,7 @@ describe('Provider registry API', () => {
     const snapshot = await requestRegistry(app)
     const archived = snapshot.providers.find(provider => provider.platform === 'groq')
     expect(archived).toMatchObject({ lifecycle: 'archived', credentialCount: 1, endpoint: '' })
-    expect(snapshot.models).toHaveLength(3)
+    expect(snapshot.models).toHaveLength(4)
   })
 
   it('exposes declarative templates and accepts a new provider as an inert draft', async () => {
@@ -189,7 +205,7 @@ describe('Provider registry API', () => {
       contextWindow: 32768,
       capabilities: { streaming: true, tools: false, reasoning: false, multimodal: false, maxContextWindow: 32768 },
     }])
-    expect((await requestRegistry(app)).models).toHaveLength(3)
+    expect((await requestRegistry(app)).models).toHaveLength(4)
   })
 
   it('requires an explicit key and never auto-selects discovered models', async () => {
@@ -211,7 +227,7 @@ describe('Provider registry API', () => {
       expect(response.status).toBe(200)
       const body = await response.json() as { schemaVersion: string; models: unknown[] }
       expect(body.schemaVersion).toBe('glory-control-status-v1')
-      expect(body.models).toHaveLength(3)
+      expect(body.models).toHaveLength(4)
     } finally {
       server.close()
     }

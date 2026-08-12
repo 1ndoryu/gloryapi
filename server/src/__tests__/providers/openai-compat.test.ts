@@ -312,6 +312,7 @@ describe('OpenAICompatProvider - platform instances', () => {
     { platform: 'github',     name: 'GitHub Models', baseUrl: 'https://models.github.ai/inference' },
     { platform: 'zhipu',      name: 'Zhipu AI',      baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
     { platform: 'opencode-zen', name: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/v1' },
+    { platform: 'tokenharbor', name: 'TokenHarbor', baseUrl: 'https://tokenharbor.ai/v1' },
   ] as const;
 
   for (const p of platforms) {

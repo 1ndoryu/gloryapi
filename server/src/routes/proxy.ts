@@ -152,6 +152,10 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 
   // Retry loop: on 429/rate limit, skip that model+key and try the next one
   const skipKeys = new Set<string>();
+  // Capability rejection is a model-level decision. Keep it separate from
+  // key failures so another credential cannot select the same incompatible
+  // provider again during this request.
+  const excludedModels = new Set<string>();
   // Track which model+key already got a cold-start retry so we don't loop forever
   const coldStartRetried = new Set<string>();
   let lastError: ProxyError | null = null;
@@ -163,7 +167,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < maxAttempts && Date.now() < routingDeadline; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, restrictedChain);
+      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, restrictedChain, excludedModels.size > 0 ? excludedModels : undefined);
     } catch (rawError: unknown) {
       const err = normalizeProxyError(rawError);
       // No route available right now. First purge every skip entry whose
@@ -225,8 +229,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       reasoningEffort: reasoning_effort,
     });
     if (capabilityError) {
-      lastError = capabilityError;
-      lastErrorKind = 'schema_mismatch';
+      excludedModels.add(`${route.platform}:${route.modelId}`); lastError = capabilityError; lastErrorKind = 'schema_mismatch';
       recordRoutingTraceAttempt(traceId, route, 'rejected', 'capability_not_supported', Date.now() - routeStartedAt);
       logProxyRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, capabilityError.message, route.keyId);
       continue;

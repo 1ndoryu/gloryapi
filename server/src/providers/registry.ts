@@ -9,7 +9,7 @@ import {
   type RegistrySnapshot,
 } from '@gloryapi/shared/types.js';
 
-export const ACTIVE_PROVIDER_PLATFORMS = ['andoryyu', 'opencode-zen', 'opencode-go'] as const;
+export const ACTIVE_PROVIDER_PLATFORMS = ['andoryyu', 'opencode-zen', 'tokenharbor', 'opencode-go'] as const;
 export const ARCHIVED_PROVIDER_PLATFORMS = [
   'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral',
   'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
@@ -29,6 +29,18 @@ const activeCapabilities: CapabilityProfile = {
   reasoning: true,
   multimodal: false,
   maxContextWindow: 131072,
+};
+
+// TokenHarbor is only enabled for the capabilities demonstrated by its
+// OpenAI-compatible contract and the live health/chat checks. Tools,
+// reasoning controls and context size stay fail-closed until separately
+// verified against that provider.
+const tokenharborCapabilities: CapabilityProfile = {
+  streaming: true,
+  tools: false,
+  reasoning: false,
+  multimodal: false,
+  maxContextWindow: null,
 };
 
 export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'credentialCount'>> = [
@@ -55,6 +67,17 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     endpoint: 'https://opencode.ai/zen/v1',
     authScheme: 'bearer',
     capabilities: activeCapabilities,
+    timeoutMs: 120_000,
+  },
+  {
+    platform: 'tokenharbor',
+    displayName: 'TokenHarbor',
+    lifecycle: 'active',
+    enabled: true,
+    adapter: 'openai-compatible',
+    endpoint: 'https://tokenharbor.ai/v1',
+    authScheme: 'bearer',
+    capabilities: tokenharborCapabilities,
     timeoutMs: 120_000,
   },
   {
@@ -201,6 +224,7 @@ export function getRegistrySnapshot(): RegistrySnapshot {
     });
   }
 
+  const capabilityByPlatform = new Map(providers.map(provider => [provider.platform, provider.capabilities]));
   const rows = db.prepare(`
     SELECT platform, model_id, display_name, enabled, context_window
     FROM models
@@ -212,17 +236,24 @@ export function getRegistrySnapshot(): RegistrySnapshot {
     enabled: number;
     context_window: number | null;
   }>;
-  const models: ModelDefinition[] = rows.map(row => ({
-    platform: row.platform as Platform,
-    modelId: row.model_id,
-    displayName: row.display_name,
-    enabled: row.enabled === 1,
-    contextWindow: row.context_window,
-    capabilities: {
-      ...activeCapabilities,
-      maxContextWindow: row.context_window,
-    },
-  }));
+  const models: ModelDefinition[] = rows.map(row => {
+    const providerCapabilities = capabilityByPlatform.get(row.platform as Platform) ?? activeCapabilities;
+    return {
+      platform: row.platform as Platform,
+      modelId: row.model_id,
+      displayName: row.display_name,
+      enabled: row.enabled === 1,
+      contextWindow: row.context_window,
+      capabilities: {
+        ...providerCapabilities,
+        // A null provider limit is intentional: do not infer an unverified
+        // context window from catalog metadata for fail-closed providers.
+        maxContextWindow: providerCapabilities.maxContextWindow === null
+          ? null
+          : (row.context_window ?? providerCapabilities.maxContextWindow),
+      },
+    };
+  });
 
   return {
     schemaVersion: REGISTRY_SCHEMA_VERSION,

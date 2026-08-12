@@ -53,7 +53,9 @@ function tryRouteSpecificModel(
   model: ModelRow,
   estimatedTokens: number,
   skipKeys?: Set<string>,
+  excludedModels?: Set<string>,
 ): RouteResult | undefined {
+  if (excludedModels?.has(`${model.platform}:${model.model_id}`)) return undefined;
   /* [2076-15] Skip entire provider if on cooldown (3+ consecutive failures). */
   if (isProviderOnCooldown(model.platform)) return undefined;
 
@@ -208,12 +210,15 @@ export function getAllPenalties(): Array<{ modelDbId: number; count: number; pen
  * @param preferredModelDbId - try this model first (sticky session)
  * @param restrictedFallbackChain - ordered list of model DB IDs; used instead
  *   of global fallback_config when the preferred model (if any) fails
+ * @param excludedModels - provider/model identities rejected for this request
+ *   by a capability gate; unlike skipKeys this excludes every credential
  */
 export function routeRequest(
   estimatedTokens = 1000,
   skipKeys?: Set<string>,
   preferredModelDbId?: number,
   restrictedFallbackChain?: number[],
+  excludedModels?: Set<string>,
 ): RouteResult {
   const db = getDb();
 
@@ -223,7 +228,7 @@ export function routeRequest(
      * the automatic fallback chain. Try the preferred model directly first so
      * explicit-only catalog rows still work without contaminating `auto`. */
     if (preferredModel) {
-      const preferredRoute = tryRouteSpecificModel(preferredModel, estimatedTokens, skipKeys);
+      const preferredRoute = tryRouteSpecificModel(preferredModel, estimatedTokens, skipKeys, excludedModels);
       if (preferredRoute) return preferredRoute;
     }
   }
@@ -250,7 +255,7 @@ export function routeRequest(
         continue;
       }
 
-      const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys);
+      const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys, excludedModels);
       if (route) return route;
     }
 
@@ -258,7 +263,7 @@ export function routeRequest(
     for (const modelDbId of restrictedFallbackChain) {
       const model = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(modelDbId) as ModelRow | undefined;
       if (!model) continue;
-      const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys);
+      const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys, excludedModels);
       if (route) return route;
     }
 
@@ -295,7 +300,7 @@ export function routeRequest(
     // Get model details
     const model = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(entry.model_db_id) as ModelRow | undefined;
     if (!model) continue;
-    const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys);
+    const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys, excludedModels);
     if (route) return route;
   }
 
@@ -308,7 +313,7 @@ export function routeRequest(
     if (!entry.enabled) continue;
     const model = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(entry.model_db_id) as ModelRow | undefined;
     if (!model) continue;
-    const route = tryRouteSpecificModelRelaxed(model, estimatedTokens, skipKeys);
+    const route = tryRouteSpecificModelRelaxed(model, estimatedTokens, skipKeys, excludedModels);
     if (route) return route;
   }
 
@@ -324,7 +329,9 @@ function tryRouteSpecificModelRelaxed(
   model: ModelRow,
   estimatedTokens: number,
   skipKeys?: Set<string>,
+  excludedModels?: Set<string>,
 ): RouteResult | undefined {
+  if (excludedModels?.has(`${model.platform}:${model.model_id}`)) return undefined;
   if (isProviderOnCooldown(model.platform)) return undefined;
 
   const provider = getProvider(model.platform);
