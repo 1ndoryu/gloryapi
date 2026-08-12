@@ -188,90 +188,111 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, resolveSafeVisi
   }
 
   async function fetchDescription(imageUrl, prompt, key) {
-    const body = {
-      model: vision.model,
-      max_tokens: vision.maxTokens,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          { type: 'image_url', image_url: { url: imageUrl } },
-        ],
-      }],
-    };
-    const endpoint = assertSafeVisionEndpoint(
-      `${vision.baseUrl.replace(/\/$/, '')}${vision.completionsPath}`,
-    ).toString();
+    const routes = [
+      {
+        id: 'primary',
+        baseUrl: vision.baseUrl,
+        completionsPath: vision.completionsPath,
+        model: vision.model,
+        apiKey: vision.apiKey,
+      },
+      ...(Array.isArray(vision.fallbacks) ? vision.fallbacks : []),
+    ].filter((route) => route && typeof route.baseUrl === 'string' && typeof route.model === 'string');
     let lastFailure = { kind: 'unknown', status: 'none', bytes: 0 };
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) await sleep(400 * attempt);
-      let timer;
+    for (const route of routes) {
+      const body = {
+        model: route.model,
+        max_tokens: vision.maxTokens,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ],
+        }],
+      };
+      let endpoint;
       try {
-        const safeEndpoint = resolveEndpoint ? await resolveEndpoint(endpoint) : new URL(endpoint);
-        const controller = new AbortController();
-        timer = setTimeout(() => controller.abort(), vision.timeoutMs);
-        const headers = { 'Content-Type': 'application/json' };
-        if (vision.apiKey) headers.Authorization = `Bearer ${vision.apiKey}`;
-        const validatedAddresses = safeEndpoint.__validatedAddresses;
-        const response = validatedAddresses && validatedAddresses.length
-          ? await requestPinnedVision(safeEndpoint.toString(), validatedAddresses[attempt % validatedAddresses.length], {
-            headers,
-            body: JSON.stringify(body),
-            maxBytes: vision.maxResponseBytes,
-            timeoutMs: vision.timeoutMs,
-            signal: controller.signal,
-          })
-          : await fetch(safeEndpoint.toString(), {
-            method: 'POST',
-            redirect: 'error',
-            headers,
-            body: JSON.stringify(body),
-            signal: controller.signal,
-          });
-        const raw = response.text && typeof response.text === 'string'
-          ? response.text
-          : await readResponseTextLimited(response, vision.maxResponseBytes, 'vision response');
-        if (!response.ok) {
-          lastFailure = { kind: 'http', status: response.status, bytes: Buffer.byteLength(raw, 'utf8') };
-          continue;
+        endpoint = assertSafeVisionEndpoint(
+          `${route.baseUrl.replace(/\/$/, '')}${route.completionsPath}`,
+        ).toString();
+      } catch {
+        lastFailure = { kind: 'validation', status: 'none', bytes: 0 };
+        continue;
+      }
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await sleep(400 * attempt);
+        let timer;
+        try {
+          const safeEndpoint = resolveEndpoint ? await resolveEndpoint(endpoint) : new URL(endpoint);
+          const controller = new AbortController();
+          timer = setTimeout(() => controller.abort(), vision.timeoutMs);
+          const headers = { 'Content-Type': 'application/json' };
+          if (route.apiKey) headers.Authorization = `Bearer ${route.apiKey}`;
+          const validatedAddresses = safeEndpoint.__validatedAddresses;
+          const response = validatedAddresses && validatedAddresses.length
+            ? await requestPinnedVision(safeEndpoint.toString(), validatedAddresses[attempt % validatedAddresses.length], {
+              headers,
+              body: JSON.stringify(body),
+              maxBytes: vision.maxResponseBytes,
+              timeoutMs: vision.timeoutMs,
+              signal: controller.signal,
+            })
+            : await fetch(safeEndpoint.toString(), {
+              method: 'POST',
+              redirect: 'error',
+              headers,
+              body: JSON.stringify(body),
+              signal: controller.signal,
+            });
+          const raw = response.text && typeof response.text === 'string'
+            ? response.text
+            : await readResponseTextLimited(response, vision.maxResponseBytes, 'vision response');
+          if (!response.ok) {
+            lastFailure = { kind: 'http', status: response.status, bytes: Buffer.byteLength(raw, 'utf8') };
+            continue;
+          }
+          const json = JSON.parse(raw);
+          const message = json.choices && json.choices[0] && json.choices[0].message;
+          let text = (message && message.content) || '';
+          if (!String(text).trim() && message && message.reasoning_content) text = message.reasoning_content;
+          if (!String(text).trim() && message && message.reasoning) text = String(message.reasoning);
+          text = String(text).trim();
+          if (!text) {
+            lastFailure = { kind: 'empty_response', status: response.status, bytes: 0 };
+            continue;
+          }
+          setCached(key, { text, ts: Date.now() });
+          scheduleSave();
+          log(`vision: described image via ${route.id || 'route'} (${text.length} chars)`);
+          return { text, failure: null };
+        } catch (error) {
+          lastFailure = { kind: error && error.name === 'AbortError' ? 'timeout' : 'transport', status: 'none', bytes: 0 };
+        } finally {
+          if (timer) clearTimeout(timer);
         }
-        const json = JSON.parse(raw);
-        const message = json.choices && json.choices[0] && json.choices[0].message;
-        let text = (message && message.content) || '';
-        if (!String(text).trim() && message && message.reasoning_content) text = message.reasoning_content;
-        if (!String(text).trim() && message && message.reasoning) text = String(message.reasoning);
-        text = String(text).trim();
-        if (!text) {
-          lastFailure = { kind: 'empty_response', status: response.status, bytes: 0 };
-          continue;
-        }
-        setCached(key, { text, ts: Date.now() });
-        scheduleSave();
-        log(`vision: described image (${text.length} chars)`);
-        return text;
-      } catch (error) {
-        lastFailure = { kind: error && error.name === 'AbortError' ? 'timeout' : 'transport', status: 'none', bytes: 0 };
-      } finally {
-        if (timer) clearTimeout(timer);
       }
     }
     log(formatRemoteFailure('vision', lastFailure));
-    return null;
+    return { text: null, failure: lastFailure };
   }
 
-  async function describeImage(imageUrl, focusHint) {
-    if (vision.disabled || !imageUrl) return null;
+  async function describeImageResult(imageUrl, focusHint) {
+    if (vision.disabled) return { text: null, failure: { kind: 'disabled', status: 'none', bytes: 0 } };
+    if (!imageUrl) return { text: null, failure: { kind: 'missing', status: 'none', bytes: 0 } };
     try {
       imageUrl = validateImageReference(imageUrl);
-    } catch {
-      log(formatRemoteFailure('vision', { kind: 'validation' }));
-      return null;
+    } catch (error) {
+      const failure = { kind: 'validation', status: 'none', bytes: 0 };
+      log(formatRemoteFailure('vision', failure));
+      return { text: null, failure };
     }
     const prompt = buildPrompt(focusHint);
     const key = sha256hex(`${imageUrl}\x00${prompt}`);
     const cached = getCached(key);
-    if (cached && typeof cached.text === 'string') return cached.text;
+    if (cached && typeof cached.text === 'string') return { text: cached.text, failure: null };
     const active = pending.get(key);
     if (active) return active;
     const task = fetchDescription(imageUrl, prompt, key);
@@ -281,6 +302,11 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, resolveSafeVisi
     } finally {
       pending.delete(key);
     }
+  }
+
+  async function describeImage(imageUrl, focusHint) {
+    const result = await describeImageResult(imageUrl, focusHint);
+    return result && typeof result.text === 'string' ? result.text : null;
   }
 
   function extractFocusHint(body) {
@@ -300,6 +326,7 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, resolveSafeVisi
   loadCache();
   return {
     describeImage,
+    describeImageResult,
     extractFocusHint,
     validateImageReference,
     getCacheStats: () => ({ entries: cache.size, bytes: cacheBytes, pending: pending.size }),

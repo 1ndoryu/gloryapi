@@ -24,6 +24,33 @@ function normalizedPath(value, fallback) {
   return `/${text.replace(/^\/+/, '')}`;
 }
 
+function parseVisionFallbacks(env) {
+  const raw = firstEnv(env, ['VISION_FALLBACKS_JSON', 'BRIDGE_VISION_FALLBACKS_JSON']);
+  if (!raw) return [];
+  let rows;
+  try {
+    rows = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(rows)) return [];
+  return rows.slice(0, 8).map((row, index) => {
+    if (!row || typeof row !== 'object') return null;
+    const apiKeyEnv = typeof row.apiKeyEnv === 'string' ? row.apiKeyEnv.trim() : '';
+    const baseUrl = typeof row.baseUrl === 'string' ? row.baseUrl.trim() : '';
+    const model = typeof row.model === 'string' ? row.model.trim() : '';
+    if (!baseUrl || !model) return null;
+    return {
+      id: typeof row.id === 'string' && row.id.trim() ? row.id.trim().slice(0, 64) : `fallback-${index + 1}`,
+      baseUrl,
+      completionsPath: normalizedPath(row.completionsPath, '/chat/completions'),
+      model,
+      apiKey: apiKeyEnv ? firstEnv(env, [apiKeyEnv]) : '',
+      allowAnonymous: row.allowAnonymous === true,
+    };
+  }).filter(Boolean);
+}
+
 function loopbackHost(value) {
   const host = String(value || '127.0.0.1').trim().toLowerCase();
   if (!new Set(['127.0.0.1', 'localhost', '::1']).has(host)) {
@@ -174,6 +201,7 @@ const config = Object.freeze({
     model: env.VISION_MODEL || env.BRIDGE_VISION_MODEL || 'mimo-v2.5-free',
     apiKey: env.VISION_API_KEY || '',
     allowAnonymous: env.VISION_ALLOW_ANONYMOUS === '1',
+    fallbacks: parseVisionFallbacks(env),
     maxTokens: boundedEnvInt('VISION_MAX_TOKENS', 4096, 1, 16384),
     timeoutMs: boundedEnvInt('VISION_TIMEOUT_MS', 180000, 100, 300000),
     maxResponseBytes: boundedEnvInt('VISION_MAX_RESPONSE_BYTES', 4 * 1024 * 1024, 1024, 32 * 1024 * 1024),
@@ -185,6 +213,9 @@ const config = Object.freeze({
     channelNote:
       env.BRIDGE_VISION_CHANNEL_NOTE ||
       '[visión] Las imágenes se te entregan como texto: el modelo de visión las describe debajo.',
+    failureNote:
+      env.BRIDGE_VISION_FAILURE_NOTE ||
+      '[visión] La imagen sí fue recibida por el bridge.',
   },
   context: {
     disabled: env.BRIDGE_COMPACTION_DISABLED !== '0',
@@ -212,4 +243,4 @@ const config = Object.freeze({
   },
 });
 
-module.exports = { boundedEnvInt, boundedEnvFloat, firstEnv, normalizedPath, loopbackHost, config };
+module.exports = { boundedEnvInt, boundedEnvFloat, firstEnv, normalizedPath, parseVisionFallbacks, loopbackHost, config };

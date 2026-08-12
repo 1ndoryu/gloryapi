@@ -21,9 +21,10 @@
  * request are replaced by a text description from a cheap vision model. The
  * vision model ONLY receives the image plus a short description task (the
  * user's latest text as focus hint) - never the full conversation.
- *   VISION_BASE_URL     vision base URL        (default https://opencode.ai/zen/go/v1)
- *   VISION_MODEL        vision model id        (default mimo-v2.5, non-pro)
+ *   VISION_BASE_URL     vision base URL        (default https://opencode.ai/zen/v1)
+ *   VISION_MODEL        vision model id        (default mimo-v2.5-free)
  *   VISION_API_KEY      vision api key         (no default; optional)
+ *   VISION_FALLBACKS_JSON extra vision routes  (JSON; keys use apiKeyEnv)
  *   VISION_MAX_TOKENS   vision max tokens      (default 4096)
  *   VISION_DISABLE      1 -> skip image description (images dropped)
  *
@@ -127,7 +128,7 @@ const visionAdapter = createVisionAdapter({
   formatRemoteFailure,
   log,
 });
-const { describeImage, extractFocusHint, validateImageReference } = visionAdapter;
+const { describeImage, describeImageResult, extractFocusHint, validateImageReference } = visionAdapter;
 
 function log(...args) {
   process.stderr.write(`${format(`[${new Date().toISOString()}]`, ...args)}\n`);
@@ -163,6 +164,7 @@ const {
 const requestTranslator = createRequestTranslator({
   config,
   describeImage,
+  describeImageResult,
   extractFocusHint,
   boundSystemContent,
   log,

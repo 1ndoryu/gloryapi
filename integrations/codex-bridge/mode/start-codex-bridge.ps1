@@ -15,6 +15,10 @@ param(
     [switch]$Desktop,
     [string]$DesktopUserDataDir = '',
     [string]$DesktopExecutable = '',
+    [string]$VisionBaseUrl = '',
+    [string]$VisionModel = '',
+    [string]$VisionFallbacksJson = '',
+    [switch]$VisionAllowAnonymous,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$CodexArguments
 )
@@ -81,6 +85,10 @@ if (-not $NoStartBridge) {
     $bridgeArgs = @{ Port = $BridgePort }
     if (-not [string]::IsNullOrWhiteSpace($RuntimeDataDir)) { $bridgeArgs.RuntimeDataDir = $RuntimeDataDir }
     if (-not [string]::IsNullOrWhiteSpace($DatabasePath)) { $bridgeArgs.DatabasePath = $DatabasePath }
+    if (-not [string]::IsNullOrWhiteSpace($VisionBaseUrl)) { $bridgeArgs.VisionBaseUrl = $VisionBaseUrl }
+    if (-not [string]::IsNullOrWhiteSpace($VisionModel)) { $bridgeArgs.VisionModel = $VisionModel }
+    if (-not [string]::IsNullOrWhiteSpace($VisionFallbacksJson)) { $bridgeArgs.VisionFallbacksJson = $VisionFallbacksJson }
+    if ($VisionAllowAnonymous) { $bridgeArgs.VisionAllowAnonymous = $true }
     & $startBridgeScript @bridgeArgs
 }
 

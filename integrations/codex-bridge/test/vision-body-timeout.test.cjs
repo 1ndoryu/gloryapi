@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { config: baseConfig } = require('../bridge/config');
 const { createVisionAdapter } = require('../bridge/vision');
+const { createRequestTranslator } = require('../bridge/request-translator');
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -213,4 +214,95 @@ test('vision coalesces identical requests and evicts by total memory bytes', asy
   const stats = adapter.getCacheStats();
   assert.ok(stats.bytes <= 512, `cache bytes ${stats.bytes} exceed configured bound`);
   assert.ok(stats.entries < 4, 'byte bound must evict older entries');
+});
+
+test('vision falls back to the next configured route after a provider limit', async (t) => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  let primaryAttempts = 0;
+  global.fetch = async (endpoint, options) => {
+    calls.push({ endpoint, body: JSON.parse(options.body) });
+    if (endpoint.startsWith('https://primary.example')) {
+      primaryAttempts += 1;
+      return new Response(JSON.stringify({ error: { type: 'rate_limit' } }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'descripción de respaldo' } }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const cacheFile = path.join(os.tmpdir(), `glory-vision-fallback-${process.pid}-${Date.now()}.json`);
+  const adapter = createVisionAdapter({
+    config: {
+      ...baseConfig,
+      limits: { ...baseConfig.limits },
+      vision: {
+        ...baseConfig.vision,
+        baseUrl: 'https://primary.example/v1',
+        model: 'primary-vision',
+        timeoutMs: 1000,
+        maxResponseBytes: 1024,
+        cacheFile,
+        fallbacks: [{
+          id: 'secondary',
+          baseUrl: 'https://secondary.example/v1',
+          completionsPath: '/chat/completions',
+          model: 'secondary-vision',
+          apiKey: 'test-only',
+        }],
+      },
+    },
+    assertSafeVisionEndpoint: value => new URL(value),
+    formatRemoteFailure: () => {},
+    log: () => {},
+  });
+  t.after(() => {
+    global.fetch = originalFetch;
+    fs.rmSync(cacheFile, { force: true });
+  });
+
+  const result = await adapter.describeImageResult('data:image/png;base64,iVBORw0KGgo=', 'fallback');
+  assert.deepEqual(result, { text: 'descripción de respaldo', failure: null });
+  assert.equal(primaryAttempts, 3, 'the primary route keeps its bounded retries');
+  assert.equal(calls.at(-1).body.model, 'secondary-vision');
+  assert.equal(calls.at(-1).body.messages[0].content[1].type, 'image_url');
+});
+
+test('vision failure reaches the text model as an honest diagnostic', async () => {
+  const translator = createRequestTranslator({
+    config: {
+      ...baseConfig,
+      vision: {
+        ...baseConfig.vision,
+        failureNote: '[visión] Imagen recibida.',
+      },
+    },
+    describeImage: async () => null,
+    describeImageResult: async () => ({
+      text: null,
+      failure: { kind: 'http', status: 429, bytes: 143 },
+    }),
+    extractFocusHint: () => '',
+    boundSystemContent: value => value,
+    log: () => {},
+    reasoningFor: () => null,
+  });
+
+  const result = await translator.translateRequest({
+    input: [{
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=' }],
+    }],
+    tools: [],
+    stream: false,
+  });
+  const text = result.chat.messages[0].content.map(part => part.text || '').join('\n');
+  assert.match(text, /Imagen recibida/);
+  assert.match(text, /HTTP 429/);
+  assert.match(text, /No concluyas que la imagen, carpeta o visualización está vacía/);
+  assert.doesNotMatch(text, /Imagen no disponible: el modelo de visión no pudo describirla/);
 });

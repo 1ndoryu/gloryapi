@@ -82,8 +82,10 @@ sin commit por indicación del usuario.
 - No hay claves embebidas. El sidecar exige `BRIDGE_CLIENT_TOKEN` para
   Codex→sidecar y usa por separado `GLORY_API_KEY` (o `FREEL_API_KEY` transitorio)
   para sidecar→GloryAPI; nunca reenvía ciegamente el bearer del cliente.
-  Visión requiere `VISION_API_KEY` explícita; un endpoint sin auth solo se permite con
-  `VISION_ALLOW_ANONYMOUS=1` y aun así queda `unverified` hasta un health probe.
+  Visión admite `VISION_API_KEY` o un endpoint anónimo explícitamente habilitado con
+  `VISION_ALLOW_ANONYMOUS=1`. Se pueden configurar rutas alternativas en
+  `VISION_FALLBACKS_JSON`; cada entrada usa `baseUrl`, `model`, `completionsPath`
+  opcional, `allowAnonymous` y `apiKeyEnv` para que las claves sigan fuera del JSON.
 - No se habilita CORS para navegadores.
 - El cuerpo se limita a 8 MiB, configurable con `BRIDGE_MAX_BODY_BYTES`.
 - Cada respuesta de backend de búsqueda se limita a 1 MiB, configurable con
@@ -148,6 +150,9 @@ sin commit por indicación del usuario.
   y probe de salud aprobado; cada intento valida todas las respuestas DNS y bloquea rangos
   privados. La conexión usa el conjunto de direcciones ya validado como `lookup` fijado,
   conserva SNI para HTTPS y no sigue redirects.
+- Si una ruta devuelve `429`, el bridge conserva sus reintentos acotados y prueba la
+  siguiente ruta configurada. Si todas fallan, el modelo recibe un diagnóstico explícito
+  de que la imagen sí llegó pero no pudo describirse; nunca se transforma en “carpeta vacía”.
 - La red de seguridad de contexto compacta antes cuando la autocompactación nativa
   no actuó (`BRIDGE_COMPACTION_SAFETY_FACTOR=1.25` por defecto), y el system prompt
   reenviado queda limitado a 120000 caracteres (`BRIDGE_MAX_SYSTEM_CHARS`). Ambos

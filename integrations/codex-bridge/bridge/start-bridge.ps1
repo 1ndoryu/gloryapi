@@ -7,7 +7,11 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 4100,
     [string]$RuntimeDataDir = '',
-    [string]$DatabasePath = ''
+    [string]$DatabasePath = '',
+    [string]$VisionBaseUrl = '',
+    [string]$VisionModel = '',
+    [string]$VisionFallbacksJson = '',
+    [switch]$VisionAllowAnonymous
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
@@ -120,6 +124,33 @@ if ([string]::IsNullOrWhiteSpace($upstreamToken)) {
 
 $bridgeServer = Join-Path $BridgeDir 'server.js'
 
+# Vision se configura desde el launcher o desde el entorno del proceso que lo
+# invoca. El valor por defecto conserva el pool gratuito existente, pero no
+# obliga a editar este script para cambiar de proveedor o añadir fallbacks.
+$ConfiguredVisionBaseUrl = if (-not [string]::IsNullOrWhiteSpace($VisionBaseUrl)) {
+    $VisionBaseUrl
+} elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_BASE_URL)) {
+    $env:VISION_BASE_URL
+} else { 'https://opencode.ai/zen/v1' }
+$ConfiguredVisionModel = if (-not [string]::IsNullOrWhiteSpace($VisionModel)) {
+    $VisionModel
+} elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_MODEL)) {
+    $env:VISION_MODEL
+} else { 'mimo-v2.5-free' }
+$ConfiguredVisionApiKey = $env:VISION_API_KEY
+$ConfiguredVisionFallbacksJson = if (-not [string]::IsNullOrWhiteSpace($VisionFallbacksJson)) {
+    $VisionFallbacksJson
+} else { $env:VISION_FALLBACKS_JSON }
+$ConfiguredVisionAnonymous = if ($VisionAllowAnonymous) {
+    '1'
+} elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_ALLOW_ANONYMOUS)) {
+    $env:VISION_ALLOW_ANONYMOUS
+} elseif ([string]::IsNullOrWhiteSpace($ConfiguredVisionApiKey)) {
+    '1'
+} else {
+    '0'
+}
+
 # Lanzamiento desacoplado del host (mismo patron probado que el runtime en
 # start-gloryapi.ps1): Start-Process con redireccion a archivo crea un proceso
 # sin consola compartida. Un proceso .NET (CreateNoWindow) hereda la consola
@@ -146,12 +177,25 @@ function Start-IsolatedBridge {
         $env:GLORY_API_KEY = $upstreamToken
         $env:BRIDGE_PORT = [string]$Port
         $env:GLORY_API_CONTRACT = 'chat-completions-v1'
-        # Vision: el pool free de opencode-zen (mimo-v2.5-free) se sirve SIN API
-        # key; el bridge omite el header Authorization cuando VISION_API_KEY está
-        # vacío. Los valores por defecto de server.js ya apuntan aquí, pero se fijan
-        # explícitamente para dejar el contrato visible en el arranque.
-        $env:VISION_BASE_URL = 'https://opencode.ai/zen/v1'
-        $env:VISION_MODEL = 'mimo-v2.5-free'
+        $env:VISION_BASE_URL = $ConfiguredVisionBaseUrl
+        $env:VISION_MODEL = $ConfiguredVisionModel
+        $env:VISION_API_KEY = $ConfiguredVisionApiKey
+        $env:VISION_ALLOW_ANONYMOUS = $ConfiguredVisionAnonymous
+        $env:VISION_FALLBACKS_JSON = $ConfiguredVisionFallbacksJson
+        if (-not [string]::IsNullOrWhiteSpace($ConfiguredVisionFallbacksJson)) {
+            try {
+                $fallbackRows = @($ConfiguredVisionFallbacksJson | ConvertFrom-Json)
+                foreach ($row in $fallbackRows) {
+                    $keyEnv = if ($row -and $row.apiKeyEnv) { [string]$row.apiKeyEnv } else { '' }
+                    if ($keyEnv -and $snapshot.ContainsKey($keyEnv)) {
+                        [Environment]::SetEnvironmentVariable($keyEnv, $snapshot[$keyEnv], 'Process')
+                    }
+                }
+            }
+            catch {
+                throw 'VISION_FALLBACKS_JSON no contiene una configuración JSON válida.'
+            }
+        }
         return Start-Process -FilePath $node -ArgumentList @($bridgeServer) -WorkingDirectory $BridgeDir `
             -WindowStyle Hidden -RedirectStandardOutput $LogOut -RedirectStandardError $LogErr -PassThru
     }

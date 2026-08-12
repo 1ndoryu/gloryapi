@@ -8,7 +8,11 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 4100,
     [string]$RuntimeDataDir = '',
-    [string]$DatabasePath = ''
+    [string]$DatabasePath = '',
+    [string]$VisionBaseUrl = '',
+    [string]$VisionModel = '',
+    [string]$VisionFallbacksJson = '',
+    [switch]$VisionAllowAnonymous
 )
 $ErrorActionPreference = 'Stop'
 $bridgeLink = Get-Item -LiteralPath $PSScriptRoot -Force
@@ -74,7 +78,20 @@ if ($Runtime) {
 }
 
 Write-Host 'Reiniciando bridge (stop + start + health)...'
-& (Join-Path $BridgeDir 'start-bridge.ps1') -Restart -Force:$Force -Port $Port -RuntimeDataDir $RuntimeDataDir -DatabasePath $DatabasePath
+# La tabla siguiente es la forma parametrizable de
+# `start-bridge.ps1 -Restart -Force:$Force -Port $Port -RuntimeDataDir $RuntimeDataDir -DatabasePath $DatabasePath`.
+$startArgs = @{
+    Restart = $true
+    Force = $Force
+    Port = $Port
+    RuntimeDataDir = $RuntimeDataDir
+    DatabasePath = $DatabasePath
+}
+if (-not [string]::IsNullOrWhiteSpace($VisionBaseUrl)) { $startArgs.VisionBaseUrl = $VisionBaseUrl }
+if (-not [string]::IsNullOrWhiteSpace($VisionModel)) { $startArgs.VisionModel = $VisionModel }
+if (-not [string]::IsNullOrWhiteSpace($VisionFallbacksJson)) { $startArgs.VisionFallbacksJson = $VisionFallbacksJson }
+if ($VisionAllowAnonymous) { $startArgs.VisionAllowAnonymous = $true }
+& (Join-Path $BridgeDir 'start-bridge.ps1') @startArgs
 if ($LASTEXITCODE -ne 0) {
     throw "start-bridge.ps1 falló con código $LASTEXITCODE."
 }

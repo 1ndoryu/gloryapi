@@ -20,7 +20,9 @@ function createBridgeHttpServer({
 }) {
   const { identity, contract, upstream, limits, logging, vision, auth } = config;
   const lifecycleStates = ['starting', 'ready', 'blocked', 'draining', 'stopped'];
-  const visionConfigured = !vision.disabled && (vision.apiKey.length > 0 || vision.allowAnonymous === true);
+  const visionRoutes = [vision, ...(Array.isArray(vision.fallbacks) ? vision.fallbacks : [])];
+  const visionConfigured = !vision.disabled && visionRoutes.some((route) =>
+    route && (String(route.apiKey || '').length > 0 || route.allowAnonymous === true));
 
   function incomingBearer(req) {
     const value = req.headers.authorization;

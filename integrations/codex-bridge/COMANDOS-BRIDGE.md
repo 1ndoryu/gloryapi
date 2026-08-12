@@ -59,6 +59,25 @@ Usa otra base/ruta de runtime solo si se necesita una instalación paralela:
   -DatabasePath "$env:USERPROFILE\.gloryapi\gloryapi.db"
 ```
 
+## Configurar visión y fallbacks
+
+La visión no depende del modelo de texto de GloryAPI. El bridge envía cada imagen al proveedor de
+visión configurado y entrega la descripción al modelo principal como texto. El proveedor actual es
+configurable con `-VisionBaseUrl` y `-VisionModel`; no pongas claves en el script ni en este documento.
+
+Para añadir rutas alternativas, define `VISION_FALLBACKS_JSON` en el entorno antes de iniciar el bridge.
+Cada clave se referencia por nombre mediante `apiKeyEnv`, no se guarda dentro del JSON:
+
+```powershell
+$env:VISION_FALLBACKS_JSON = '[{"id":"vision-secundaria","baseUrl":"https://proveedor.example/v1","model":"modelo-vision","apiKeyEnv":"VISION_SECUNDARIA_API_KEY"}]'
+# VISION_SECUNDARIA_API_KEY debe existir ya en el entorno seguro del proceso.
+& '.\integrations\codex-bridge\bridge\start-bridge.ps1' -Restart
+```
+
+Si el proveedor principal responde `429`, se reintenta de forma acotada y se prueban las rutas
+alternativas. Si todas fallan, la conversación continúa con un aviso que distingue “imagen recibida
+sin descripción” de “imagen ausente”; no se inventa que una carpeta o visualización está vacía.
+
 ## Apagar el servidor bridge
 
 Este comando detiene únicamente el bridge identificado por su PID y su `server.js`:
