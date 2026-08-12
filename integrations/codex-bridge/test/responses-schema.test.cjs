@@ -26,6 +26,19 @@ test('versioned Responses schema accepts unnamed discovery tools', () => {
   assert.equal(result.ok, true);
 });
 
+test('versioned Responses schema accepts Codex collaboration and lifecycle items', () => {
+  const result = validateResponsesRequest({
+    model: 'deepseek-v4-flash',
+    input: [
+      { type: 'agent_message', content: [{ type: 'input_text', text: 'subagent task' }] },
+      { type: 'additional_tools', tools: [] },
+      { type: 'local_shell_call', call_id: 'shell-1' },
+      { type: 'compaction' },
+    ],
+  });
+  assert.equal(result.ok, true);
+});
+
 test('versioned Responses schema rejects malformed known fields with bounded paths', () => {
   const result = validateResponsesRequest({
     input: [{ role: 'user', content: [{ type: 'input_text', text: 'x' }] }],

@@ -5,6 +5,12 @@ const ITEM_TYPES = new Set([
   'message', 'reasoning', 'function_call', 'function_call_output', 'custom_tool_call',
   'custom_tool_call_output', 'item_reference', 'tool_search_call', 'tool_search_output',
   'web_search_call', 'web_search_call_output',
+  // Codex Desktop collaboration/tool-discovery items. The request translator
+  // consumes `agent_message` and `additional_tools`, while the remaining
+  // client-owned lifecycle items are intentionally ignored there. They still
+  // need to pass the bridge boundary validator or long multi-agent histories
+  // fail before translation with `known_item_type_required`.
+  'agent_message', 'additional_tools', 'local_shell_call', 'compaction',
 ]);
 const TOOL_TYPES = new Set(['function', 'custom', 'namespace', 'tool_search', 'web_search', 'computer_use_preview']);
 
