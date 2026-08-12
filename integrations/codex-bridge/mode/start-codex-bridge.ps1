@@ -13,6 +13,8 @@ param(
     [switch]$PrepareOnly,
     [switch]$NoStartBridge,
     [switch]$Desktop,
+    [string]$DesktopUserDataDir = '',
+    [string]$DesktopExecutable = '',
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$CodexArguments
 )
@@ -21,6 +23,42 @@ $ErrorActionPreference = 'Stop'
 $modeDir = $PSScriptRoot
 $prepareScript = Join-Path $modeDir 'prepare-isolated-home.ps1'
 $startBridgeScript = Join-Path $modeDir '..\bridge\start-bridge.ps1'
+
+function Resolve-DesktopExecutable {
+    $package = Get-AppxPackage -Name 'OpenAI.Codex' -ErrorAction SilentlyContinue |
+        Sort-Object Version -Descending | Select-Object -First 1
+    if ($package -and $package.InstallLocation) {
+        $candidate = Join-Path $package.InstallLocation 'app\ChatGPT.exe'
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    $windowsAppsAlias = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\ChatGPT.exe'
+    if (Test-Path -LiteralPath $windowsAppsAlias -PathType Leaf) { return $windowsAppsAlias }
+    return $null
+}
+
+function Start-BridgeProcess {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(Mandatory = $true)]
+        [object[]]$ArgumentList,
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)]
+        [string]$BridgeHomePath
+    )
+
+    $previousProcessHome = [Environment]::GetEnvironmentVariable('CODEX_HOME', 'Process')
+    try {
+        # Start-Process -Environment no existe en Windows PowerShell 5.1,
+        # que es el host usado por el acceso directo del escritorio.
+        [Environment]::SetEnvironmentVariable('CODEX_HOME', $BridgeHomePath, 'Process')
+        return Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -PassThru
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable('CODEX_HOME', $previousProcessHome, 'Process')
+    }
+}
 
 if (-not (Test-Path -LiteralPath $prepareScript -PathType Leaf)) {
     throw "Falta el preparador de CODEX_HOME aislado: $prepareScript"
@@ -56,17 +94,48 @@ if ($resolvedBridgeHome.Equals($resolvedHome, [StringComparison]::OrdinalIgnoreC
 
 try {
     if ($Desktop) {
-        # codex app no expone --profile en su subcomando, pero acepta las opciones
-        # globales antes de `app`; el entorno aislado también separa el estado.
-        $pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
-        if ([string]::IsNullOrWhiteSpace($pwsh)) { $pwsh = (Get-Command powershell.exe -ErrorAction Stop).Source }
-        $codexScript = $codexCommand.Source
-        $appArgs = @('-NoLogo', '-NoProfile', '-File', $codexScript, '--profile', $ProfileName, 'app')
-        if ($CodexArguments) { $appArgs += $CodexArguments }
-        $process = Start-Process -FilePath $pwsh -ArgumentList $appArgs -WorkingDirectory (Get-Location).Path `
-            -Environment @{ CODEX_HOME = $resolvedBridgeHome } -PassThru
-        Write-Host "Desktop bridge solicitado. PID=$($process.Id) CODEX_HOME=$resolvedBridgeHome"
-        Write-Host 'El Desktop puede reutilizar una instancia gráfica existente; si ocurre, usa la modalidad CLI/TUI sin -Desktop.'
+        $resolvedDesktopData = if ([string]::IsNullOrWhiteSpace($DesktopUserDataDir)) {
+            Join-Path $resolvedBridgeHome 'desktop-user-data-bridge'
+        } else {
+            [IO.Path]::GetFullPath($DesktopUserDataDir)
+        }
+        New-Item -ItemType Directory -Path $resolvedDesktopData -Force | Out-Null
+
+        $desktopExe = if ([string]::IsNullOrWhiteSpace($DesktopExecutable)) {
+            Resolve-DesktopExecutable
+        } else {
+            [IO.Path]::GetFullPath($DesktopExecutable)
+        }
+
+        if ($desktopExe -and (Test-Path -LiteralPath $desktopExe -PathType Leaf)) {
+            $desktopArgs = @(
+                "--user-data-dir=$resolvedDesktopData",
+                "--profile=$ProfileName"
+            )
+            if ($CodexArguments) { $desktopArgs += $CodexArguments }
+            if ([IO.Path]::GetExtension($desktopExe) -ieq '.ps1') {
+                $desktopHost = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+                if ([string]::IsNullOrWhiteSpace($desktopHost)) { $desktopHost = (Get-Command powershell.exe -ErrorAction Stop).Source }
+                $desktopArgs = @('-NoLogo', '-NoProfile', '-File', $desktopExe) + $desktopArgs
+            } else {
+                $desktopHost = $desktopExe
+            }
+            $process = Start-BridgeProcess -FilePath $desktopHost -ArgumentList $desktopArgs `
+                -WorkingDirectory (Get-Location).Path -BridgeHomePath $resolvedBridgeHome
+            Write-Host "Desktop bridge solicitado. PID=$($process.Id) CODEX_HOME=$resolvedBridgeHome"
+            Write-Host "Desktop data: $resolvedDesktopData"
+        } else {
+            # Fallback para instalaciones sin el paquete Windows de Desktop.
+            $pwsh = (Get-Command pwsh -ErrorAction SilentlyContinue).Source
+            if ([string]::IsNullOrWhiteSpace($pwsh)) { $pwsh = (Get-Command powershell.exe -ErrorAction Stop).Source }
+            $codexScript = $codexCommand.Source
+            $appArgs = @('-NoLogo', '-NoProfile', '-File', $codexScript, '--profile', $ProfileName, 'app')
+            if ($CodexArguments) { $appArgs += $CodexArguments }
+            $process = Start-BridgeProcess -FilePath $pwsh -ArgumentList $appArgs `
+                -WorkingDirectory (Get-Location).Path -BridgeHomePath $resolvedBridgeHome
+            Write-Host "Desktop bridge solicitado por fallback Codex. PID=$($process.Id) CODEX_HOME=$resolvedBridgeHome"
+            Write-Host 'No se encontró ChatGPT.exe; el fallback puede reutilizar una instancia gráfica existente.'
+        }
         exit 0
     }
 

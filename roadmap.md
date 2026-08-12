@@ -1,7 +1,7 @@
 # Roadmap GloryAPI
 
-GloryAPI es un workspace hermano aislado de FreeLLMAPI. La ruta operativa sigue siendo
-FreeLLMAPI/ChatGPT normal; el bridge queda detenido fuera de canaries temporales.
+GloryAPI es un workspace hermano aislado de FreeLLMAPI. La ruta operativa normal sigue siendo
+FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un historial aislados.
 
 ## Siguiente bloque ejecutable
 
@@ -16,8 +16,8 @@ FreeLLMAPI/ChatGPT normal; el bridge queda detenido fuera de canaries temporales
 
 - No crear `origin`, hacer push/deploy ni escribir en servicios externos sin destino y autorización
   puntual. El workspace no tiene aún un remoto externo configurado.
-- No ejecutar E2E Desktop, cutover ni rollback sobre la configuración activa: el usuario pidió
-  mantener ChatGPT normal. Esos escenarios quedan preparados para un canary aislado.
+- No hacer cutover ni rollback sobre la configuración activa: el usuario pidió mantener ChatGPT
+  normal. El E2E Desktop probado usa exclusivamente `desktop-user-data-bridge`.
 - La restauración bajo otro perfil/equipo Windows requiere una ventana administrativa real; no se
   simula como PASS desde este perfil.
 
@@ -36,19 +36,23 @@ FreeLLMAPI/ChatGPT normal; el bridge queda detenido fuera de canaries temporales
 ## Evidencia del bloque actual
 
 - `npm test`: 48 archivos / 274 tests PASS.
-- Suite bridge: 113/113 PASS, incluyendo el launcher de dos `CODEX_HOME`, CLI/Desktop
-  controlados y switches seguros sin mutación del home normal.
+- Suite bridge: 115/115 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
+  CLI/Desktop controlados, switches seguros sin mutación del home normal y la regresión de nudge
+  después de tools con intención futura.
 - `npm run build:server`: PASS.
 - `npm run quality:doctor`: `ready=true`; Sentinel 0.7.1 alineado.
 - `task:check -- GLORY-BASELINE`: PASS, 0 errores, 0 warnings; las excepciones de directorios
   densos están declaradas explícitamente en `sentinel.config.json`.
 - Routing: 128/128 sin fallos; p95 **63.9 ms con concurrencia 8**, **30.8 ms con 16** y
   **62.6 ms con 32**, todos bajo el presupuesto de 100 ms.
-- El bridge y GloryAPI están detenidos; FreeLLMAPI sigue en `:3001`; ChatGPT normal y
-  `C:\Users\Owner\.codex\config.chatgpt.toml` permanecen sin cambios.
-- La coexistencia quedó preparada sin activar el bridge: el home normal es
+- FreeLLMAPI sigue en `:3001`; ChatGPT normal y `C:\Users\Owner\.codex\config.toml` permanecen
+  sin cambios. El bridge responde en `http://127.0.0.1:4100/health` y se opera desde el acceso
+  directo `ChatGPT Bridge - GloryAPI.lnk`.
+- La coexistencia quedó preparada y verificada: el home normal es
   `C:\Users\Owner\.codex` y el home aislado es `C:\Users\Owner\.codex-gloryapi`; el segundo
   no copia `auth.json`, SQLite ni conversaciones del primero.
+- Commit del bloque: `89e4506` (`fix(codex): estabiliza bridge aislado y recuperacion de turnos`).
+- Manual operativo: `integrations/codex-bridge/COMANDOS-BRIDGE.md`.
 
 Fuente de detalle: `PLAN-GLORYAPI.md`. Evidencia histórica: `Agente/completados/` y
 `Agente/documentacion/migracion/`.

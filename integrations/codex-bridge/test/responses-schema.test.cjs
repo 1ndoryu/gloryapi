@@ -14,6 +14,18 @@ test('versioned Responses schema accepts supported fields and ignores unknown ex
   assert.equal(result.ok, true);
 });
 
+test('versioned Responses schema accepts unnamed discovery tools', () => {
+  const result = validateResponsesRequest({
+    model: 'deepseek-v4-flash',
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+    tools: [
+      { type: 'tool_search' },
+      { type: 'web_search' },
+    ],
+  });
+  assert.equal(result.ok, true);
+});
+
 test('versioned Responses schema rejects malformed known fields with bounded paths', () => {
   const result = validateResponsesRequest({
     input: [{ role: 'user', content: [{ type: 'input_text', text: 'x' }] }],

@@ -32,6 +32,44 @@ function Write-AtomicText([string]$PathValue, [string]$Content) {
     }
 }
 
+function Set-RootTomlValue([string]$Content, [string]$Key, [string]$Value) {
+    $escapedKey = [regex]::Escape($Key)
+    $pattern = "(?m)^[ \t]*$escapedKey[ \t]*=[^\r\n]*"
+    if ([regex]::IsMatch($Content, $pattern)) {
+        return [regex]::Replace($Content, $pattern, "$Key = $Value", 1)
+    }
+    return "$Key = $Value`r`n$Content"
+}
+
+function Set-SectionTomlValue([string]$Content, [string]$Section, [string]$Key, [string]$Value) {
+    $escapedSection = [regex]::Escape($Section)
+    $header = [regex]::Match($Content, "(?m)^\[$escapedSection\][ \t]*\r?$")
+    if (-not $header.Success) {
+        return "$($Content.TrimEnd())`r`n`r`n[$Section]`r`n$Key = $Value`r`n"
+    }
+
+    $sectionStart = $header.Index + $header.Length
+    $remaining = $Content.Substring($sectionStart)
+    $nextHeader = [regex]::Match($remaining, '(?m)^\s*\[')
+    $sectionLength = if ($nextHeader.Success) { $nextHeader.Index } else { $remaining.Length }
+    $sectionBody = $remaining.Substring(0, $sectionLength)
+    $escapedKey = [regex]::Escape($Key)
+    $keyPattern = "(?m)^[ \t]*$escapedKey[ \t]*=[^\r\n]*"
+    if ([regex]::IsMatch($sectionBody, $keyPattern)) {
+        $updatedBody = [regex]::Replace($sectionBody, $keyPattern, "$Key = $Value", 1)
+        return $Content.Substring(0, $sectionStart) + $updatedBody + $remaining.Substring($sectionLength)
+    }
+
+    return $Content.Substring(0, $sectionStart) + "`r`n$Key = $Value" + $remaining.Substring(0, $sectionLength) + $remaining.Substring($sectionLength)
+}
+
+function Test-PathWithin([string]$ChildPath, [string]$ParentPath) {
+    $child = (Resolve-FullPath $ChildPath).TrimEnd('\')
+    $parent = (Resolve-FullPath $ParentPath).TrimEnd('\')
+    return $child.Equals($parent, [StringComparison]::OrdinalIgnoreCase) -or
+        $child.StartsWith($parent + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+
 $SourceCodexHome = Resolve-FullPath $SourceCodexHome
 $BridgeHome = Resolve-FullPath $BridgeHome
 if ($SourceCodexHome.Equals($BridgeHome, [StringComparison]::OrdinalIgnoreCase)) {
@@ -40,6 +78,7 @@ if ($SourceCodexHome.Equals($BridgeHome, [StringComparison]::OrdinalIgnoreCase))
 
 $sourceConfig = Join-Path $SourceCodexHome 'config.toml'
 $bridgeConfig = Join-Path $BridgeHome 'config.toml'
+$normalBaseConfig = Join-Path $BridgeHome 'normal-base.config.toml'
 $profilePath = Join-Path $BridgeHome "$ProfileName.config.toml"
 $authScript = Resolve-FullPath (Join-Path $PSScriptRoot 'get-codex-auth.ps1')
 $modelsPath = Join-Path $SourceCodexHome 'models.json'
@@ -50,12 +89,22 @@ if (-not (Test-Path -LiteralPath $sourceConfig -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $BridgeHome -PathType Container)) {
     New-Item -ItemType Directory -Path $BridgeHome -Force | Out-Null
 }
-
-# La configuración base conserva plugins, MCP y preferencias no relacionadas
-# con el proveedor. Se copia únicamente config.toml, nunca el estado del home.
-if ($RefreshConfig -or -not (Test-Path -LiteralPath $bridgeConfig -PathType Leaf)) {
-    Copy-Item -LiteralPath $sourceConfig -Destination $bridgeConfig -Force
+$bridgeModelsPath = Join-Path $BridgeHome 'models.json'
+if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
+    Copy-Item -LiteralPath $modelsPath -Destination $bridgeModelsPath -Force
 }
+
+$existingBridgeConfig = if (Test-Path -LiteralPath $bridgeConfig -PathType Leaf) {
+    [IO.File]::ReadAllText($bridgeConfig)
+} else {
+    ''
+}
+$sourceContent = [IO.File]::ReadAllText($sourceConfig)
+$bridgeProviderPattern = '(?m)^\s*model_provider\s*=\s*"{0}"\s*$' -f [regex]::Escape($ProfileName)
+$needsBridgeConfig = $RefreshConfig -or
+    -not (Test-Path -LiteralPath $bridgeConfig -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $normalBaseConfig -PathType Leaf) -or
+    $existingBridgeConfig -notmatch $bridgeProviderPattern
 
 $authArgs = @(
     '-NoLogo',
@@ -67,14 +116,73 @@ $authArgs = @(
     $authScript
 ) | ForEach-Object { Convert-ToTomlString $_ }
 
-$catalogLine = if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
-    "model_catalog_json = $(Convert-ToTomlString (Resolve-FullPath $modelsPath))"
+$catalogLine = if (Test-Path -LiteralPath $bridgeModelsPath -PathType Leaf) {
+    "model_catalog_json = $(Convert-ToTomlString (Resolve-FullPath $bridgeModelsPath))"
 } else {
     ''
 }
 
-$trustedPaths = "$(Resolve-FullPath $BridgeHome);$(Resolve-FullPath $SourceCodexHome)"
-$content = @"
+$runtimeModulesPath = $null
+$runtimeModulesMatch = [regex]::Match($sourceContent, '(?m)^[ \t]*NODE_REPL_NODE_MODULE_DIRS[ \t]*=[ \t]*[''"]([^''"]+)[''"][ \t]*\r?$')
+$trustedPaths = @((Resolve-FullPath $BridgeHome))
+if ($runtimeModulesMatch.Success) {
+    $candidateRuntimeModulesPath = Resolve-FullPath $runtimeModulesMatch.Groups[1].Value
+    if (-not (Test-PathWithin $candidateRuntimeModulesPath $SourceCodexHome)) {
+        $runtimeModulesPath = $candidateRuntimeModulesPath
+        if (-not (Test-PathWithin $runtimeModulesPath $BridgeHome)) { $trustedPaths += $runtimeModulesPath }
+    }
+}
+$trustedPaths = ($trustedPaths | Select-Object -Unique) -join ';'
+$providerBlock = @"
+
+[model_providers.$ProfileName]
+name = "GloryAPI Bridge (isolated)"
+base_url = "http://127.0.0.1:$BridgePort/v1"
+wire_api = "responses"
+supports_websockets = false
+requires_openai_auth = false
+request_max_retries = 0
+stream_max_retries = 0
+stream_idle_timeout_ms = 300000
+
+[model_providers.$ProfileName.auth]
+command = "powershell.exe"
+args = [$($authArgs -join ', ')]
+timeout_ms = 5000
+refresh_interval_ms = 300000
+
+[history]
+persistence = "save-all"
+"@
+
+if ($needsBridgeConfig) {
+    # normal-base.config.toml conserva una copia de configuración, no estado.
+    Copy-Item -LiteralPath $sourceConfig -Destination $normalBaseConfig -Force
+    $bridgeBase = $sourceContent
+    $bridgeBase = Set-RootTomlValue $bridgeBase 'model' '"deepseek-v4-flash"'
+    $bridgeBase = Set-RootTomlValue $bridgeBase 'model_provider' (Convert-ToTomlString $ProfileName)
+    $bridgeBase = Set-RootTomlValue $bridgeBase 'model_reasoning_effort' '"high"'
+    if ($catalogLine) { $bridgeBase = Set-RootTomlValue $bridgeBase 'model_catalog_json' (Convert-ToTomlString (Resolve-FullPath $bridgeModelsPath)) }
+    $bridgeBase = Set-RootTomlValue $bridgeBase 'log_dir' (Convert-ToTomlString (Join-Path $BridgeHome 'log'))
+    $moduleDirsPattern = '(?m)^[ \t]*NODE_REPL_NODE_MODULE_DIRS[ \t]*=[^\r\n]*(?:\r?\n)?'
+    $moduleDirsValue = if ($runtimeModulesPath) {
+        "NODE_REPL_NODE_MODULE_DIRS = $(Convert-ToTomlString $runtimeModulesPath)`r`n"
+    } else {
+        ''
+    }
+    $bridgeBase = [regex]::Replace($bridgeBase, $moduleDirsPattern, $moduleDirsValue, 1)
+    $bridgeBase = Set-SectionTomlValue $bridgeBase 'mcp_servers.node_repl.env' 'CODEX_HOME' (Convert-ToTomlString $BridgeHome)
+    $trustedPattern = "(?m)^[ \t]*NODE_REPL_TRUSTED_CODE_PATHS[ \t]*=[^\r\n]*"
+    if ([regex]::IsMatch($bridgeBase, $trustedPattern)) {
+        $bridgeBase = [regex]::Replace($bridgeBase, $trustedPattern, "NODE_REPL_TRUSTED_CODE_PATHS = $(Convert-ToTomlString $trustedPaths)")
+    } else {
+        $bridgeBase = Set-SectionTomlValue $bridgeBase 'mcp_servers.node_repl.env' 'NODE_REPL_TRUSTED_CODE_PATHS' (Convert-ToTomlString $trustedPaths)
+    }
+    $bridgeBase = [regex]::Replace($bridgeBase, '(?m)^[ \t]*js_repl[ \t]*=[^\r\n]*', 'js_repl = true', 1)
+    Write-AtomicText $bridgeConfig ($bridgeBase.TrimEnd() + $providerBlock)
+}
+
+$profileContent = @"
 # Generated by prepare-isolated-home.ps1.
 # This profile has its own CODEX_HOME, state database and conversation history.
 model = "deepseek-v4-flash"
@@ -108,10 +216,11 @@ CODEX_HOME = $(Convert-ToTomlString $BridgeHome)
 NODE_REPL_TRUSTED_CODE_PATHS = $(Convert-ToTomlString $trustedPaths)
 
 [history]
-persistence = "save"
+persistence = "save-all"
 "@
 
-Write-AtomicText $profilePath $content
+Write-AtomicText $profilePath $profileContent
 Write-Host "CODEX_HOME aislado listo: $BridgeHome"
 Write-Host "Perfil: $profilePath"
+Write-Host "Configuración Desktop bridge: $bridgeConfig"
 Write-Host 'No se copiaron conversaciones, auth.json ni bases SQLite del home normal.'

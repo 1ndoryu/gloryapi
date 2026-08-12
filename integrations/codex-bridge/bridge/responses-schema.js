@@ -61,7 +61,11 @@ function validateResponsesRequest(body, {
       const base = `$.tools[${index}]`;
       if (!tool || typeof tool !== 'object' || !TOOL_TYPES.has(tool.type)) { add(base, 'known_tool_type_required'); return; }
       if (tool.type === 'function' && !(tool.name || tool.function?.name)) add(`${base}.name`, 'tool_name_required');
-      if ((tool.type === 'custom' || tool.type === 'namespace' || tool.type === 'tool_search' || tool.type === 'web_search') && typeof tool.name !== 'string') add(`${base}.name`, 'tool_name_required');
+      // Responses discovery tools may omit `name`; the translator uses their
+      // stable type (`tool_search`/`web_search`) as the wire name. Custom and
+      // namespace tools still require an explicit name because there is no
+      // unambiguous fallback for dispatching their calls.
+      if ((tool.type === 'custom' || tool.type === 'namespace') && typeof tool.name !== 'string') add(`${base}.name`, 'tool_name_required');
       if (tool.type === 'namespace' && !Array.isArray(tool.tools)) add(`${base}.tools`, 'array_required');
     });
   }

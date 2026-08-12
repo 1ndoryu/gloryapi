@@ -23,10 +23,20 @@ test('isolated Codex home copies only config and preserves an independent state 
     const sourceHome = path.join(temporaryRoot, 'normal');
     const bridgeHome = path.join(temporaryRoot, 'bridge');
     fs.mkdirSync(sourceHome, { recursive: true });
-    fs.writeFileSync(path.join(sourceHome, 'config.toml'), 'model = "gpt-5.6-luna"\n[features]\njs_repl = false\n', 'utf8');
+    fs.writeFileSync(path.join(sourceHome, 'config.toml'), [
+      'model = "gpt-5.6-luna"',
+      `model_catalog_json = '${path.join(sourceHome, 'models.json')}'`,
+      `NODE_REPL_NODE_MODULE_DIRS = '${path.join(sourceHome, 'node_modules')}'`,
+      '[features]',
+      'js_repl = false',
+      '',
+    ].join('\n'), 'utf8');
     fs.writeFileSync(path.join(sourceHome, 'models.json'), '{}', 'utf8');
     fs.writeFileSync(path.join(sourceHome, 'auth.json'), 'normal-auth-sentinel', 'utf8');
     fs.writeFileSync(path.join(sourceHome, 'state_1.sqlite'), 'normal-state-sentinel', 'utf8');
+    const sourceConfigBefore = fs.readFileSync(path.join(sourceHome, 'config.toml'));
+    const sourceAuthBefore = fs.readFileSync(path.join(sourceHome, 'auth.json'));
+    const sourceStateBefore = fs.readFileSync(path.join(sourceHome, 'state_1.sqlite'));
     const statePath = path.join(bridgeHome, 'state_1.sqlite');
     fs.mkdirSync(bridgeHome, { recursive: true });
     fs.writeFileSync(statePath, 'bridge-owned-state', 'utf8');
@@ -38,16 +48,33 @@ test('isolated Codex home copies only config and preserves an independent state 
     ], { cwd: root, encoding: 'utf8' });
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal(fs.readFileSync(path.join(bridgeHome, 'config.toml'), 'utf8'), fs.readFileSync(path.join(sourceHome, 'config.toml'), 'utf8'));
+    const bridgeConfig = fs.readFileSync(path.join(bridgeHome, 'config.toml'), 'utf8');
+    const normalConfig = fs.readFileSync(path.join(sourceHome, 'config.toml'), 'utf8');
+    assert.notEqual(bridgeConfig, normalConfig);
+    assert.match(bridgeConfig, /model = "deepseek-v4-flash"/);
+    assert.match(bridgeConfig, /model_provider = "gloryapi-bridge"/);
+    assert.match(bridgeConfig, /base_url = "http:\/\/127\.0\.0\.1:4100\/v1/);
+    assert.match(bridgeConfig, /CODEX_HOME = ".*bridge/);
+    assert.match(bridgeConfig, /persistence = "save-all"/);
+    assert.match(bridgeConfig, /model_catalog_json = ".*bridge.*models\.json/);
+    assert.match(bridgeConfig, /NODE_REPL_TRUSTED_CODE_PATHS = ".*bridge/);
+    assert.doesNotMatch(bridgeConfig, new RegExp(sourceHome.replaceAll('\\', '\\\\')));
+    assert.doesNotMatch(bridgeConfig, new RegExp(path.join(sourceHome, 'node_modules').replaceAll('\\', '\\\\')));
+    assert.equal(fs.readFileSync(path.join(bridgeHome, 'normal-base.config.toml'), 'utf8'), normalConfig);
     const profile = fs.readFileSync(path.join(bridgeHome, 'gloryapi-bridge.config.toml'), 'utf8');
     assert.match(profile, /model_provider = "gloryapi-bridge"/);
     assert.match(profile, /CODEX_HOME = "/);
     assert.ok(profile.includes(bridgeHome.replaceAll('\\', '\\\\')));
     assert.match(profile, /base_url = "http:\/\/127\.0\.0\.1:4100\/v1/);
+    assert.match(profile, /persistence = "save-all"/);
+    assert.match(profile, /NODE_REPL_TRUSTED_CODE_PATHS = ".*bridge/);
+    assert.doesNotMatch(profile, new RegExp(sourceHome.replaceAll('\\', '\\\\')));
+    assert.doesNotMatch(profile, new RegExp(path.join(sourceHome, 'node_modules').replaceAll('\\', '\\\\')));
+    assert.deepEqual(fs.readFileSync(path.join(sourceHome, 'config.toml')), sourceConfigBefore);
+    assert.deepEqual(fs.readFileSync(path.join(sourceHome, 'auth.json')), sourceAuthBefore);
+    assert.deepEqual(fs.readFileSync(path.join(sourceHome, 'state_1.sqlite')), sourceStateBefore);
     assert.equal(fs.readFileSync(statePath, 'utf8'), 'bridge-owned-state');
     assert.equal(fs.existsSync(path.join(bridgeHome, 'auth.json')), false);
-    assert.equal(fs.readFileSync(path.join(sourceHome, 'auth.json'), 'utf8'), 'normal-auth-sentinel');
-    assert.equal(fs.readFileSync(path.join(sourceHome, 'state_1.sqlite'), 'utf8'), 'normal-state-sentinel');
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -61,10 +88,18 @@ test('bridge launcher passes the isolated CODEX_HOME and profile to CLI and Desk
     const bridgeHome = path.join(temporaryRoot, 'bridge');
     const stubDir = path.join(temporaryRoot, 'bin');
     const capturePath = path.join(temporaryRoot, 'capture.txt');
+    const desktopStub = path.join(stubDir, 'desktop-stub.ps1');
     fs.mkdirSync(sourceHome, { recursive: true });
     fs.mkdirSync(stubDir, { recursive: true });
     fs.writeFileSync(path.join(sourceHome, 'config.toml'), 'model = "gpt-5.6-luna"\n', 'utf8');
     fs.writeFileSync(path.join(stubDir, 'codex.ps1'), [
+      '$lines = @(',
+      '  "CODEX_HOME=$env:CODEX_HOME",',
+      "  \"ARGS=$($args -join '|')\"",
+      ')',
+      'Set-Content -LiteralPath $env:CODEX_CAPTURE -Value $lines -Encoding utf8',
+    ].join('\n'), 'utf8');
+    fs.writeFileSync(desktopStub, [
       '$lines = @(',
       '  "CODEX_HOME=$env:CODEX_HOME",',
       "  \"ARGS=$($args -join '|')\"",
@@ -84,19 +119,19 @@ test('bridge launcher passes the isolated CODEX_HOME and profile to CLI and Desk
       '-NoStartBridge',
     ];
 
-    const cliResult = spawnSync('pwsh.exe', commonArgs, { cwd: root, env, encoding: 'utf8' });
+    const cliResult = spawnSync('powershell.exe', commonArgs, { cwd: root, env, encoding: 'utf8' });
     assert.equal(cliResult.status, 0, cliResult.stderr || cliResult.stdout);
     const cliCapture = fs.readFileSync(capturePath, 'utf8');
     assert.ok(cliCapture.includes(`CODEX_HOME=${bridgeHome}`));
     assert.match(cliCapture, /ARGS=--profile\|gloryapi-bridge/);
 
     fs.rmSync(capturePath, { force: true });
-    const desktopResult = spawnSync('pwsh.exe', [...commonArgs, '-Desktop'], { cwd: root, env, encoding: 'utf8' });
+    const desktopResult = spawnSync('powershell.exe', [...commonArgs, '-Desktop', '-DesktopExecutable', desktopStub], { cwd: root, env, encoding: 'utf8' });
     assert.equal(desktopResult.status, 0, desktopResult.stderr || desktopResult.stdout);
     waitForFile(capturePath);
     const desktopCapture = fs.readFileSync(capturePath, 'utf8');
     assert.ok(desktopCapture.includes(`CODEX_HOME=${bridgeHome}`));
-    assert.match(desktopCapture, /ARGS=--profile\|gloryapi-bridge\|app/);
+    assert.match(desktopCapture, /ARGS=--user-data-dir=.*\|--profile=gloryapi-bridge/);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }

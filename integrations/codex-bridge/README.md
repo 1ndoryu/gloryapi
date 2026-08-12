@@ -224,8 +224,9 @@ Detalles de robustez:
 
 El modo normal sigue usando `%USERPROFILE%\.codex`. El bridge usa por defecto
 `%USERPROFILE%\.codex-gloryapi`, con su propia base SQLite, historial, logs y perfiles. El preparador
-solo copia `config.toml` como base; no copia `auth.json`, `state_*.sqlite` ni conversaciones. Así se
-pueden mantener abiertas ambas sesiones sin que una cambie el historial de la otra.
+conserva la configuración normal en `normal-base.config.toml` y genera un `config.toml` bridge-específico;
+no copia `auth.json`, `state_*.sqlite` ni conversaciones. Así se pueden mantener abiertas ambas sesiones
+sin que una cambie el historial de la otra.
 
 Para abrir la sesión bridge en una ventana separada:
 
@@ -242,9 +243,10 @@ También se puede preparar sin abrirla todavía, o usar la modalidad CLI/TUI:
 ```
 
 `-RefreshConfig` actualiza únicamente la copia de configuración base del home aislado. El home
-normal no se sobrescribe. Si el Desktop ya tiene una instancia gráfica única, la modalidad `-Desktop`
-puede reutilizar esa instancia; en ese caso usa el launcher sin `-Desktop` para obtener una sesión CLI/TUI
-inequívocamente separada.
+normal no se sobrescribe. `-BridgeHome`, `-SourceCodexHome`, `-ProfileName` y `-BridgePort` permiten
+adaptar la instalación sin editar el script. La modalidad `-Desktop` abre directamente `ChatGPT.exe` con un
+`--user-data-dir` y un `--profile` propios para evitar reutilizar la instancia gráfica normal. Si la
+instalación de Desktop no está disponible, usa el fallback Codex y puede requerir CLI/TUI.
 
 `switch-chatgpt.ps1` detiene el bridge sin tocar el `config.toml` ni el historial normal. Para la
 restauración global del flujo antiguo existe una opción deliberadamente explícita:

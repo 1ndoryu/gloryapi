@@ -72,6 +72,7 @@ test('isFutureIntentNarration: narrativas reales (positivos)', () => {
   const positives = [
     'Voy a escanear los .md y extraer las fechas del propio nombre para ordenarlos.',
     'Necesito ajustar el fork para poder usar el rol especializado. Lo reintento con el contexto completo en el mensaje.',
+    'Necesito inspeccionar qué me devuelve la documentación; voy a examinar su estructura directamente.',
     'Voy a intentar abrir el navegador y leer la documentación.',
     'Primero voy a revisar los archivos del roadmap.',
     'Vamos a buscar la información en los planes.',
@@ -553,13 +554,12 @@ test('regresión: historial con tools previas + turno actual sin tools => nudge 
 });
 
 // ---------------------------------------------------------------------------
-// E2E: control — si el turno ACTUAL ya ejecutó tools, el nudge NO se dispara
-// (el modelo está trabajando: el guard mira solo el turno en curso, no el
-// historial completo). Un historial con tools previas + tool en el turno actual
-// => 1 solo request upstream.
+// E2E: control — si el turno ACTUAL ya ejecutó tools y termina con un resumen
+// normal, el nudge NO se dispara. La excepción cubierta abajo es una narración
+// de intención futura después de una tool-call.
 // ---------------------------------------------------------------------------
 test('control: turno actual con tools ejecutadas => nudge NO se dispara', async (t) => {
-  const bridge = await startBridge(() => ({ sse: NARRATIVE_SSE }));
+  const bridge = await startBridge(() => ({ sse: NORMAL_SSE }));
   t.after(bridge.cleanup);
 
   const response = await fetch(
@@ -579,6 +579,38 @@ test('control: turno actual con tools ejecutadas => nudge NO se dispara', async 
   const events = sseEvents(await response.text());
   assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
   assert.equal(bridge.upstreamBodies.length, 1, 'turno actual con tools => sin nudge (1 request)');
+});
+
+test('regresión: tools del turno actual + intención futura => nudge SÍ', async (t) => {
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) return { sse: NARRATIVE_SSE };
+    return {
+      json: {
+        choices: [{ index: 0, message: { role: 'assistant', content: 'ok', finish_reason: 'stop' } }],
+        usage: { prompt_tokens: 20, completion_tokens: 1, total_tokens: 21 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'revisa la documentación' }] },
+        { type: 'function_call', call_id: 'call_cur_1', name: 'read_file', arguments: '{"path":"a.md"}' },
+        { type: 'function_call_output', call_id: 'call_cur_1', output: '{"ok":true}' },
+      ],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  assert.equal(response.status, 200);
+  const events = sseEvents(await response.text());
+  assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
+  assert.equal(bridge.upstreamBodies.length, 2, 'la intención futura después de una tool activa el nudge');
+  assert.equal(bridge.upstreamBodies[1].stream, false, 'el nudge debe ir no-streaming');
 });
 
 test('tool-only: el function_call continúa el turno y el fallback no se muestra', async (t) => {

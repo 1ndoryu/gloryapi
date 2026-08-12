@@ -440,10 +440,10 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   // las tool_calls del retry se incorporan al Map y las emite el loop de abajo.
   // Si el retry confirma "ok" o vuelve sin tools, se descarta y se cierra con la
   // respuesta original.
-  // El guard usa SOLO el turno actual (currentTurnHasToolMessages): si el modelo
-  // ya ejecutó tools en este turno no interrumpimos; si cerró con texto sin tools
-  // en el turno en curso, nudgear aunque el historial tenga tools de turnos
-  // anteriores (falso complete real observado en hilos largos, 2026-08-11).
+  // El guard usa el turno actual: si ya ejecutó tools y produjo un resumen
+  // normal, no interrumpimos. Si después de una tool-call todavía narra una
+  // acción futura ("Necesito inspeccionar...", "Voy a revisar..."), sí hacemos
+  // un único nudge: ese es el falso complete observado en hilos reales.
   let nudgeReasoning = '';
   if (
     toolCalls.size === 0 &&
@@ -451,7 +451,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     chat.__userTools === true &&
     Array.isArray(chat.tools) &&
     chat.tools.length &&
-    !currentTurnHasToolMessages(chat.messages) &&
+    (!currentTurnHasToolMessages(chat.messages) || isFutureIntentNarration(text)) &&
     NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), text);
@@ -624,7 +624,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     gateChat.__userTools === true &&
     Array.isArray(gateChat.tools) &&
     gateChat.tools.length &&
-    !currentTurnHasToolMessages(gateChat.messages) &&
+    (!currentTurnHasToolMessages(gateChat.messages) || isFutureIntentNarration(assistantText(message))) &&
     NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), assistantText(message));
