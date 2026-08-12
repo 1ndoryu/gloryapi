@@ -47,7 +47,7 @@ function DarkModeToggle() {
   }
 
   return (
-    <Button variant="ghost" size="sm" onClick={toggle} aria-label="Toggle theme">
+    <Button variant="ghost" size="sm" onClick={toggle} aria-label="Cambiar tema">
       {dark ? (
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
       ) : (
@@ -75,10 +75,10 @@ function App() {
             <div className="max-w-6xl mx-auto px-6 flex items-center">
               <Brand />
               <nav className="flex items-center gap-6 ml-10">
-                <NavItem to="/fallback">Routing</NavItem>
-                <NavItem to="/keys">Keys</NavItem>
-                <NavItem to="/analytics">Analytics</NavItem>
-                <NavItem to="/settings">Settings</NavItem>
+                <NavItem to="/fallback">Enrutamiento</NavItem>
+                <NavItem to="/keys">Claves</NavItem>
+                <NavItem to="/analytics">Analítica</NavItem>
+                <NavItem to="/settings">Configuración</NavItem>
               </nav>
               <div className="ml-auto py-2">
                 <DarkModeToggle />

@@ -26,14 +26,14 @@ export async function ensureDashboardSession(): Promise<DashboardSession> {
   if (!pending) {
     pending = fetch(`${BASE}/api/session/bootstrap`, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
       .then(async response => {
-        if (!response.ok) throw new Error(`Dashboard session unavailable (HTTP ${response.status})`)
+        if (!response.ok) throw new Error(`La sesión del panel no está disponible (HTTP ${response.status})`)
         const payload = await response.json() as { token: string; csrfToken: string; expiresAt: string }
         const session: DashboardSession = {
           token: payload.token,
           csrfToken: payload.csrfToken,
           expiresAt: Date.parse(payload.expiresAt),
         }
-        if (!session.token || !session.csrfToken || !Number.isFinite(session.expiresAt)) throw new Error('Invalid dashboard session')
+        if (!session.token || !session.csrfToken || !Number.isFinite(session.expiresAt)) throw new Error('Sesión del panel no válida')
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session))
         return session
       })

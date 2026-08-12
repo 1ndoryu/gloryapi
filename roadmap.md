@@ -30,6 +30,8 @@ FreeLLMAPI/ChatGPT normal; el bridge queda detenido fuera de canaries temporales
 - Contrato `glory-responses-request-v1`, capabilities fail-closed, diagnostics, cachés bounded,
   error boundary y DNS/rebinding de visión con transporte fijado por dirección validada.
 - UI: `SortableModelRow` compartido; ledger de workarounds y threat model actualizados.
+- Panel operativo completamente localizado al español: navegación, enrutamiento, claves, analítica,
+  configuración, estados, errores y wizard de proveedores; contratos, rutas y valores reales intactos.
 
 ## Evidencia del bloque actual
 

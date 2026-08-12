@@ -12,16 +12,32 @@ import type {
 } from '../../../shared/types'
 
 export const scopeLabels: Record<SettingScope, string> = {
-  routing: 'Routing',
-  health: 'Health and retries',
-  provider: 'Providers',
-  logging: 'Logs',
-  security: 'Security',
+  routing: 'Enrutamiento',
+  health: 'Salud y reintentos',
+  provider: 'Proveedores',
+  logging: 'Registros',
+  security: 'Seguridad',
+}
+
+const settingTranslations: Record<string, { label: string; description: string }> = {
+  'routing.maxAttempts': { label: 'Máximo de intentos', description: 'Máximo de proveedores que se pueden intentar para una solicitud de inferencia.' },
+  'routing.maxDurationMs': { label: 'Duración máxima (ms)', description: 'Tiempo total máximo de enrutamiento antes de que la solicitud falle de forma segura.' },
+  'routing.nearLimitThreshold': { label: 'Umbral de límite cercano', description: 'Proporción de uso a partir de la cual un modelo pierde prioridad antes de alcanzar su límite.' },
+  'routing.stickyTtlMs': { label: 'Duración del modelo preferido (ms)', description: 'Tiempo durante el que una conversación inactiva conserva su modelo preferido.' },
+  'routing.stickyRotationMs': { label: 'Rotación del modelo preferido (ms)', description: 'Antigüedad máxima de una asignación preferida antes de que pueda rotar.' },
+  'health.checkIntervalMs': { label: 'Intervalo de comprobación (ms)', description: 'Intervalo entre comprobaciones de salud opcionales de los proveedores.' },
+  'health.providerFailureThreshold': { label: 'Umbral de fallos del proveedor', description: 'Fallos consecutivos necesarios antes de poner un proveedor en pausa.' },
+  'health.providerCooldownMs': { label: 'Pausa del proveedor (ms)', description: 'Tiempo de pausa después de alcanzar el umbral de fallos.' },
 }
 
 export function settingLabel(key: string): string {
+  if (settingTranslations[key]) return settingTranslations[key].label
   const name = key.split('.').at(-1) ?? key
   return name.replace(/[A-Z]/g, letter => ` ${letter.toLowerCase()}`).replace(/^./, letter => letter.toUpperCase())
+}
+
+export function settingDescription(key: string, fallback: string): string {
+  return settingTranslations[key]?.description ?? fallback
 }
 
 function sameValues(left: Record<string, SettingPrimitive>, right: Record<string, SettingPrimitive>): boolean {

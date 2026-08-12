@@ -34,9 +34,9 @@ export function UnifiedKeySection() {
     <section className="rounded-lg border bg-card p-5">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <h2 className="text-sm font-medium">Your unified API key</h2>
+          <h2 className="text-sm font-medium">Tu clave de API unificada</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Use this as your OpenAI <code className="font-mono">api_key</code>; it authenticates requests to this proxy.
+            Úsala como tu <code className="font-mono">api_key</code> de OpenAI; autentica las solicitudes a este proxy.
           </p>
         </div>
         <Button
@@ -45,7 +45,7 @@ export function UnifiedKeySection() {
           onClick={() => regenerate.mutate()}
           disabled={regenerate.isPending}
         >
-          Regenerate
+          Regenerar
         </Button>
       </div>
 
@@ -54,17 +54,17 @@ export function UnifiedKeySection() {
           {showKey ? apiKey : masked}
         </code>
         <Button variant="outline" size="sm" onClick={() => setShowKey(!showKey)}>
-          {showKey ? 'Hide' : 'Show'}
+          {showKey ? 'Ocultar' : 'Mostrar'}
         </Button>
         <Button variant="outline" size="sm" onClick={copy}>
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? 'Copiada' : 'Copiar'}
         </Button>
       </div>
 
       <div className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-        <span className="text-muted-foreground">Base URL</span>
+        <span className="text-muted-foreground">URL base</span>
         <code className="font-mono">{baseUrl}</code>
-        <span className="text-muted-foreground">Endpoint</span>
+        <span className="text-muted-foreground">Ruta del endpoint</span>
         <code className="font-mono">/v1/chat/completions</code>
       </div>
     </section>

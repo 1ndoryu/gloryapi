@@ -62,8 +62,8 @@ async function listenForRoutingChanges(
     headers: { Authorization: `Bearer ${session.token}` },
     signal,
   })
-  if (!response.ok) throw new Error(`Live routing sync unavailable (HTTP ${response.status})`)
-  if (!response.body) throw new Error('Live routing sync returned no stream')
+  if (!response.ok) throw new Error(`La sincronización del enrutamiento no está disponible (HTTP ${response.status})`)
+  if (!response.body) throw new Error('La sincronización del enrutamiento no devolvió ningún flujo')
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()

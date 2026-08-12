@@ -15,11 +15,11 @@ const statusDot: Record<string, string> = {
 }
 
 const statusLabel: Record<string, string> = {
-  healthy: 'healthy',
-  rate_limited: 'rate-limited',
-  invalid: 'invalid',
+  healthy: 'saludable',
+  rate_limited: 'limitada',
+  invalid: 'inválida',
   error: 'error',
-  unknown: 'unchecked',
+  unknown: 'sin comprobar',
 }
 
 interface HealthPlatform {
@@ -93,12 +93,12 @@ export default function KeysPage() {
   return (
     <div>
       <PageHeader
-        title="Keys"
-        description="Provider credentials and the unified API key your apps connect with."
+        title="Claves"
+        description="Credenciales de proveedores y la clave de API unificada que usan tus aplicaciones."
         actions={
           keys.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
-              {checkAll.isPending ? 'Checking…' : 'Check all'}
+              {checkAll.isPending ? 'Comprobando…' : 'Comprobar todas'}
             </Button>
           )
         }
@@ -108,18 +108,18 @@ export default function KeysPage() {
         <UnifiedKeySection />
 
         <section>
-          <h2 className="text-sm font-medium mb-3">Add a provider key</h2>
+          <h2 className="text-sm font-medium mb-3">Añadir clave de proveedor</h2>
           <ProviderKeyWizard registry={registry} keys={keys} />
         </section>
 
         <section>
-          <h2 className="text-sm font-medium mb-3">Configured providers</h2>
+          <h2 className="text-sm font-medium mb-3">Proveedores configurados</h2>
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">Cargando…</p>
           ) : keys.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
               <p className="text-sm text-muted-foreground">
-                No provider keys yet. Add one above to start routing.
+                Todavía no hay claves de proveedor. Añade una arriba para comenzar a enrutar.
               </p>
             </div>
           ) : (
@@ -129,7 +129,7 @@ export default function KeysPage() {
                   <div className="flex items-baseline justify-between mb-2">
                     <h3 className="text-sm font-medium">{group.label}</h3>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {group.keys.length} key{group.keys.length === 1 ? '' : 's'}
+                      {group.keys.length} clave{group.keys.length === 1 ? '' : 's'}
                     </span>
                   </div>
                   <div className="rounded-lg border divide-y bg-card overflow-hidden">
@@ -150,10 +150,10 @@ export default function KeysPage() {
                             </span>
                           )}
                           <Button variant="ghost" size="xs" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
-                            Check
+                            Comprobar
                           </Button>
                           <Button variant="ghost" size="xs" className="text-muted-foreground hover:text-destructive" onClick={() => deleteKey.mutate(k.id)} disabled={deleteKey.isPending}>
-                            Remove
+                            Quitar
                           </Button>
                         </div>
                       )

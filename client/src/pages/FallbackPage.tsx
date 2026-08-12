@@ -20,14 +20,14 @@ export default function FallbackPage() {
 
   return (
     <div>
-      <PageHeader title="Routing" description="Drag to reorder. Requests try models top-to-bottom until one succeeds." />
+      <PageHeader title="Enrutamiento" description="Arrastra para reordenar. Las solicitudes prueban los modelos de arriba abajo hasta que uno responde." />
       <div className="space-y-6">
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : displayEntries.length === 0 ? (
           <div className="rounded-lg border border-dashed p-8 text-center">
             <p className="text-sm text-muted-foreground">
-              No models available. Add API keys on the <a href="/keys" className="underline text-foreground">Keys page</a> first.
+              No hay modelos disponibles. Añade primero tus claves de API en la <a href="/keys" className="underline text-foreground">página de claves</a>.
             </p>
           </div>
         ) : (
@@ -45,20 +45,20 @@ export default function FallbackPage() {
               {eventError ? (
                 <span className="text-xs text-amber-600 dark:text-amber-400">{eventError}</span>
               ) : snapshot?.runtime?.inFlight.length ? (
-                <span className="text-xs text-muted-foreground">In flight: {snapshot.runtime.inFlight.map(entry => `${entry.platform}/${entry.modelId}`).join(', ')}</span>
+                <span className="text-xs text-muted-foreground">En curso: {snapshot.runtime.inFlight.map(entry => `${entry.platform}/${entry.modelId}`).join(', ')}</span>
               ) : snapshot?.runtime?.lastCompleted ? (
-                <span className="text-xs text-muted-foreground">Last completed: {snapshot.runtime.lastCompleted.platform}/{snapshot.runtime.lastCompleted.modelId}</span>
+                <span className="text-xs text-muted-foreground">Última completada: {snapshot.runtime.lastCompleted.platform}/{snapshot.runtime.lastCompleted.modelId}</span>
               ) : <span />}
               {saveMutation.isPending ? (
-                <span className="text-xs text-muted-foreground">Saving…</span>
+                <span className="text-xs text-muted-foreground">Guardando…</span>
               ) : saveError ? (
                 <span className="text-xs text-destructive">{saveError}</span>
               ) : snapshot ? (
-                <span className="text-xs text-muted-foreground">Saved · revision {snapshot.revision}</span>
+                <span className="text-xs text-muted-foreground">Guardado · revisión {snapshot.revision}</span>
               ) : null}
             </div>
             {unconfiguredPlatforms.length > 0 && (
-              <p className="text-xs text-muted-foreground">Hidden (no keys): {unconfiguredPlatforms.join(', ')}</p>
+              <p className="text-xs text-muted-foreground">Ocultos (sin claves): {unconfiguredPlatforms.join(', ')}</p>
             )}
           </>
         )}
