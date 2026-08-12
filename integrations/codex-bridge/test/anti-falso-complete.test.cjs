@@ -13,8 +13,9 @@
 //      devuelve tool_calls, las emite como function_call (el turno continúa).
 //   3. Confirmación: el retry responde "ok" => se cierra con el texto original,
 //      sin function_call ni texto duplicado.
-//   4. Nudge noop: el retry vuelve con otro texto => se descarta y se cierra con
-//      el texto original (nunca duplica contenido ni inventa tools).
+//   4. Nudge inconcluso: una narración intermedia recibe otra ronda obligatoria;
+//      si todas se agotan sin tools ni confirmación, se informa como fallo
+//      recuperable y nunca se emite un completed falso.
 //   5. Control: sin tools el hook NO se dispara (las respuestas legítimas).
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
@@ -396,10 +397,10 @@ test('nudge: narrativa sin tools + retry con tool_calls => function_call emitido
 });
 
 // ---------------------------------------------------------------------------
-// E2E: nudge noop — el retry vuelve sin tools => se cierra con el texto original,
-// sin duplicar contenido ni inventar tool_calls.
+// E2E: nudge inconcluso — todas las rondas vuelven sin tools => se informa el
+// fallo recuperable, sin duplicar contenido ni inventar tool_calls.
 // ---------------------------------------------------------------------------
-test('nudge noop: retry sin tools => respuesta original, sin function_call', async (t) => {
+test('nudge no confirmado: retry sin tools => response.failed, sin function_call', async (t) => {
   const bridge = await startBridge((body) => {
     if (body.stream === true) {
       return { sse: NARRATIVE_SSE };
@@ -415,7 +416,7 @@ test('nudge noop: retry sin tools => respuesta original, sin function_call', asy
         usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
       },
     };
-  });
+  }, { BRIDGE_NUDGE_MAX_ATTEMPTS: '1' });
   t.after(bridge.cleanup);
 
   const response = await fetch(
@@ -434,16 +435,23 @@ test('nudge noop: retry sin tools => respuesta original, sin function_call', asy
     !events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item && entry.data.item.type === 'function_call'),
     'no debe inventar function_call si el retry no devuelve tools'
   );
-  const completed = events.find((entry) => entry.event === 'response.completed');
-  assert.ok(completed, 'debe cerrar con response.completed');
+  const failed = events.find((entry) => entry.event === 'response.failed');
+  assert.ok(failed, 'debe informar que la verificación quedó inconclusa');
+  assert.equal(failed.data.response.error.type, 'tool_recovery_unresolved');
+  assert.ok(!events.some((entry) => entry.event === 'response.completed'), 'no debe cerrar un turno no confirmado');
   assert.equal(bridge.upstreamBodies.length, 2, 'intentó el nudge (2 requests)');
 });
 
-test('nudge con upstream colgado => cierra dentro de su presupuesto y conserva el texto', async (t) => {
+test('nudge con upstream colgado => falla de forma recuperable dentro de su presupuesto', async (t) => {
   const startedAt = Date.now();
   const bridge = await startBridge(
     (body) => body.stream === true ? { sse: NARRATIVE_SSE } : { hangingBody: true },
-    { BRIDGE_NUDGE_TIMEOUT_MS: '1000' }
+    {
+      BRIDGE_NUDGE_TIMEOUT_MS: '1000',
+      BRIDGE_NUDGE_TIMEOUT_RECOVERY_MS: '1000',
+      BRIDGE_NUDGE_BUDGET_MS: '1800',
+      BRIDGE_NUDGE_MAX_ATTEMPTS: '2',
+    }
   );
   t.after(bridge.cleanup);
 
@@ -459,14 +467,284 @@ test('nudge con upstream colgado => cierra dentro de su presupuesto y conserva e
   const raw = await response.text();
   assert.equal(response.status, 200);
   assert.ok(raw.includes('Voy a escanear los .md'), 'conserva el texto original');
-  assert.ok(raw.includes('response.completed'), 'el timeout del nudge no deja el turno abierto');
-  assert.ok(Date.now() - startedAt < 2500, 'el nudge no debe heredar el timeout largo del proveedor');
+  assert.ok(raw.includes('response.failed'), 'el timeout del nudge debe ser visible y recuperable');
+  assert.ok(!raw.includes('response.completed'), 'el timeout del nudge no debe cerrar el turno');
+  assert.match(raw, /tool_recovery_timeout/);
+  assert.ok(Date.now() - startedAt < 3000, 'el nudge debe respetar su presupuesto total');
   let bridgeLog = bridge.bridgeLog;
   for (let attempt = 0; attempt < 10 && !/"kind":"nudge_error"/.test(bridgeLog); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     bridgeLog = bridge.bridgeLog;
   }
   assert.match(bridgeLog, /"kind":"nudge_error"/);
+});
+
+test('nudge: timeout inicial + recuperación => recupera tool_call y continúa', async (t) => {
+  let nudgeRequests = 0;
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) return { sse: NARRATIVE_SSE };
+    nudgeRequests += 1;
+    if (nudgeRequests === 1) return { hangingBody: true };
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: 'call_after_timeout', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.md"}' } }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+      },
+    };
+  }, {
+    BRIDGE_NUDGE_TIMEOUT_MS: '1000',
+    BRIDGE_NUDGE_TIMEOUT_RECOVERY_MS: '3000',
+    BRIDGE_NUDGE_BUDGET_MS: '5000',
+    BRIDGE_NUDGE_MAX_ATTEMPTS: '2',
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'corrige y repite el diagnóstico' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const events = sseEvents(await response.text());
+  assert.equal(response.status, 200);
+  assert.ok(events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call'));
+  assert.equal(events.filter((entry) => entry.event === 'response.completed').length, 1);
+  assert.equal(events.find((entry) => entry.event === 'response.completed').data.response.end_turn, false);
+  assert.ok(!events.some((entry) => entry.event === 'response.failed'));
+  assert.equal(nudgeRequests, 2, 'hace el nudge inicial y una sola recuperación');
+});
+
+test('nudge: narración intermedia => nueva ronda de ejecución y tool_call', async (t) => {
+  let nudgeRequests = 0;
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) return { sse: NARRATIVE_SSE };
+    nudgeRequests += 1;
+    if (nudgeRequests === 1) {
+      return {
+        json: {
+          choices: [{
+            index: 0,
+            message: { role: 'assistant', content: 'Corrijo el comando y lo vuelvo a ejecutar.' },
+            finish_reason: 'stop',
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+        },
+      };
+    }
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: 'call_after_narration', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.md"}' } }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 24, completion_tokens: 8, total_tokens: 32 },
+      },
+    };
+  }, { BRIDGE_NUDGE_MAX_ATTEMPTS: '3' });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'revisa el archivo' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const events = sseEvents(await response.text());
+  assert.equal(response.status, 200);
+  assert.ok(events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call'));
+  assert.equal(events.find((entry) => entry.event === 'response.completed').data.response.end_turn, false);
+  assert.ok(!events.some((entry) => entry.event === 'response.failed'));
+  assert.equal(nudgeRequests, 2, 'la narración intermedia debe consumir una ronda adicional');
+  assert.equal(bridge.upstreamBodies.length, 3, 'respuesta original + dos rondas de auditoría');
+  const continuationBody = bridge.upstreamBodies[2];
+  assert.equal(continuationBody.messages.at(-2).role, 'assistant');
+  assert.equal(continuationBody.messages.at(-2).content, 'Corrijo el comando y lo vuelvo a ejecutar.');
+  assert.equal(continuationBody.messages.at(-1).role, 'user');
+  assert.match(continuationBody.messages.at(-1).content, /Continuación obligatoria/);
+});
+
+test('nudge: tres narraciones consecutivas => agota el límite predeterminado sin completed', async (t) => {
+  let nudgeRequests = 0;
+  const bridge = await startBridge((body) => {
+    if (body.stream === true) return { sse: NARRATIVE_SSE };
+    nudgeRequests += 1;
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: `Todavía lo intento (${nudgeRequests}).`, finish_reason: 'stop' },
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'revisa el archivo' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const events = sseEvents(await response.text());
+  assert.equal(response.status, 200);
+  assert.equal(nudgeRequests, 3, 'el límite predeterminado permite exactamente tres rondas');
+  assert.equal(bridge.upstreamBodies.length, 4, 'respuesta original más tres auditorías');
+  assert.equal(events.find((entry) => entry.event === 'response.failed').data.response.error.type, 'tool_recovery_unresolved');
+  assert.ok(!events.some((entry) => entry.event === 'response.completed'));
+});
+
+test('nudge no-streaming inconcluso => error estructurado, nunca completed', async (t) => {
+  let requestCount = 0;
+  const bridge = await startBridge((body) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        json: {
+          choices: [{ index: 0, message: { role: 'assistant', content: 'Voy a corregirlo ahora.', finish_reason: 'stop' } }],
+          usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+        },
+      };
+    }
+    return { hangingBody: true };
+  }, {
+    BRIDGE_NUDGE_TIMEOUT_MS: '1000',
+    BRIDGE_NUDGE_TIMEOUT_RECOVERY_MS: '1000',
+    BRIDGE_NUDGE_BUDGET_MS: '1800',
+    BRIDGE_NUDGE_MAX_ATTEMPTS: '2',
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: false,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'corrige el comando y repite' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const body = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(body.error.type, 'tool_recovery_timeout');
+  assert.equal(body.error.retryable, true);
+  assert.notEqual(body.status, 'completed');
+  assert.equal(requestCount, 3, 'incluye la recuperación acotada del nudge');
+});
+
+test('nudge no-streaming: tres narraciones => agota el límite predeterminado sin completed', async (t) => {
+  let requestCount = 0;
+  const bridge = await startBridge(() => {
+    requestCount += 1;
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: `Todavía lo intento (${requestCount}).`, finish_reason: 'stop' },
+        }],
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: false,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'revisa el archivo' }] }],
+      tools: [{ type: 'function', name: 'read_file', description: 'Lee un archivo' }],
+    })
+  );
+  const body = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(requestCount, 4, 'respuesta original más tres auditorías');
+  assert.equal(body.error.type, 'tool_recovery_unresolved');
+});
+
+test('nudge no-streaming con herramienta web sin resolver => error, nunca completed', async (t) => {
+  let requestCount = 0;
+  const bridge = await startBridge(() => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        json: {
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{ id: 'call_web_initial', type: 'function', function: { name: 'web_search', arguments: '{"query":""}' } }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        },
+      };
+    }
+    if (requestCount === 2) {
+      return {
+        json: {
+          choices: [{ index: 0, message: { role: 'assistant', content: 'La búsqueda ya fue procesada.' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 20, completion_tokens: 6, total_tokens: 26 },
+        },
+      };
+    }
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: '',
+            tool_calls: [{ id: 'call_web_nudge', type: 'function', function: { name: 'web_search', arguments: '{"query":""}' } }],
+          },
+          finish_reason: 'tool_calls',
+        }],
+        usage: { prompt_tokens: 22, completion_tokens: 4, total_tokens: 26 },
+      },
+    };
+  });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: false,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'busca la documentación' }] }],
+      tools: [{ type: 'web_search', name: 'web_search' }],
+    })
+  );
+  const body = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(body.error.type, 'web_loop_error');
+  assert.equal(body.error.retryable, true);
+  assert.notEqual(body.status, 'completed');
+  assert.equal(requestCount, 3, 'la herramienta web del nudge no debe intentar cerrar el turno');
 });
 
 // ---------------------------------------------------------------------------

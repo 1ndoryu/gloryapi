@@ -24,8 +24,12 @@ function createContextAdapter({
   const CALIB_OBSERVED_MAX = calibration.observedMaximum;
   const FALLBACK_REASONING = fallbackReasoning;
   const CONFIRM_DIRECTIVE = recovery.confirmDirective;
+  const CONTINUE_DIRECTIVE = recovery.continueDirective || recovery.confirmDirective;
   const NUDGE_RETRIES = recovery.nudgeRetries;
   const NUDGE_TIMEOUT_MS = recovery.nudgeTimeoutMs;
+  const NUDGE_TIMEOUT_RECOVERY_MS = recovery.nudgeTimeoutRecoveryMs || NUDGE_TIMEOUT_MS;
+  const NUDGE_MAX_ATTEMPTS = recovery.nudgeMaxAttempts || 1;
+  const NUDGE_BUDGET_MS = recovery.nudgeBudgetMs || NUDGE_TIMEOUT_RECOVERY_MS;
   function preserveCanaryProvider(source, target) {
     if (typeof source.__canaryProvider === 'string') {
       Object.defineProperty(target, '__canaryProvider', {
@@ -182,7 +186,8 @@ function withSpawnForkFix(name, argsString) {
 // cuando hay tools; (B) HOOK UNIVERSAL de confirmación: toda respuesta final sin
 // tool_calls recibe UN reintento preguntando si realmente terminó ("ok" cierra;
 // cualquier otra cosa continúa con la acción); (C) telemetría con kinds
-// nudge_retry / nudge_confirm / nudge_noop / nudge_error. La heurística
+// nudge_retry / nudge_confirm / nudge_noop / nudge_error / nudge_timeout_retry.
+// Una auditoría inconclusa nunca equivale a confirmación. La heurística
 // isFutureIntentNarration ya no decide el gatillo: solo aporta el campo `intent`
 // de telemetría (quedó corta ante redacciones como "Sigo ... leyendo").
 function isFutureIntentNarration(text) {
@@ -257,33 +262,119 @@ function buildNudgeChat(chat, finalText) {
   return nudgeChat;
 }
 
-// Devuelve { toolCalls, reasoning, routedVia, text } del retry, o null si el
-// request falló (el llamador decide qué hacer; nunca propaga el error como fallo
-// del turno original). text = contenido del retry (para decidir si confirmó).
+// Devuelve una unión explícita: tool_calls, confirmed, inconclusive_unconfirmed,
+// inconclusive_timeout o inconclusive_error. Una narración intermedia recibe
+// rondas adicionales de ejecución; si el presupuesto se agota, el resultado
+// inconcluso nunca puede convertirse en un cierre exitoso del turno.
 async function nudgeForToolCalls(chat, authorization, finalText) {
   const nudgeChat = buildNudgeChat(chat, finalText);
   const startedAt = Date.now();
-  try {
-    const json = await fetchUpstreamCompletion(nudgeChat, authorization, NUDGE_TIMEOUT_MS);
-    const message =
-      json.choices && json.choices[0] && json.choices[0].message ? json.choices[0].message : {};
-    return {
-      toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
-      reasoning: message.reasoning_content || '',
-      routedVia: json.__routedVia || null,
-      text: typeof message.content === 'string' ? message.content : '',
-      latencyMs: Date.now() - startedAt,
-    };
-  } catch (error) {
-    logRequest({
-      ts: new Date().toISOString(),
-      kind: 'nudge_error',
-      requestId: chat.__gloryRequestId,
-      status: error.statusCode || 502,
-      error: error.message,
-      latencyMs: Date.now() - startedAt,
-    });
-    return null;
+  const deadline = startedAt + NUDGE_BUDGET_MS;
+  let attempt = 0;
+  for (;;) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0 || attempt >= NUDGE_MAX_ATTEMPTS) {
+      return {
+        status: 'inconclusive_timeout',
+        failureType: 'timeout',
+        error: 'nudge budget exhausted',
+        routedVia: null,
+        toolCalls: [],
+        reasoning: '',
+        text: '',
+        latencyMs: Date.now() - startedAt,
+        attempts: attempt,
+      };
+    }
+    attempt += 1;
+    const timeoutMs = Math.min(
+      attempt === 1 ? NUDGE_TIMEOUT_MS : NUDGE_TIMEOUT_RECOVERY_MS,
+      remainingMs,
+    );
+    try {
+      const json = await fetchUpstreamCompletion(nudgeChat, authorization, timeoutMs);
+      const message =
+        json.choices && json.choices[0] && json.choices[0].message ? json.choices[0].message : {};
+      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+      const text = typeof message.content === 'string' ? message.content : '';
+      const reasoning = message.reasoning_content || '';
+      const routedVia = json.__routedVia || null;
+      if (toolCalls.length || isConfirmationText(text)) {
+        return {
+          status: toolCalls.length ? 'tool_calls' : 'confirmed',
+          toolCalls,
+          reasoning,
+          routedVia,
+          text,
+          latencyMs: Date.now() - startedAt,
+          attempts: attempt,
+        };
+      }
+      if (attempt < NUDGE_MAX_ATTEMPTS && Date.now() < deadline) {
+        logRequest({
+          ts: new Date().toISOString(),
+          kind: 'nudge_unconfirmed_retry',
+          requestId: chat.__gloryRequestId,
+          status: 200,
+          routedVia,
+          textLen: text.length,
+          attempt: attempt + 1,
+          latencyMs: Date.now() - startedAt,
+        });
+        // Preserve the provider's latest answer as assistant context, then make
+        // the next round execute instead of narrating. The original finalText
+        // remains visible only once at the Responses boundary.
+        nudgeChat.messages.push({ role: 'assistant', content: text });
+        nudgeChat.messages.push({ role: 'user', content: CONTINUE_DIRECTIVE });
+        continue;
+      }
+      return {
+        status: 'inconclusive_unconfirmed',
+        failureType: 'unconfirmed',
+        error: 'nudge returned no tool call or confirmation',
+        toolCalls: [],
+        reasoning,
+        routedVia,
+        text,
+        latencyMs: Date.now() - startedAt,
+        attempts: attempt,
+      };
+    } catch (error) {
+      const timedOut = error && error.__timedOut === true;
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_error',
+        requestId: chat.__gloryRequestId,
+        status: error.statusCode || 502,
+        error: error.message,
+        timeoutMs,
+        attempt,
+        timedOut,
+        latencyMs: Date.now() - startedAt,
+      });
+      if (timedOut && attempt < NUDGE_MAX_ATTEMPTS && Date.now() < deadline) {
+        logRequest({
+          ts: new Date().toISOString(),
+          kind: 'nudge_timeout_retry',
+          requestId: chat.__gloryRequestId,
+          status: 502,
+          timeoutMs: Math.min(NUDGE_TIMEOUT_RECOVERY_MS, deadline - Date.now()),
+          attempt: attempt + 1,
+        });
+        continue;
+      }
+      return {
+        status: timedOut ? 'inconclusive_timeout' : 'inconclusive_error',
+        failureType: timedOut ? 'timeout' : 'upstream_error',
+        error: error && error.message ? error.message : 'nudge failed',
+        routedVia: null,
+        toolCalls: [],
+        reasoning: '',
+        text: '',
+        latencyMs: Date.now() - startedAt,
+        attempts: attempt,
+      };
+    }
   }
 }
 

@@ -59,7 +59,12 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
         return;
       }
       const hasToolResult = body.messages.some((message) => message.role === 'tool');
-      const message = hasToolResult
+      const isCompletionAudit = body.messages.some((message) =>
+        message.role === 'user' && typeof message.content === 'string' && message.content.includes('Confirmación de cierre')
+      );
+      const message = isCompletionAudit
+        ? { role: 'assistant', content: 'ok' }
+        : hasToolResult
         ? { role: 'assistant', content: 'Respuesta final después de consumir el resultado seguro.' }
         : {
             role: 'assistant',
@@ -209,9 +214,9 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   const bridgeRequestId = result.headers.get('x-glory-request-id');
   assert.match(bridgeRequestId || '', /^req_[a-f0-9]{32}$/);
   const events = await result.text();
-  // The internal web search is followed by the universal completion audit.
-  // The third request prevents a final narrative from silently ending the
-  // browser turn, even when it does not contain a recognizable intent phrase.
+      // The internal web search is followed by the universal completion audit.
+      // The third request confirms the final text explicitly; an inconclusive
+      // audit would be response.failed rather than a false completion.
   assert.equal(upstreamBodies.length, 3);
   const toolMessage = upstreamBodies[1].messages.find((message) => message.role === 'tool');
   assert.match(toolMessage.content, /descarga directa de URL está deshabilitada/);

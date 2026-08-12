@@ -33,6 +33,8 @@ function createUpstreamAdapter({
   const EMPTY_RECOVERY_RETRIES = recovery.emptyRetries;
   const EMPTY_RECOVERY_TIMEOUT_MS = recovery.emptyTimeoutMs;
   const EMPTY_RECOVERY_DIRECTIVE = recovery.emptyDirective;
+  const MIXED_TOOL_RECOVERY_RETRIES = recovery.mixedToolRetries;
+  const MIXED_TOOL_DIRECTIVE = recovery.mixedToolDirective;
   const REQUEST_ID_HEADER = logging.requestIdHeader;
   const FALLBACK_REASONING = fallbackReasoning;
   const canaryRoutingHeaders = config.canary.enabled && config.canary.routingToken
@@ -247,6 +249,60 @@ function hasWebTool(toolMap) {
   return [...toolMap.values()].some((entry) => entry && entry.web);
 }
 
+function assistantMessageForToolCalls(message, calls) {
+  const assistantMessage = {
+    role: 'assistant',
+    content: message.content == null ? '' : message.content,
+    tool_calls: calls,
+  };
+  if (visibleReasoning(message.reasoning_content || '')) {
+    assistantMessage.reasoning_content = message.reasoning_content;
+  } else if (calls.length) {
+    // DeepSeek requires reasoning_content on assistant tool-call messages.
+    // This value is only sent to the upstream provider and is filtered before
+    // the Responses client sees the turn.
+    assistantMessage.reasoning_content = reasoningFor(calls[0].id) || FALLBACK_REASONING;
+  }
+  return assistantMessage;
+}
+
+function deferredClientToolSummary(calls) {
+  // Do not copy provider-controlled arguments into a system message. The
+  // model must regenerate them from the original user context; otherwise a
+  // prompt injection inside a tool argument could gain system-message priority.
+  const summary = calls.map(({ call }) => ({
+    name: call && call.function && call.function.name,
+  }));
+  let encoded = '';
+  try {
+    encoded = JSON.stringify(summary);
+  } catch {
+    encoded = '[]';
+  }
+  return encoded.length <= 12000 ? encoded : `${encoded.slice(0, 11980)}...]`;
+}
+
+async function appendWebToolTurn(working, message, webCalls) {
+  const calls = webCalls.map((entry) => entry.call);
+  working.messages.push(assistantMessageForToolCalls(message, calls));
+
+  for (const { call } of webCalls) {
+    const args = (call.function && call.function.arguments) || '{}';
+    const output = await runWebSearch(parseSearchQuery(args));
+    working.messages.push({
+      role: 'tool',
+      tool_call_id: call.id,
+      name: call.function && call.function.name,
+      content: output,
+    });
+  }
+}
+
+function mixedToolRecoveryMessage(clientCalls) {
+  return `${MIXED_TOOL_DIRECTIVE}\n` +
+    `Llamadas de cliente pendientes (JSON de datos): ${deferredClientToolSummary(clientCalls)}`;
+}
+
 async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM_TIMEOUT_MS) {
   assertSafeLoopbackUpstream(UPSTREAM);
   const controller = new AbortController();
@@ -425,8 +481,13 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
   });
   const aggregateUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, reasoning_tokens: 0 };
   let lastPromptTokens = 0;
+  let mixedRecoveryAttempts = 0;
 
-  for (let round = 0; round < 3; round += 1) {
+  // Mixed recovery consumes a provider round. Reserve enough additional
+  // rounds for the configured recoveries plus the normal web-loop budget,
+  // so a final web-only response still gets a follow-up completion request.
+  const maxRounds = 3 + MIXED_TOOL_RECOVERY_RETRIES;
+  for (let round = 0; round < maxRounds; round += 1) {
     let json = await fetchWithTimeoutRecovery(working, authorization);
     const usage = json.usage || {};
     lastPromptTokens = usage.prompt_tokens || 0;
@@ -458,37 +519,35 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
     }));
     const webCalls = classified.filter((entry) => entry.route.web);
     if (!webCalls.length) return { json, aggregateUsage, lastPromptTokens, working };
-    if (webCalls.length !== calls.length) {
-      const error = new Error('upstream mixed internal web tools with client-executed tools in one turn');
-      error.statusCode = 502;
-      throw error;
-    }
-
-    const assistantMessage = {
-      role: 'assistant',
-      content: message.content == null ? '' : message.content,
-      tool_calls: calls,
-    };
-    if (visibleReasoning(message.reasoning_content || '')) {
-      assistantMessage.reasoning_content = message.reasoning_content;
-    } else if (calls.length) {
-      // The internal loop also sends assistant.tool_calls back to DeepSeek.
-      // Satisfy its thinking-mode contract without ever exposing this value to
-      // the Responses client.
-      assistantMessage.reasoning_content = reasoningFor(calls[0].id) || FALLBACK_REASONING;
-    }
-    working.messages.push(assistantMessage);
-
-    for (const { call } of webCalls) {
-      const args = (call.function && call.function.arguments) || '{}';
-      const output = await runWebSearch(parseSearchQuery(args));
-      working.messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        name: call.function && call.function.name,
-        content: output,
+    const clientCalls = classified.filter((entry) => !entry.route.web);
+    if (clientCalls.length) {
+      if (mixedRecoveryAttempts >= MIXED_TOOL_RECOVERY_RETRIES) {
+        const error = new Error('upstream mixed internal web tools after bounded recovery');
+        error.statusCode = 502;
+        error.code = 'mixed_tool_recovery_exhausted';
+        throw error;
+      }
+      mixedRecoveryAttempts += 1;
+      // Keep the provider-side tool protocol valid: append only the web calls
+      // with their matching outputs, then tell the model to re-emit the client
+      // calls. We never fabricate a client function_call_output or expose the
+      // internal web result as if the app had executed it.
+      await compactContext(working, authorization, { emergency: true });
+      await appendWebToolTurn(working, message, webCalls);
+      working.messages.push({ role: 'system', content: mixedToolRecoveryMessage(clientCalls) });
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'mixed_tool_recovery',
+        requestId: chat.__gloryRequestId,
+        status: 200,
+        attempt: mixedRecoveryAttempts,
+        webTools: webCalls.map(({ call }) => call.function && call.function.name).filter(Boolean),
+        clientTools: clientCalls.map(({ call }) => call.function && call.function.name).filter(Boolean),
+        contextMessages: working.messages.length,
       });
+      continue;
     }
+    await appendWebToolTurn(working, message, webCalls);
   }
 
   const error = new Error('upstream exceeded the internal web-tool round limit');

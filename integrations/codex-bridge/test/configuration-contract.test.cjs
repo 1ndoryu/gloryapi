@@ -35,6 +35,40 @@ test('generic bridge aliases configure the upstream without provider-specific na
   assert.equal(output.contract.actual, 'chat-completions-v2');
 });
 
+test('mixed tool recovery is configurable but bounded', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['-e', "const { config } = require('./bridge/config'); process.stdout.write(JSON.stringify({ retries: config.recovery.mixedToolRetries }));"],
+    {
+      cwd: root,
+      env: { ...process.env, BRIDGE_MIXED_TOOL_RECOVERY_RETRIES: '99' },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).retries, 2);
+});
+
+test('nudge recovery has bounded attempts and total budget', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['-e', "const { config } = require('./bridge/config'); process.stdout.write(JSON.stringify({ attempts: config.recovery.nudgeMaxAttempts, budget: config.recovery.nudgeBudgetMs }));"],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        BRIDGE_NUDGE_MAX_ATTEMPTS: '99',
+        BRIDGE_NUDGE_BUDGET_MS: '999999',
+      },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.attempts, 3);
+  assert.equal(output.budget, 300000);
+});
+
 test('context compaction delegates summaries to the bounded upstream transport', () => {
   const env = {
     ...process.env,

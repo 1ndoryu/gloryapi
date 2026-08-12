@@ -116,15 +116,32 @@ sin commit por indicación del usuario.
   `response.reasoning_summary_text.delta`; no se expone la cadena de pensamiento
   cruda ni el texto sintético de fallback. La ruta no streaming también incluye
   el resumen como un item `reasoning`.
-- La auditoría de cierre es una única ronda y tiene presupuesto propio:
-  `BRIDGE_NUDGE_TIMEOUT_MS` (8 s por defecto, máximo 30 s). Si agota ese límite,
-  se registra `nudge_error` con `latencyMs` y se entrega el resultado original;
-  no prolonga el turno hasta el timeout general del proveedor.
+- La auditoría de cierre tiene un presupuesto total propio. La primera ronda usa
+  `BRIDGE_NUDGE_TIMEOUT_MS` (8 s por defecto, máximo 30 s); si agota el timeout,
+  dispone de una recuperación acotada con `BRIDGE_NUDGE_TIMEOUT_RECOVERY_MS`
+  (90 s por defecto). `BRIDGE_NUDGE_MAX_ATTEMPTS` (3, máximo 3) y
+  `BRIDGE_NUDGE_BUDGET_MS` (120 s, máximo 300 s) limitan el coste total. Un
+  timeout, error o respuesta sin confirmación/tool no se convierte en
+  `response.completed`: una respuesta narrativa intermedia se reenvía al modelo
+  con una directiva de ejecución obligatoria y se permiten rondas adicionales
+  dentro del mismo presupuesto. Solo una confirmación explícita (`ok`, `listo`,
+  etc.) o una llamada de herramienta permite continuar; si se agotan las rondas,
+  el streaming emite `response.failed` recuperable y el path no-streaming devuelve
+  error estructurado.
 - Una respuesta vacía o solo de razonamiento no cierra el turno. El bridge hace
   como máximo una recuperación acotada (`BRIDGE_EMPTY_RECOVERY_RETRIES`, por defecto
   1; timeout `BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS`, 90 s) con una directiva explícita;
   si tampoco hay texto final ni tools, devuelve `response.failed` con
   `empty_upstream_response` y registra `empty_recovery_*`.
+- Una respuesta que mezcle herramientas web internas con herramientas que debe
+  ejecutar el cliente tampoco cierra el turno en el primer intento. El bridge
+  ejecuta primero las llamadas web, conserva sus resultados en el historial
+  interno, compacta el contexto si el modo de emergencia lo necesita y envía
+  una directiva para que el modelo reemita solo las llamadas del cliente.
+  `BRIDGE_MIXED_TOOL_RECOVERY_RETRIES` controla el límite (1 por defecto, máximo
+  2). Si el modelo vuelve a mezclar después del límite, se emite un error
+  explícito `web_loop_error` y se registra `mixed_tool_recovery_exhausted`; esto
+  evita el cierre prematuro sin permitir bucles infinitos.
 - Las cachés persistentes tienen TTL y límite de bytes; se escriben con `fsync`/rename y
   no conservan el reasoning sintético.
 - La visión no se anuncia en `/capabilities` ni en `/v1/models` sin configuración explícita

@@ -28,6 +28,59 @@ function createResponseHandlers({
   } = context;
   const SseParserError = sseParserError;
 
+  async function runNudgeWithKeepAlive(res, chat, finalText) {
+    const keepAlive = setInterval(() => {
+      if (!res.writableEnded && !res.destroyed) res.write(': nudge-recovery\n\n');
+    }, 10000);
+    try {
+      return await nudgeForToolCalls(chat, upstreamAuthHeader(), finalText);
+    } finally {
+      clearInterval(keepAlive);
+    }
+  }
+
+  function nudgeFailure(nudge, text) {
+    if (nudge && (nudge.status === 'inconclusive_timeout' || nudge.status === 'inconclusive_error')) {
+      return {
+        type: nudge.status === 'inconclusive_timeout' ? 'tool_recovery_timeout' : 'tool_recovery_error',
+        message:
+          nudge.status === 'inconclusive_timeout'
+            ? 'La recuperación de la herramienta agotó sus reintentos acotados; el turno no se marcó como completado.'
+            : 'La recuperación de la herramienta falló; el turno no se marcó como completado.',
+        cause: nudge.error,
+      };
+    }
+    if (!nudge || nudge.status === 'inconclusive_unconfirmed') {
+      return {
+        type: 'tool_recovery_unresolved',
+        message:
+          'El modelo anunció una acción pero no devolvió una llamada de herramienta ni una confirmación de cierre; el turno no se marcó como completado.',
+        cause: text,
+      };
+    }
+    return null;
+  }
+
+  function emitNudgeFailure(res, responseId, requestId, failure, internalWebLoop = false) {
+    logRequest({
+      ts: new Date().toISOString(),
+      kind: 'nudge_recovery_exhausted',
+      requestId,
+      status: 502,
+      error: failure.message,
+      failureType: failure.type,
+      internalWebLoop,
+    });
+    if (res.writableEnded || res.destroyed) return;
+    sseEvent(res, 'response.failed', {
+      type: 'response.failed',
+      response: {
+        id: responseId,
+        error: { type: failure.type, message: failure.message, retryable: true },
+      },
+    });
+  }
+
 // Response handlers
 
 async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customTools) {
@@ -99,7 +152,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
   // The internal web loop used to return here with a future-intent sentence
   // and no tool call. That bypassed the universal anti-falso-complete guard,
   // so Codex closed the browser task even though the model still intended to
-  // inspect the page. Reuse the same one-shot confirmation nudge as streaming.
+  // inspect the page. Reuse the same bounded confirmation audit as streaming.
   let finalToolCalls = toolCalls;
   let nudgeReasoning = '';
   if (
@@ -110,7 +163,14 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
     chat.tools.length &&
     NUDGE_RETRIES > 0
   ) {
-    const nudge = await nudgeForToolCalls(resolved.working, upstreamAuthHeader(), text);
+    const nudge = await runNudgeWithKeepAlive(res, resolved.working, text);
+    const failure = nudgeFailure(nudge, text);
+    if (failure) {
+      emitNudgeFailure(res, responseId, chat.__gloryRequestId, failure, true);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
     if (nudge && nudge.toolCalls.length) {
       finalToolCalls = nudge.toolCalls;
       nudgeReasoning = nudge.reasoning || '';
@@ -491,13 +551,11 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
 
   // Anti falso-complete (capa B, 2026-08-10; hook universal 2026-08-11): si el
   // modelo cierra con texto sin tool_calls teniendo tools disponibles, le
-  // preguntamos (UN request de confirmación) si realmente terminó: "ok" confirma
-  // el cierre; cualquier otra cosa le pide ejecutar la acción pendiente. Cubre
-  // cualquier redacción (ES/EN, "Sigo...", "I will...") sin depender de una
-  // heurística. El texto original ya se emitió como deltas (no hay vuelta atrás);
-  // las tool_calls del retry se incorporan al Map y las emite el loop de abajo.
-  // Si el retry confirma "ok" o vuelve sin tools, se descarta y se cierra con la
-  // respuesta original.
+  // preguntamos si realmente terminó. "ok" confirma el cierre; tool_calls
+  // continúa el turno; timeout, error o una respuesta no confirmatoria emiten
+  // response.failed solo después de agotar las rondas acotadas. El texto original
+  // ya se emitió como deltas (no hay vuelta atrás), pero nunca se emite
+  // response.completed para una auditoría inconclusa.
   // El guard es universal: una respuesta final con tools disponibles recibe
   // una confirmación acotada aunque ya haya ejecutado tools en este turno. Así
   // no depende de que el modelo escriba una frase reconocible de intención;
@@ -511,7 +569,14 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     chat.tools.length &&
     NUDGE_RETRIES > 0
   ) {
-    const nudge = await nudgeForToolCalls(chat, upstreamAuthHeader(), text);
+    const nudge = await runNudgeWithKeepAlive(res, chat, text);
+    const failure = nudgeFailure(nudge, text);
+    if (failure) {
+      emitNudgeFailure(res, responseId, chat.__gloryRequestId, failure);
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
     if (nudge && nudge.toolCalls.length) {
       let nextIndex = toolCalls.size;
       for (const tc of nudge.toolCalls) {
@@ -694,6 +759,20 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     NUDGE_RETRIES > 0
   ) {
     const nudge = await nudgeForToolCalls(gateChat, upstreamAuthHeader(), assistantText(message));
+    const failure = nudgeFailure(nudge, assistantText(message));
+    if (failure) {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'nudge_recovery_exhausted',
+        requestId: chat.__gloryRequestId,
+        status: 502,
+        error: failure.message,
+        failureType: failure.type,
+      });
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ type: 'error', error: { ...failure, retryable: true } }));
+      return;
+    }
     if (nudge && nudge.toolCalls.length) {
       const nudgeReasoning = nudge.reasoning || '';
       if (!reasoningText && nudgeReasoning) {
@@ -707,10 +786,24 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
         if (nudgeReasoning) rememberReasoning(tc.id, nudgeReasoning);
       }
       const nudgeItems = responseItemsForToolCalls(nudge.toolCalls, toolMap, customTools);
-      if (!nudgeItems.error) {
-        output.push(...nudgeItems.items);
-        hasToolOutput = hasToolOutput || nudgeItems.items.length > 0;
+      if (nudgeItems.error) {
+        logRequest({
+          ts: new Date().toISOString(),
+          kind: 'nudge_tool_render_error',
+          requestId: chat.__gloryRequestId,
+          status: 502,
+          error: nudgeItems.error.message,
+          failureType: nudgeItems.error.type,
+        });
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          type: 'error',
+          error: { ...nudgeItems.error, retryable: true },
+        }));
+        return;
       }
+      output.push(...nudgeItems.items);
+      hasToolOutput = hasToolOutput || nudgeItems.items.length > 0;
       logRequest({
         ts: new Date().toISOString(),
         kind: 'nudge_retry',
