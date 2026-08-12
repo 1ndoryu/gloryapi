@@ -154,6 +154,14 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   assert.equal(capabilitiesBody.capabilities.vision, false);
   assert.equal(capabilitiesBody.upstream, undefined);
 
+  const diagnosticsUnauthorized = await fetch(`${base}/v1/diagnostics`);
+  assert.equal(diagnosticsUnauthorized.status, 401);
+  const diagnostics = await fetch(`${base}/v1/diagnostics`, { headers: { Authorization: 'Bearer test' } });
+  assert.equal(diagnostics.status, 200);
+  const diagnosticsBody = await diagnostics.json();
+  assert.equal(diagnosticsBody.schema, 'glory-bridge-diagnostics-v1');
+  assert.equal(typeof diagnosticsBody.metrics, 'object');
+
   const unauthorized = await fetch(`${base}/v1/responses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

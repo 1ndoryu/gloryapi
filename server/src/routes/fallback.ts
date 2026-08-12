@@ -16,6 +16,16 @@ import { requireAdmin } from '../lib/admin-auth.js';
 
 export const fallbackRouter = Router();
 
+const configuredSnapshotCacheMs = Number.parseInt(process.env.GLORY_ROUTING_SNAPSHOT_CACHE_MS ?? '250', 10);
+const snapshotCacheMs = Number.isFinite(configuredSnapshotCacheMs)
+  ? Math.max(0, Math.min(250, configuredSnapshotCacheMs))
+  : 250;
+let snapshotCache: {
+  db: ReturnType<typeof getDb>;
+  expiresAt: number;
+  body: unknown;
+} | null = null;
+
 fallbackRouter.get('/', (req: Request, res: Response, next) => {
   if (requireAdmin(req, res)) next();
 });
@@ -48,6 +58,11 @@ fallbackRouter.get('/traces', (req: Request, res: Response) => {
 
 fallbackRouter.get('/', (_req: Request, res: Response) => {
   const db = getDb();
+  const now = Date.now();
+  if (snapshotCacheMs > 0 && snapshotCache?.db === db && snapshotCache.expiresAt > now) {
+    res.json(snapshotCache.body);
+    return;
+  }
   const rows = db.prepare(`
     SELECT fc.model_db_id, fc.priority, fc.enabled,
            m.platform, m.model_id, m.display_name, m.intelligence_rank,
@@ -104,7 +119,9 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
     };
   });
 
-  res.json({ ...getRoutingSnapshot(entries), entries, runtime: getRoutingRuntimeSnapshot() });
+  const body = { ...getRoutingSnapshot(entries), entries, runtime: getRoutingRuntimeSnapshot() };
+  if (snapshotCacheMs > 0) snapshotCache = { db, expiresAt: now + snapshotCacheMs, body };
+  res.json(body);
 });
 
 const updateSchema = z.object({
@@ -126,6 +143,7 @@ fallbackRouter.put('/', (req: Request, res: Response) => {
 
   try {
     const snapshot = updateRoutingPolicy(parsed.data.entries, parsed.data.expectedRevision);
+    snapshotCache = null;
     publishRoutingChanged(snapshot);
     res.json(snapshot);
   } catch (error) {

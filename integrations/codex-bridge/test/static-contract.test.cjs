@@ -130,6 +130,7 @@ test('the tray validates local destinations before reading or forwarding its key
 test('the versioned Responses fixture covers lifecycle and tool invariants', () => {
   assert.equal(responsesFixture.fixtureSchema, 'glory-codex-responses-fixture-v1');
   assert.equal(responsesFixture.capabilitiesSchema, 'glory-codex-capabilities-v2');
+  assert.equal(responsesFixture.requestSchema, 'glory-responses-request-v1');
   assert.equal(responsesFixture.lifecycleSchema, 'glory-codex-lifecycle-v1');
   assert.deepEqual(responsesFixture.lifecycle.states, ['starting', 'ready', 'blocked', 'draining', 'stopped']);
   assert.deepEqual(responsesFixture.lifecycle.readyRequires, ['clientAuthConfigured', 'upstreamAuthConfigured', 'contractCompatible']);

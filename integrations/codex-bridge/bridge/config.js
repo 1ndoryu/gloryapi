@@ -32,6 +32,21 @@ function loopbackHost(value) {
   return host;
 }
 
+function capabilityMatrix(env) {
+  try {
+    const parsed = JSON.parse(env.BRIDGE_CAPABILITY_MATRIX_JSON || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(0, 32).filter((row) => row && typeof row === 'object').map((row) => ({
+      client: typeof row.client === 'string' ? row.client.trim().slice(0, 64) : 'codex-responses',
+      adapter: typeof row.adapter === 'string' ? row.adapter.trim().slice(0, 64) : 'responses-translation-v1',
+      provider: typeof row.provider === 'string' ? row.provider.trim().slice(0, 64) : 'configured-provider',
+      model: typeof row.model === 'string' ? row.model.trim().slice(0, 128) : 'configured-model',
+    })).filter((row) => row.client && row.adapter && row.provider && row.model);
+  } catch {
+    return [];
+  }
+}
+
 const env = process.env;
 const runtimeRoot = env.BRIDGE_RUNTIME_DIR || __dirname;
 
@@ -45,6 +60,7 @@ const config = Object.freeze({
     providerName: env.BRIDGE_PROVIDER_NAME || 'gloryapi',
     adapterVersion: env.BRIDGE_ADAPTER_VERSION || 'gloryapi-codex-bridge-v1',
     fixtureSchema: env.BRIDGE_FIXTURE_SCHEMA || 'glory-codex-responses-fixture-v1',
+    requestSchema: env.BRIDGE_REQUEST_SCHEMA || 'glory-responses-request-v1',
     capabilitiesSchema: env.BRIDGE_CAPABILITIES_SCHEMA || 'glory-codex-capabilities-v2',
     lifecycleSchema: env.BRIDGE_LIFECYCLE_SCHEMA || 'glory-codex-lifecycle-v1',
   },
@@ -80,6 +96,9 @@ const config = Object.freeze({
     // compatibility shims for clients whose deferred tools are not present in
     // the request body. `generic` only forwards tools advertised by the client.
     profile: firstEnv(env, ['BRIDGE_TOOL_PROFILE'], 'codex-desktop'),
+  },
+  capabilities: {
+    matrix: capabilityMatrix(env),
   },
   limits: {
     maxBodyBytes: boundedEnvInt('BRIDGE_MAX_BODY_BYTES', 8 * 1024 * 1024, 1024, 16 * 1024 * 1024),
@@ -123,6 +142,8 @@ const config = Object.freeze({
   },
   reasoning: {
     cacheFile: env.BRIDGE_REASONING_CACHE_FILE || path.join(runtimeRoot, 'bridge.reasoning.json'),
+    cacheMaxBytes: boundedEnvInt('BRIDGE_REASONING_CACHE_MAX_BYTES', 2 * 1024 * 1024, 4096, 16 * 1024 * 1024),
+    cacheTtlMs: boundedEnvInt('BRIDGE_REASONING_CACHE_TTL_MS', 6 * 60 * 60 * 1000, 1000, 7 * 24 * 60 * 60 * 1000),
     fallback:
       env.BRIDGE_FALLBACK_REASONING ||
       'El asistente analizó la petición y decidió invocar una herramienta para completar la tarea.',
@@ -132,12 +153,15 @@ const config = Object.freeze({
     completionsPath: normalizedPath(env.VISION_COMPLETIONS_PATH, '/chat/completions'),
     model: env.VISION_MODEL || env.BRIDGE_VISION_MODEL || 'mimo-v2.5-free',
     apiKey: env.VISION_API_KEY || '',
+    allowAnonymous: env.VISION_ALLOW_ANONYMOUS === '1',
     maxTokens: boundedEnvInt('VISION_MAX_TOKENS', 4096, 1, 16384),
     timeoutMs: boundedEnvInt('VISION_TIMEOUT_MS', 180000, 100, 300000),
     maxResponseBytes: boundedEnvInt('VISION_MAX_RESPONSE_BYTES', 4 * 1024 * 1024, 1024, 32 * 1024 * 1024),
     disabled: env.VISION_DISABLE === '1',
     cacheFile: env.BRIDGE_VISION_CACHE_FILE || path.join(runtimeRoot, 'bridge.vision.json'),
     cacheMax: boundedEnvInt('BRIDGE_VISION_CACHE_MAX', 128, 1, 2048),
+    cacheMaxBytes: boundedEnvInt('BRIDGE_VISION_CACHE_MAX_BYTES', 4 * 1024 * 1024, 4096, 16 * 1024 * 1024),
+    cacheTtlMs: boundedEnvInt('BRIDGE_VISION_CACHE_TTL_MS', 24 * 60 * 60 * 1000, 1000, 30 * 24 * 60 * 60 * 1000),
     channelNote:
       env.BRIDGE_VISION_CHANNEL_NOTE ||
       '[visión] Las imágenes se te entregan como texto: el modelo de visión las describe debajo.',

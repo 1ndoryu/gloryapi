@@ -15,9 +15,12 @@ function createBridgeHttpServer({
   nonStreamingChatToResponses,
   assertSafeLoopbackUpstream,
   upstreamAuthHeader,
+  validateResponsesRequest,
+  metrics,
 }) {
   const { identity, contract, upstream, limits, logging, vision, auth } = config;
   const lifecycleStates = ['starting', 'ready', 'blocked', 'draining', 'stopped'];
+  const visionConfigured = !vision.disabled && (vision.apiKey.length > 0 || vision.allowAnonymous === true);
 
   function incomingBearer(req) {
     const value = req.headers.authorization;
@@ -74,14 +77,20 @@ function createBridgeHttpServer({
       transitions: lifecycleStates,
       shutdown: 'graceful',
       recovery: 'restart_sidecar',
+      metrics: metrics ? metrics.snapshot() : {},
     };
   }
 
   function getCapabilityMatrix() {
-    return [{
-      client: 'codex-responses',
+    const combinations = config.capabilities.matrix.length > 0
+      ? config.capabilities.matrix
+      : [{ client: 'codex-responses', adapter: 'responses-translation-v1', provider: identity.providerName, model: upstream.model }];
+    return combinations.map((combination) => ({
+      client: combination.client,
+      adapter: combination.adapter,
       adapterVersion: identity.adapterVersion,
-      model: upstream.model,
+      provider: combination.provider,
+      model: combination.model,
       evidence: ['glory-codex-responses-fixture-v1', 'bridge-http-contract', 'deterministic-canary-v1'],
       lifecycle: getLifecycle(),
       capabilities: {
@@ -94,7 +103,7 @@ function createBridgeHttpServer({
         namespaces: { status: 'adapted' },
         deferredToolDiscovery: { status: 'adapted' },
         webSearch: { status: 'adapted' },
-        vision: { status: vision.disabled ? 'unsupported' : 'adapted' },
+        vision: { status: visionConfigured ? 'unverified' : 'unsupported', reason: visionConfigured ? 'vision_health_probe_pending' : 'vision_not_configured' },
         cancellation: { status: 'supported' },
         contextCompaction: { status: 'unsupported', reason: 'native_codex_compaction_only' },
         codexDesktopE2E: { status: 'unverified', reason: 'desktop_fixture_pending' },
@@ -108,7 +117,7 @@ function createBridgeHttpServer({
         multiAgent: { status: 'adapted', reason: 'namespace_translation_contract' },
         longContext: { status: 'unverified', reason: 'desktop_soak_pending' },
       },
-    }];
+    }));
   }
 
   function readBody(req, maxBytes = limits.maxBodyBytes) {
@@ -145,18 +154,20 @@ function createBridgeHttpServer({
     res.end(JSON.stringify({ type: 'error', error: { code, message } }));
   }
 
-  const server = http.createServer(async (req, res) => {
+  async function handleRequest(req, res) {
     if (state.activeRequests >= limits.maxActiveRequests) {
       res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' });
       res.end(JSON.stringify({ type: 'error', error: { code: 'bridge_busy', message: 'bridge is at its active request limit' } }));
       return;
     }
     state.activeRequests += 1;
+    const requestStartedAt = performance.now();
     let requestReleased = false;
     const releaseRequest = () => {
       if (requestReleased) return;
       requestReleased = true;
       state.activeRequests = Math.max(0, state.activeRequests - 1);
+      metrics?.observe('http.request_ms', performance.now() - requestStartedAt);
     };
     res.once('finish', releaseRequest);
     res.once('close', releaseRequest);
@@ -198,6 +209,23 @@ function createBridgeHttpServer({
       res.end(JSON.stringify({ ok: lifecycle.state === 'ready', service: identity.bridgeId, ...lifecycle }));
       return;
     }
+    if (req.method === 'GET' && (url.pathname === '/diagnostics' || url.pathname === '/v1/diagnostics')) {
+      if (!clientAuthorized(req)) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: { code: 'invalid_bridge_authorization' } }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        schema: 'glory-bridge-diagnostics-v1',
+        service: identity.bridgeId,
+        adapterVersion: identity.adapterVersion,
+        lifecycle: getLifecycle(),
+        metrics: metrics ? metrics.snapshot() : {},
+      }));
+      return;
+    }
     if (req.method === 'GET' && (url.pathname === '/capabilities' || url.pathname === '/v1/capabilities')) {
       if (!clientAuthorized(req)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -217,6 +245,7 @@ function createBridgeHttpServer({
         service: identity.bridgeId,
         adapterVersion: identity.adapterVersion,
         fixtureSchema: identity.fixtureSchema,
+        requestSchema: identity.requestSchema,
         gloryApiContract: contract.actual,
         model: upstream.model,
         lifecycle: getLifecycle(),
@@ -231,11 +260,14 @@ function createBridgeHttpServer({
           namespaces: true,
           deferredToolDiscovery: true,
           webSearch: true,
-          vision: !vision.disabled,
+          vision: false,
+          visionConfigured,
+          internalWebLoop: true,
+          standaloneWebSearch: false,
           cancellation: true,
           contextCompaction: false,
         },
-        limitations: ['vision_is_lossy_text_adaptation', 'standalone_web_search_not_advertised', 'codex_desktop_e2e_pending'],
+        limitations: ['vision_requires_explicit_config_and_health_probe', 'vision_is_lossy_text_adaptation', 'standalone_web_search_not_advertised', 'codex_desktop_e2e_pending'],
       }));
       return;
     }
@@ -247,8 +279,7 @@ function createBridgeHttpServer({
         object: 'model',
         created: 0,
         owned_by: identity.providerName,
-        input_modalities: ['text', 'image'],
-        supports_image_detail_original: true,
+        input_modalities: visionConfigured ? ['text'] : ['text'],
         context_window: config.context.limitTokens,
         max_context_window: config.context.limitTokens,
         effective_context_window_percent: 100,
@@ -295,6 +326,11 @@ function createBridgeHttpServer({
         res.end(JSON.stringify({ type: 'error', error: { message: 'invalid JSON body' } }));
         return;
       }
+      const schemaResult = validateResponsesRequest(body, { maxItems: 512, maxTools: 128, maxContentParts: 256 });
+      if (!schemaResult.ok) {
+        writeJsonError(res, 400, 'invalid_request', `invalid Responses request (${schemaResult.errors[0].path}: ${schemaResult.errors[0].code})`);
+        return;
+      }
 
       const requestId = requestIdFor(req);
       res.setHeader(logging.requestIdHeader, requestId);
@@ -332,6 +368,7 @@ function createBridgeHttpServer({
 
     const knownPath = new Set([
       '/health', '/ready', '/readiness', '/lifecycle', '/v1/lifecycle',
+      '/diagnostics', '/v1/diagnostics',
       '/capabilities', '/v1/capabilities', '/v1/models', '/models',
       '/v1/responses', '/responses',
     ]).has(url.pathname);
@@ -342,6 +379,23 @@ function createBridgeHttpServer({
       return;
     }
     writeJsonError(res, 404, 'not_found', `not found: ${req.method} ${url.pathname}`);
+  }
+
+  const server = http.createServer((req, res) => {
+    handleRequest(req, res).catch((error) => {
+      logRequest({
+        ts: new Date().toISOString(),
+        kind: 'http_error_boundary',
+        requestId: requestIdFor(req),
+        status: 500,
+        error: error && error.message,
+      });
+      if (res.headersSent || res.writableEnded) {
+        res.destroy();
+        return;
+      }
+      writeJsonError(res, 500, 'bridge_internal_error', 'bridge failed before producing a response');
+    });
   });
 
   function requestShutdown(signal) {

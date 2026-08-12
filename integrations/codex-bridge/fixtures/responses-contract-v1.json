@@ -1,5 +1,6 @@
 {
   "fixtureSchema": "glory-codex-responses-fixture-v1",
+  "requestSchema": "glory-responses-request-v1",
   "capabilitiesSchema": "glory-codex-capabilities-v2",
   "lifecycleSchema": "glory-codex-lifecycle-v1",
   "adapterVersion": "gloryapi-codex-bridge-v1",

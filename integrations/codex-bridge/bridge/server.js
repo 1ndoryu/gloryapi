@@ -46,18 +46,18 @@ const { createUpstreamAdapter } = require('./upstream-adapter');
 const { createResponseHandlers } = require('./response-handlers');
 const { createBridgeHttpServer } = require('./http-server');
 const { SseParserError, SseStreamParser } = require('./responses-sse');
-const { assertSafeVisionEndpoint, assertSafeLoopbackUpstream } = require('./endpoint-security');
+const { assertSafeVisionEndpoint, resolveSafeVisionEndpoint, assertSafeLoopbackUpstream } = require('./endpoint-security');
 const { formatRemoteFailure, responseByteLength } = require('./diagnostics');
 const { createRequestLogger } = require('./request-log');
+const { redactString, redactValue } = require('./redaction');
+const { validateResponsesRequest } = require('./responses-schema');
+const { createMetrics } = require('./metrics');
 
 // Metadata-only diagnostics by default. Prompt bodies can contain credentials,
 // private files and conversation content, so full logging is explicit opt-in.
+// The shared redactor covers api[_-]?key, bearer, cookie, token and tool payload fields.
 function redactText(value, maxLength = 500) {
-  return String(value == null ? '' : value)
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
-    .replace(/(?:sk|freellmapi)-[A-Za-z0-9_-]{12,}/gi, '[REDACTED]')
-    .replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*["']?)[^,\s"'}]+/gi, '$1[REDACTED]')
-    .slice(0, maxLength);
+  return redactString(value, maxLength);
 }
 function logRequest(entry) {
   requestLogger(entry);
@@ -95,6 +95,8 @@ const requestLogger = createRequestLogger({
   sanitize: (entry) => {
     const safe = { ...entry };
     if (!config.logging.full) delete safe.body;
+    else if (safe.body) safe.body = redactValue(safe.body);
+    if (safe.headers) safe.headers = redactValue(safe.headers);
     if (safe.error) {
       const errorText = String(safe.error);
       safe.errorBytes = Buffer.byteLength(errorText, 'utf8');
@@ -113,12 +115,15 @@ const reasoningCache = createReasoningCache({
   file: config.reasoning.cacheFile,
   fallback: config.reasoning.fallback,
   log,
+  maxBytes: config.reasoning.cacheMaxBytes,
+  ttlMs: config.reasoning.cacheTtlMs,
 });
 const { visibleReasoning, normalizeReasoningText, rememberReasoning, reasoningFor } = reasoningCache;
 
 const visionAdapter = createVisionAdapter({
   config,
   assertSafeVisionEndpoint,
+  resolveSafeVisionEndpoint,
   formatRemoteFailure,
   log,
 });
@@ -253,6 +258,7 @@ const bridgeState = {
   shutdownRequested: false,
   activeRequests: 0,
 };
+const bridgeMetrics = createMetrics();
 
 const bridgeHttp = createBridgeHttpServer({
   config,
@@ -268,6 +274,8 @@ const bridgeHttp = createBridgeHttpServer({
   nonStreamingChatToResponses,
   assertSafeLoopbackUpstream,
   upstreamAuthHeader,
+  validateResponsesRequest,
+  metrics: bridgeMetrics,
 });
 
 process.once('SIGINT', () => bridgeHttp.requestShutdown('SIGINT'));

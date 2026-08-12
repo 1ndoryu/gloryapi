@@ -184,7 +184,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     logRequest({ ts: new Date().toISOString(), kind: 'result', requestId: chat.__gloryRequestId, status: 0, error: String(err && err.message), body: chat });
     sseEvent(res, 'response.failed', {
       type: 'response.failed',
-      response: { id: responseId, error: { type: 'upstream_error', message: String(err && err.message) } },
+      response: { id: responseId, error: { type: 'upstream_error', message: redactText(err && err.message) } },
     });
     res.end();
     return;

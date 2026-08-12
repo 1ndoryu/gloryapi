@@ -125,3 +125,26 @@ test('unknown tool profiles fail closed instead of enabling Codex shims', () => 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Unknown BRIDGE_TOOL_PROFILE/);
 });
+
+test('capability combinations are data-driven but statuses remain code-owned', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['-e', "const { config } = require('./bridge/config'); process.stdout.write(JSON.stringify(config.capabilities.matrix));"],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        BRIDGE_CAPABILITY_MATRIX_JSON: JSON.stringify([
+          { client: 'desktop', adapter: 'native-relay-v1', provider: 'provider-a', model: 'model-a', status: 'supported' },
+          { client: 'generic', adapter: 'translation-v1', provider: 'provider-b', model: 'model-b' },
+        ]),
+      },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [
+    { client: 'desktop', adapter: 'native-relay-v1', provider: 'provider-a', model: 'model-a' },
+    { client: 'generic', adapter: 'translation-v1', provider: 'provider-b', model: 'model-b' },
+  ]);
+});

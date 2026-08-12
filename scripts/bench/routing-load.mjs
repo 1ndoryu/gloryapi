@@ -21,12 +21,20 @@ const durations = [];
 let completed = 0;
 let failed = 0;
 
+async function fetchFallback() {
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${adminToken}` } });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  await response.arrayBuffer();
+}
+
+// Warm the local HTTP connection pool before measuring route latency. Without this,
+// the first concurrent batch measures Windows socket setup more than routing.
+await Promise.all(Array.from({ length: concurrency }, () => fetchFallback()));
+
 async function one() {
   const started = performance.now();
   try {
-    const response = await fetch(url, { headers: { Authorization: `Bearer ${adminToken}` } });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    await response.arrayBuffer();
+    await fetchFallback();
     completed += 1;
   } catch {
     failed += 1;

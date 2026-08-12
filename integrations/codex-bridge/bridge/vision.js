@@ -1,28 +1,76 @@
-const fs = require('node:fs');
+const http = require('node:http');
+const https = require('node:https');
 const crypto = require('node:crypto');
-const { readResponseTextLimited } = require('./response-body');
+const net = require('node:net');
+const { readResponseTextLimited, contentLengthOf } = require('./response-body');
+const { readBoundedJson, writeJsonAtomic } = require('./atomic-json');
 
-function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFailure, log }) {
+function createVisionAdapter({ config, assertSafeVisionEndpoint, resolveSafeVisionEndpoint, formatRemoteFailure, log }) {
   const { vision, limits } = config;
+  const resolveEndpoint = resolveSafeVisionEndpoint || null;
   const cache = new Map();
+  const pending = new Map();
+  let cacheBytes = 0;
   let saveTimer = null;
+
+  function entryBytes(key, value) {
+    return Buffer.byteLength(key, 'utf8') + Buffer.byteLength(JSON.stringify(value), 'utf8');
+  }
+
+  function setCached(key, value) {
+    const size = entryBytes(key, value);
+    const maxCacheBytes = Number.isSafeInteger(vision.cacheMaxBytes) && vision.cacheMaxBytes > 0
+      ? vision.cacheMaxBytes
+      : 4 * 1024 * 1024;
+    if (size > maxCacheBytes) return;
+    const previous = cache.get(key);
+    if (previous) cacheBytes -= entryBytes(key, previous);
+    cache.delete(key);
+    cache.set(key, value);
+    cacheBytes += size;
+    while (cache.size > vision.cacheMax || cacheBytes > maxCacheBytes) {
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey === undefined) break;
+      const oldest = cache.get(oldestKey);
+      cache.delete(oldestKey);
+      if (oldest) cacheBytes -= entryBytes(oldestKey, oldest);
+    }
+  }
+
+  function getCached(key) {
+    const cached = cache.get(key);
+    if (!cached) return null;
+    if (cached.ts && Date.now() - cached.ts > vision.cacheTtlMs) {
+      cache.delete(key);
+      cacheBytes -= entryBytes(key, cached);
+      return null;
+    }
+    // Move hits to the newest position so eviction is LRU, not insertion-only.
+    cache.delete(key);
+    cache.set(key, cached);
+    return cached;
+  }
 
   function scheduleSave() {
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
       saveTimer = null;
       try {
-        fs.writeFileSync(vision.cacheFile, JSON.stringify(Object.fromEntries(cache)));
-      } catch {}
+        writeJsonAtomic(vision.cacheFile, Object.fromEntries(cache), { maxBytes: vision.cacheMaxBytes });
+      } catch (error) {
+        log(`vision cache write failed (${error && error.name ? error.name : 'error'})`);
+      }
     }, 800);
   }
 
   function loadCache() {
     try {
-      const raw = fs.readFileSync(vision.cacheFile, 'utf8');
-      const obj = JSON.parse(raw);
+      const obj = readBoundedJson(vision.cacheFile, vision.cacheMaxBytes);
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
       for (const [key, value] of Object.entries(obj)) {
-        if (key && value && typeof value.text === 'string' && value.text) cache.set(key, value);
+        const timestamp = Number(value && value.ts);
+        if (key && value && typeof value.text === 'string' && value.text
+          && (!timestamp || Date.now() - timestamp <= vision.cacheTtlMs)) setCached(key, value);
       }
       if (cache.size) log(`vision cache loaded: ${cache.size} entries`);
     } catch {}
@@ -62,19 +110,84 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFai
     return rawImage;
   }
 
-  async function describeImage(imageUrl, focusHint) {
-    if (vision.disabled || !imageUrl) return null;
-    try {
-      imageUrl = validateImageReference(imageUrl);
-    } catch {
-      log(formatRemoteFailure('vision', { kind: 'validation' }));
-      return null;
-    }
-    const prompt = buildPrompt(focusHint);
-    const key = sha256hex(`${imageUrl}\x00${prompt}`);
-    const cached = cache.get(key);
-    if (cached && typeof cached.text === 'string') return cached.text;
+  function requestPinnedVision(endpoint, address, options) {
+    const url = new URL(endpoint);
+    const client = url.protocol === 'https:' ? https : http;
+    const hostname = url.hostname.replace(/^\[|\]$/g, '');
+    const family = address.family || net.isIP(address.address);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let abort = () => {};
+      const cleanup = () => options.signal?.removeEventListener('abort', abort);
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const request = client.request({
+        hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
+        method: 'POST',
+        headers: options.headers,
+        servername: hostname,
+        rejectUnauthorized: url.protocol === 'https:',
+        // The resolver was already checked. This callback prevents node from
+        // resolving the hostname a second time during the socket connection.
+        lookup: (_host, lookupOptions, callback) => {
+          if (lookupOptions && lookupOptions.all) callback(null, [{ address: address.address, family }]);
+          else callback(null, address.address, family);
+        },
+      }, (incoming) => {
+        const declared = contentLengthOf({ headers: { get: name => incoming.headers[String(name).toLowerCase()] } });
+        if (declared != null && declared > options.maxBytes) {
+          incoming.destroy();
+          fail(new Error(`vision response exceeds ${options.maxBytes} bytes`));
+          return;
+        }
+        const chunks = [];
+        let size = 0;
+        incoming.on('data', (chunk) => {
+          size += chunk.length;
+          if (size > options.maxBytes) {
+            incoming.destroy(new Error(`vision response exceeds ${options.maxBytes} bytes`));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        incoming.on('error', fail);
+        incoming.on('end', () => finish({
+          ok: (incoming.statusCode || 0) >= 200 && (incoming.statusCode || 0) < 300,
+          status: incoming.statusCode || 0,
+          text: Buffer.concat(chunks).toString('utf8'),
+          body: null,
+        }));
+      });
+      abort = () => {
+        const error = new Error('vision request aborted');
+        error.name = 'AbortError';
+        request.destroy(error);
+      };
+      request.on('error', fail);
+      request.setTimeout(options.timeoutMs, () => {
+        const error = new Error('vision request timed out');
+        error.name = 'TimeoutError';
+        request.destroy(error);
+      });
+      if (options.signal?.aborted) abort();
+      else options.signal?.addEventListener('abort', abort, { once: true });
+      request.end(options.body);
+    });
+  }
 
+  async function fetchDescription(imageUrl, prompt, key) {
     const body = {
       model: vision.model,
       max_tokens: vision.maxTokens,
@@ -95,18 +208,30 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFai
       if (attempt > 0) await sleep(400 * attempt);
       let timer;
       try {
+        const safeEndpoint = resolveEndpoint ? await resolveEndpoint(endpoint) : new URL(endpoint);
         const controller = new AbortController();
         timer = setTimeout(() => controller.abort(), vision.timeoutMs);
         const headers = { 'Content-Type': 'application/json' };
         if (vision.apiKey) headers.Authorization = `Bearer ${vision.apiKey}`;
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          redirect: 'error',
-          headers,
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        const raw = await readResponseTextLimited(response, vision.maxResponseBytes, 'vision response');
+        const validatedAddresses = safeEndpoint.__validatedAddresses;
+        const response = validatedAddresses && validatedAddresses.length
+          ? await requestPinnedVision(safeEndpoint.toString(), validatedAddresses[attempt % validatedAddresses.length], {
+            headers,
+            body: JSON.stringify(body),
+            maxBytes: vision.maxResponseBytes,
+            timeoutMs: vision.timeoutMs,
+            signal: controller.signal,
+          })
+          : await fetch(safeEndpoint.toString(), {
+            method: 'POST',
+            redirect: 'error',
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+        const raw = response.text && typeof response.text === 'string'
+          ? response.text
+          : await readResponseTextLimited(response, vision.maxResponseBytes, 'vision response');
         if (!response.ok) {
           lastFailure = { kind: 'http', status: response.status, bytes: Buffer.byteLength(raw, 'utf8') };
           continue;
@@ -121,8 +246,7 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFai
           lastFailure = { kind: 'empty_response', status: response.status, bytes: 0 };
           continue;
         }
-        cache.set(key, { text, ts: Date.now() });
-        if (cache.size > vision.cacheMax) cache.delete(cache.keys().next().value);
+        setCached(key, { text, ts: Date.now() });
         scheduleSave();
         log(`vision: described image (${text.length} chars)`);
         return text;
@@ -134,6 +258,29 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFai
     }
     log(formatRemoteFailure('vision', lastFailure));
     return null;
+  }
+
+  async function describeImage(imageUrl, focusHint) {
+    if (vision.disabled || !imageUrl) return null;
+    try {
+      imageUrl = validateImageReference(imageUrl);
+    } catch {
+      log(formatRemoteFailure('vision', { kind: 'validation' }));
+      return null;
+    }
+    const prompt = buildPrompt(focusHint);
+    const key = sha256hex(`${imageUrl}\x00${prompt}`);
+    const cached = getCached(key);
+    if (cached && typeof cached.text === 'string') return cached.text;
+    const active = pending.get(key);
+    if (active) return active;
+    const task = fetchDescription(imageUrl, prompt, key);
+    pending.set(key, task);
+    try {
+      return await task;
+    } finally {
+      pending.delete(key);
+    }
   }
 
   function extractFocusHint(body) {
@@ -151,7 +298,12 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, formatRemoteFai
   }
 
   loadCache();
-  return { describeImage, extractFocusHint, validateImageReference };
+  return {
+    describeImage,
+    extractFocusHint,
+    validateImageReference,
+    getCacheStats: () => ({ entries: cache.size, bytes: cacheBytes, pending: pending.size }),
+  };
 }
 
 module.exports = { createVisionAdapter };

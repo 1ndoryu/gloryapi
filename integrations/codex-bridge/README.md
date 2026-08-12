@@ -18,6 +18,10 @@ responsabilidad para poder probarla y sustituir el proveedor sin editar el servi
 - `tool-profile.js`: perfiles de compatibilidad `codex-desktop` y `generic`; los shims de MCP/automation/colaboración no están en el núcleo.
 - `vision.js` y `reasoning-cache.js`: adaptaciones y cachés persistentes aislados.
 - `http-server.js`: endpoints HTTP, autenticación local, readiness, lifecycle y shutdown graceful.
+- `responses-schema.js`: contrato de entrada `glory-responses-request-v1`, con límites de items,
+  tools y contenido antes de traducir.
+- `redaction.js`, `atomic-json.js` y `metrics.js`: redacción estructurada, estado JSON acotado/atómico
+  y métricas metadata-only con muestras bounded.
 
 La configuración prioriza aliases agnósticos y mantiene compatibilidad con `GLORY_*`/`FREEL_*`:
 `BRIDGE_UPSTREAM_BASE_URL`, `BRIDGE_UPSTREAM_COMPLETIONS_PATH`, `BRIDGE_UPSTREAM_API_KEY`,
@@ -25,6 +29,13 @@ La configuración prioriza aliases agnósticos y mantiene compatibilidad con `GL
 `BRIDGE_UPSTREAM_CONTRACT`. Los límites y políticas siguen siendo configurables mediante las variables
 `BRIDGE_*` documentadas en este archivo. El bridge continúa escuchando en loopback por defecto y
 apunta a un upstream OpenAI-compatible por defecto; cambiar de proveedor no requiere editar adapters.
+
+`BRIDGE_CAPABILITY_MATRIX_JSON` permite declarar combinaciones cliente/adapter/provider/modelo sin editar
+el código; los estados de soporte siguen siendo calculados por el bridge y nunca se aceptan desde ese JSON.
+
+El contrato de entrada se identifica como `BRIDGE_REQUEST_SCHEMA=glory-responses-request-v1`. Los campos
+de extensión desconocidos se toleran, pero tipos conocidos inválidos fallan cerrado con una ruta estructural
+sanitizada.
 
 El perfil de herramientas se elige con `BRIDGE_TOOL_PROFILE=codex-desktop|generic`. El primero mantiene los
 shims necesarios para builds de Codex Desktop que descubren tarde algunas herramientas; `generic` solo reenvía
@@ -53,6 +64,8 @@ sin commit por indicación del usuario.
   shutdown rechaza solicitudes nuevas, drena las activas y fuerza el cierre tras
   un límite acotado. `/capabilities` publica el mismo estado por combinación
   cliente/adapter/modelo bajo `glory-codex-capabilities-v2`.
+- `/diagnostics` requiere el token local y expone únicamente schema, lifecycle y percentiles
+  metadata-only bounded; `/health` sigue siendo liveness mínimo.
 - La búsqueda web se resuelve mediante un bucle interno conforme al patrón de function
   calling: llamada upstream, `assistant.tool_calls`, búsqueda, mensaje `role=tool` y
   segunda llamada upstream. Codex Desktop recibe la respuesta final; el bridge no
@@ -65,7 +78,8 @@ sin commit por indicación del usuario.
 - No hay claves embebidas. El sidecar exige `BRIDGE_CLIENT_TOKEN` para
   Codex→sidecar y usa por separado `GLORY_API_KEY` (o `FREEL_API_KEY` transitorio)
   para sidecar→GloryAPI; nunca reenvía ciegamente el bearer del cliente.
-  Visión requiere `VISION_API_KEY` explícita.
+  Visión requiere `VISION_API_KEY` explícita; un endpoint sin auth solo se permite con
+  `VISION_ALLOW_ANONYMOUS=1` y aun así queda `unverified` hasta un health probe.
 - No se habilita CORS para navegadores.
 - El cuerpo se limita a 8 MiB, configurable con `BRIDGE_MAX_BODY_BYTES`.
 - Cada respuesta de backend de búsqueda se limita a 1 MiB, configurable con
@@ -98,6 +112,12 @@ sin commit por indicación del usuario.
   1; timeout `BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS`, 90 s) con una directiva explícita;
   si tampoco hay texto final ni tools, devuelve `response.failed` con
   `empty_upstream_response` y registra `empty_recovery_*`.
+- Las cachés persistentes tienen TTL y límite de bytes; se escriben con `fsync`/rename y
+  no conservan el reasoning sintético.
+- La visión no se anuncia en `/capabilities` ni en `/v1/models` sin configuración explícita
+  y probe de salud aprobado; cada intento valida todas las respuestas DNS y bloquea rangos
+  privados. La conexión usa el conjunto de direcciones ya validado como `lookup` fijado,
+  conserva SNI para HTTPS y no sigue redirects.
 - La red de seguridad de contexto compacta antes cuando la autocompactación nativa
   no actuó (`BRIDGE_COMPACTION_SAFETY_FACTOR=1.25` por defecto), y el system prompt
   reenviado queda limitado a 120000 caracteres (`BRIDGE_MAX_SYSTEM_CHARS`). Ambos

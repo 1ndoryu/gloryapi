@@ -44,7 +44,12 @@
           "**/.quality-tools/**",
           "**/.sentinel/**"
         ],
-        "directoryExceptions": ["scripts"],
+        "directoryExceptions": [
+          "scripts",
+          "integrations/codex-bridge/bridge",
+          "integrations/codex-bridge/test",
+          "server/src/__tests__/routes"
+        ],
         "portableBoundaries": {
           "dom": ["/client/src/", "/client/"],
           "window": ["/client/src/", "/client/"],
