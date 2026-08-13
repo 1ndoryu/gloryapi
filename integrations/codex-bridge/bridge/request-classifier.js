@@ -43,14 +43,27 @@ function parseModelSet(raw, fallback) {
 }
 
 function createRequestClassifier(options = {}) {
-  const titleModels = parseModelSet(options.titleModels || process.env.BRIDGE_TITLE_MODEL_ALIASES, DEFAULT_TITLE_MODELS);
+  const defaultTitleModels = Array.isArray(options.defaultTitleModels) && options.defaultTitleModels.length
+    ? options.defaultTitleModels
+    : DEFAULT_TITLE_MODELS;
+  const titleModels = parseModelSet(
+    options.titleModels || process.env.BRIDGE_TITLE_MODEL_ALIASES,
+    defaultTitleModels,
+  );
   const duplicateWindowMs = boundedInteger(
     options.duplicateWindowMs ?? process.env.BRIDGE_TITLE_DUPLICATE_WINDOW_MS,
     15000,
     1000,
     60000,
   );
+  const maxRecentEntries = boundedInteger(
+    options.maxRecentEntries ?? process.env.BRIDGE_CLASSIFIER_MAX_RECENT_ENTRIES,
+    256,
+    8,
+    4096,
+  );
   const recent = new Map();
+  let nextLeaseId = 1;
 
   function prune(now) {
     for (const [fingerprint, entry] of recent) {
@@ -66,17 +79,20 @@ function createRequestClassifier(options = {}) {
     let kind = 'main';
     let reason = 'default';
 
-    // Codex Desktop asks a second model to title a new thread. The title call
-    // repeats the latest user text shortly after the real request and uses the
-    // Desktop alias gpt-5.6-luna. Require a different preceding model so a
-    // user selecting Pro is never mistaken for a title on its first request.
-    // This conservative rule removes the observed Flash -> Luna duplicate and
-    // leaves uncertain requests upstream for later evidence.
+    // Codex Desktop can ask one or more picker aliases to process the same
+    // initial input while creating a thread. Require an earlier request with
+    // the exact same user fingerprint but a different model: the first
+    // explicit request to any selectable model must always remain the main
+    // request. The alias set comes from the versioned catalog and remains
+    // overridable for other clients/providers. Until Desktop exposes a
+    // request-purpose signal, an intentional concurrent replay of the exact
+    // prompt on another model is indistinguishable and follows this rule.
     if (
       fingerprint &&
       titleModels.has(model) &&
       previous &&
       previous.model &&
+      previous.active === true &&
       previous.model !== model &&
       now - previous.at <= duplicateWindowMs
     ) {
@@ -84,15 +100,36 @@ function createRequestClassifier(options = {}) {
       reason = 'repeated_input_with_title_alias';
     }
 
-    if (fingerprint) recent.set(fingerprint, { at: now, model });
-    return { kind, reason, fingerprint, model };
+    let leaseId = null;
+    if (fingerprint && kind === 'main') {
+      if (!recent.has(fingerprint) && recent.size >= maxRecentEntries) {
+        const oldestFingerprint = recent.keys().next().value;
+        if (oldestFingerprint) recent.delete(oldestFingerprint);
+      }
+      leaseId = nextLeaseId++;
+      recent.delete(fingerprint);
+      recent.set(fingerprint, { at: now, model, active: true, leaseId });
+    }
+    return { kind, reason, fingerprint, model, leaseId };
+  }
+
+  function complete(classification) {
+    if (!classification?.fingerprint || !classification.leaseId) return false;
+    const current = recent.get(classification.fingerprint);
+    if (!current || current.leaseId !== classification.leaseId) return false;
+    recent.delete(classification.fingerprint);
+    return true;
+  }
+
+  function stats() {
+    return { recentEntries: recent.size, maxRecentEntries };
   }
 
   function reset() {
     recent.clear();
   }
 
-  return { classify, reset, titleModels, duplicateWindowMs };
+  return { classify, complete, reset, stats, titleModels, duplicateWindowMs, maxRecentEntries };
 }
 
 module.exports = { createRequestClassifier, requestFingerprint, userTextForFingerprint };
