@@ -67,13 +67,16 @@ describe('Provider registry API', () => {
 
     expect(snapshot.schemaVersion).toBe('glory-registry-v1')
     expect(snapshot.providers.map(provider => provider.platform)).toEqual([
-      'andoryyu', 'opencode-zen', 'tokenharbor', 'opencode-go',
+      'andoryyu', 'opencode-zen', 'tokenharbor', 'opencode-go', 'commandcode',
     ])
     expect(snapshot.models.map(model => `${model.platform}:${model.modelId}`)).toEqual([
       'andoryyu:deepseek-v4-flash',
       'opencode-zen:deepseek-v4-flash-free',
       'tokenharbor:deepseek-v4-flash:free',
       'opencode-go:deepseek-v4-flash',
+      'commandcode:deepseek/deepseek-v4-flash',
+      'commandcode:meta/muse-spark-1.2-contributor',
+      'commandcode:deepseek/deepseek-v4-pro',
     ])
     expect(snapshot.providers.every(provider => provider.lifecycle === 'active')).toBe(true)
     expect(JSON.stringify(snapshot)).not.toContain('encrypted_key')
@@ -147,7 +150,7 @@ describe('Provider registry API', () => {
     const snapshot = await requestRegistry(app)
     const archived = snapshot.providers.find(provider => provider.platform === 'groq')
     expect(archived).toMatchObject({ lifecycle: 'archived', credentialCount: 1, endpoint: '' })
-    expect(snapshot.models).toHaveLength(4)
+    expect(snapshot.models).toHaveLength(7)
   })
 
   it('exposes declarative templates and accepts a new provider as an inert draft', async () => {
@@ -205,7 +208,7 @@ describe('Provider registry API', () => {
       contextWindow: 32768,
       capabilities: { streaming: true, tools: false, reasoning: false, multimodal: false, maxContextWindow: 32768 },
     }])
-    expect((await requestRegistry(app)).models).toHaveLength(4)
+    expect((await requestRegistry(app)).models).toHaveLength(7)
   })
 
   it('requires an explicit key and never auto-selects discovered models', async () => {
@@ -227,6 +230,8 @@ describe('Provider registry API', () => {
       expect(response.status).toBe(200)
       const body = await response.json() as { schemaVersion: string; models: unknown[] }
       expect(body.schemaVersion).toBe('glory-control-status-v1')
+      // El estado de control refleja solo la cadena `auto` (fallback_config);
+      // los modelos explicit-only de CommandCode no entran en esa cadena.
       expect(body.models).toHaveLength(4)
     } finally {
       server.close()

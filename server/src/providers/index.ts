@@ -173,12 +173,15 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://api.kilo.ai/api/gateway/v1',
 }));
 
-// CommandCode — OpenAI-compatible. Paid Pro-tier proxy to Anthropic, OpenAI,
-// and OSS models. Uses the same API key from CommandCode Studio. Requires Pro.
+// CommandCode — OpenAI-compatible. Paid Provider/GOAT tier proxy to Anthropic,
+// OpenAI and OSS models. Same API key from CommandCode Studio. The endpoint
+// serves both text-only DeepSeek models and multimodal Muse Spark 1.2; the
+// bridge forwards image_url blocks natively only for vision-capable models.
 register(new OpenAICompatProvider({
   platform: 'commandcode',
-  name: 'CommandCode',
-  baseUrl: 'https://api.commandcode.ai/provider/v1',
+  name: activeDefinition('commandcode').displayName,
+  baseUrl: activeDefinition('commandcode').endpoint,
+  timeoutMs: 120_000,
   maxReasoningEffort: 'max',
 }));
 

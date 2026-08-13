@@ -1,4 +1,5 @@
 const path = require('node:path');
+const { MODEL_CATALOG_SCHEMA, parseModelCatalog } = require('./model-catalog');
 
 function boundedEnvInt(name, fallback, minimum, maximum, env = process.env) {
   const parsed = Number.parseInt(env[name] || '', 10);
@@ -76,6 +77,7 @@ function capabilityMatrix(env) {
 
 const env = process.env;
 const runtimeRoot = env.BRIDGE_RUNTIME_DIR || __dirname;
+const modelCatalog = parseModelCatalog(firstEnv(env, ['BRIDGE_MODEL_CATALOG_JSON']));
 
 // One flat, serialisable configuration object keeps deployment-specific values
 // out of the adapters. A different provider can now override these variables
@@ -126,6 +128,10 @@ const config = Object.freeze({
   },
   capabilities: {
     matrix: capabilityMatrix(env),
+  },
+  catalog: {
+    schema: MODEL_CATALOG_SCHEMA,
+    entries: modelCatalog,
   },
   limits: {
     maxBodyBytes: boundedEnvInt('BRIDGE_MAX_BODY_BYTES', 8 * 1024 * 1024, 1024, 16 * 1024 * 1024),

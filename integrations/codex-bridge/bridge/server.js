@@ -166,6 +166,7 @@ const requestTranslator = createRequestTranslator({
   describeImage,
   describeImageResult,
   extractFocusHint,
+  validateImageReference,
   boundSystemContent,
   log,
   reasoningFor,

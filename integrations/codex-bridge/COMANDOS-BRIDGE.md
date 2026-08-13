@@ -83,6 +83,42 @@ Si el proveedor principal responde `429`, se reintenta de forma acotada y se pru
 alternativas. Si todas fallan, la conversación continúa con un aviso que distingue “imagen recibida
 sin descripción” de “imagen ausente”; no se inventa que una carpeta o visualización está vacía.
 
+## Seleccionar proveedor y modelo (CommandCode, Muse, DeepSeek)
+
+El selector es el picker de modelos de la ventana ChatGPT del bridge. Desktop lee el archivo
+`model_catalog_json` de `C:\Users\Owner\.codex-gloryapi\config.toml`; el endpoint `/v1/models`
+expone el mismo catálogo para clientes compatibles. El catálogo está versionado como
+`glory-bridge-model-catalog-v1` (`bridge/model-catalog.js`). Algunas versiones de Desktop filtran los
+IDs de proveedores personalizados; por eso el archivo local usa alias `pickerId` reconocibles por
+Desktop, pero el bridge los traduce al ID real antes de llamar a GloryAPI. Opciones visibles por defecto:
+
+- `auto` — comportamiento actual: GloryAPI enruta/fallback entre los proveedores gratuitos.
+- `deepseek-v4-flash-free` — OpenCode Zen · DeepSeek V4 Flash gratuito.
+- `deepseek-v4-flash:free` — TokenHarbor Free · DeepSeek V4 Flash gratuito.
+- `deepseek/deepseek-v4-flash` — CommandCode · DeepSeek V4 Flash (texto).
+- `meta/muse-spark-1.2-contributor` — CommandCode · Muse Spark 1.2 Contributor (visión nativa).
+- `deepseek/deepseek-v4-pro` — CommandCode · DeepSeek V4 Pro (texto).
+
+Al elegir un modelo CommandCode, el bridge envía ese id exacto y GloryAPI lo fija a su propio
+proveedor: no salta silenciosamente a un proveedor gratuito. Si falta la clave, el modelo no existe
+o el proveedor falla, la respuesta es un error estructurado visible, no un cierre de turno falso.
+
+Muse Spark 1.2 tiene visión nativa: con ese modelo, las imágenes se reenvían como `image_url` para
+que el modelo las vea directamente. Con el resto de modelos se conserva la descripción por texto.
+
+Para guardar la credencial de CommandCode (bóveda DPAPI, nunca en código ni en logs), usa el panel
+local de GloryAPI o su API segura:
+
+```powershell
+# No pegar la clave aquí: se envía una sola vez a la bóveda DPAPI de GloryAPI.
+$headers = @{ Authorization = "Bearer <unified-key>" }
+$body = @{ platform = 'commandcode'; key = '<clave>'; label = 'CommandCode Provider' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:3101/api/keys' -Headers $headers -ContentType 'application/json' -Body $body
+```
+
+Si la clave fue pegada en texto plano en una conversación, revócala en CommandCode Studio y genera
+otra antes de guardarla.
+
 ## Apagar el servidor bridge
 
 Este comando detiene únicamente el bridge identificado por su PID y su `server.js`:

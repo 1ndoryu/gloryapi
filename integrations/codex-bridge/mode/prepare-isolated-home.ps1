@@ -82,6 +82,7 @@ $normalBaseConfig = Join-Path $BridgeHome 'normal-base.config.toml'
 $profilePath = Join-Path $BridgeHome "$ProfileName.config.toml"
 $authScript = Resolve-FullPath (Join-Path $PSScriptRoot 'get-codex-auth.ps1')
 $modelsPath = Join-Path $SourceCodexHome 'models.json'
+$sourceModelsCachePath = Join-Path $SourceCodexHome 'models_cache.json'
 
 if (-not (Test-Path -LiteralPath $sourceConfig -PathType Leaf)) {
     throw "No existe la configuración normal de Codex: $sourceConfig"
@@ -90,8 +91,18 @@ if (-not (Test-Path -LiteralPath $BridgeHome -PathType Container)) {
     New-Item -ItemType Directory -Path $BridgeHome -Force | Out-Null
 }
 $bridgeModelsPath = Join-Path $BridgeHome 'models.json'
-if (Test-Path -LiteralPath $modelsPath -PathType Leaf) {
-    Copy-Item -LiteralPath $modelsPath -Destination $bridgeModelsPath -Force
+$bridgeModelsCachePath = Join-Path $BridgeHome 'models_cache.json'
+# El picker de modelos de Codex Desktop consume model_catalog_json (models.json),
+# no /v1/models. Copiar el models.json normal dejaba una sola entrada
+# (deepseek-v4-flash) y no se podían elegir CommandCode/Muse. Se genera un
+# catálogo del bridge que conserva el default y añade los modelos CommandCode.
+$catalogBuilder = Resolve-FullPath (Join-Path $PSScriptRoot 'build-model-catalog.cjs')
+$nodeExe = (Get-Command node -ErrorAction Stop).Source
+$sourceModelsArg = if (Test-Path -LiteralPath $modelsPath -PathType Leaf) { $modelsPath } else { '-' }
+$sourceCacheMetadataArg = if (Test-Path -LiteralPath $sourceModelsCachePath -PathType Leaf) { $sourceModelsCachePath } else { '-' }
+& $nodeExe $catalogBuilder $sourceModelsArg $bridgeModelsPath $bridgeModelsCachePath $sourceCacheMetadataArg
+if ($LASTEXITCODE -ne 0) {
+    throw 'No se pudo generar el catálogo de modelos del bridge (build-model-catalog.cjs).'
 }
 
 $existingBridgeConfig = if (Test-Path -LiteralPath $bridgeConfig -PathType Leaf) {

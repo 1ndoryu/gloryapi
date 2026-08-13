@@ -95,7 +95,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
   });
   sseEvent(res, 'response.created', {
     type: 'response.created',
-    response: { id: responseId, status: 'in_progress', model: MODEL },
+    response: { id: responseId, status: 'in_progress', model: chat.model || MODEL },
   });
 
   const keepAlive = setInterval(() => {
@@ -285,7 +285,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
 
   sseEvent(res, 'response.created', {
     type: 'response.created',
-    response: { id: responseId, status: 'in_progress', model: MODEL },
+    response: { id: responseId, status: 'in_progress', model: chat.model || MODEL },
   });
 
   const controller = new AbortController();
@@ -882,7 +882,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       object: 'response',
       created_at: Math.floor(Date.now() / 1000),
       status: 'completed',
-      model: MODEL,
+      model: chat.model || MODEL,
       output,
       usage: responseUsage ? responseUsageFromChatUsage(responseUsage) : null,
       end_turn: !hasToolOutput,

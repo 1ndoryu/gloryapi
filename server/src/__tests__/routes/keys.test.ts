@@ -100,6 +100,23 @@ describe('Keys API', () => {
     expect(status).toBe(400);
   });
 
+  it('POST /api/keys accepts a CommandCode credential (active provider)', async () => {
+    const { status, body } = await request(app, 'POST', '/api/keys', {
+      platform: 'commandcode',
+      key: 'cmd_test_credential_not_real',
+      label: 'CommandCode Provider',
+    });
+
+    expect(status).toBe(201);
+    expect(body.platform).toBe('commandcode');
+    expect(body.maskedKey).toContain('...');
+    const row = getDb().prepare(
+      'SELECT encryption_scheme, encrypted_key FROM api_keys WHERE id = ?',
+    ).get(body.id) as { encryption_scheme: string; encrypted_key: string };
+    expect(row.encryption_scheme).toBe('dpapi-current-user');
+    expect(row.encrypted_key).not.toContain('cmd_test_credential_not_real');
+  });
+
   it('POST /api/keys accepts a credential for an explicit provider draft', async () => {
     getDb().prepare(`
       INSERT INTO provider_registry (

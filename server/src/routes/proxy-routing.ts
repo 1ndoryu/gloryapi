@@ -19,6 +19,19 @@ export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; 
   'deepseek-v4-flash:free': [
     { platform: 'tokenharbor', modelId: 'deepseek-v4-flash:free' },
   ],
+  // CommandCode es un proveedor de pago con selección explícita: cada uno de
+  // sus tres modelos queda fijado a su propio proveedor. Un fallo del modelo
+  // (sin clave, cuota agotada, timeout) debe devolver un error estructurado y
+  // visible, nunca un salto silencioso a un proveedor gratuito distinto.
+  'deepseek/deepseek-v4-flash': [
+    { platform: 'commandcode', modelId: 'deepseek/deepseek-v4-flash' },
+  ],
+  'meta/muse-spark-1.2-contributor': [
+    { platform: 'commandcode', modelId: 'meta/muse-spark-1.2-contributor' },
+  ],
+  'deepseek/deepseek-v4-pro': [
+    { platform: 'commandcode', modelId: 'deepseek/deepseek-v4-pro' },
+  ],
 }
 
 export const PROVIDER_FAILURE_POLICY: Record<string, {
@@ -51,6 +64,12 @@ export const PROVIDER_FAILURE_POLICY: Record<string, {
   // en el mismo request (la purga de skipKeys en el catch de routeRequest lo
   // rehabilita) para que la ejecución nunca se interrumpa por un fallo ajeno.
   'opencode-go': { cooldownMs: 0, recordPenalty: false, recordProviderFailure: false },
+  // CommandCode es de pago y solo se usa por selección explícita. Un fallo
+  // transitorio puede reintentarse con cadencia corta, pero un 429 (cuota del
+  // plan) no debe martillearse: cooldown escalado. No acumula penalty dinámico
+  // porque no compite en la cadena `auto`; el cooldown de proveedor sí registra
+  // fallos para devolver un error visible en vez de reintentar en caliente.
+  commandcode: { cooldownMs: 30_000, rateLimitCooldownMs: 120_000, recordPenalty: false, recordProviderFailure: true },
 }
 
 type VisibleModel = {

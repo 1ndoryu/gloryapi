@@ -40,6 +40,42 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       sizeLabel: 'Frontier',
       contextWindow: 131072,
     },
+    // CommandCode es un proveedor de pago seleccionable explícitamente. Sus
+    // modelos NO entran en la cadena `auto` (fallback_config) para no gastar
+    // crédito sin que el usuario lo pida: quedan como modelos "explicit-only"
+    // alcanzables vía `model` y con cadena restringida a su propio proveedor.
+    {
+      platform: 'commandcode',
+      modelId: 'deepseek/deepseek-v4-flash',
+      displayName: 'DeepSeek V4 Flash (CommandCode)',
+      intelligenceRank: 5,
+      speedRank: 5,
+      sizeLabel: 'Frontier',
+      contextWindow: 1048576,
+      explicitOnly: true,
+    },
+    {
+      platform: 'commandcode',
+      modelId: 'meta/muse-spark-1.2-contributor',
+      displayName: 'Muse Spark 1.2 Contributor (CommandCode)',
+      intelligenceRank: 6,
+      speedRank: 6,
+      sizeLabel: 'Frontier',
+      // Muse Spark 1.2 acepta texto e imágenes de forma nativa (visión) con
+      // ventana de ~1.05M tokens según la documentación oficial de CommandCode.
+      contextWindow: 1050000,
+      explicitOnly: true,
+    },
+    {
+      platform: 'commandcode',
+      modelId: 'deepseek/deepseek-v4-pro',
+      displayName: 'DeepSeek V4 Pro (CommandCode)',
+      intelligenceRank: 7,
+      speedRank: 7,
+      sizeLabel: 'Frontier',
+      contextWindow: 1048576,
+      explicitOnly: true,
+    },
   ] as const;
 
   const deleteFallback = db.prepare('DELETE FROM fallback_config');
@@ -88,7 +124,9 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       );
       const row = findModel.get(model.platform, model.modelId) as { id: number } | undefined;
       if (!row) throw new Error(`Catalog normalization failed for ${model.platform}/${model.modelId}`);
-      insertFallback.run(row.id, model.intelligenceRank);
+      // Explicit-only models (CommandCode) stay out of the automatic `auto`
+      // fallback chain; they are reachable by their exact `model` id only.
+      if (!('explicitOnly' in model && model.explicitOnly)) insertFallback.run(row.id, model.intelligenceRank);
     }
     const columns = new Set(
       (db.prepare('PRAGMA table_info(models)').all() as Array<{ name: string }>).map(column => column.name),

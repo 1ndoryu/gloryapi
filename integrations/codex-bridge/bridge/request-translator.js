@@ -1,7 +1,9 @@
 const { resolveToolProfile } = require('./tool-profile');
+const { resolveModelSelection } = require('./model-catalog');
 
-function createRequestTranslator({ config, describeImage, describeImageResult, extractFocusHint, boundSystemContent, log, reasoningFor }) {
-  const MODEL = config.upstream.model;
+function createRequestTranslator({ config, describeImage, describeImageResult, extractFocusHint, validateImageReference, boundSystemContent, log, reasoningFor }) {
+  const DEFAULT_MODEL = config.upstream.model;
+  const MODEL_CATALOG = Array.isArray(config.catalog.entries) ? config.catalog.entries : [];
   const VISION_CHANNEL_NOTE = config.vision.channelNote;
   const VISION_FAILURE_NOTE = config.vision.failureNote;
   const FALLBACK_REASONING = config.reasoning.fallback;
@@ -42,7 +44,7 @@ function normalizeOutput(output) {
  * image is replaced by an explicit diagnostic note (fail-open), never breaking
  * the request or allowing the text-only model to infer that the image was empty.
  */
-async function chatContentParts(content, focusHint, channelNote) {
+async function chatContentParts(content, focusHint, channelNote, nativeVision) {
   const textParts = [];
   const imageJobs = [];
   for (const c of content || []) {
@@ -55,6 +57,28 @@ async function chatContentParts(content, focusHint, channelNote) {
     // input_audio / encrypted_content: not supported locally -> skipped
   }
   if (!imageJobs.length) return textParts;
+
+  // Native vision (Muse Spark 1.2): forward the validated image_url block to
+  // the upstream so the multimodal model sees the image directly instead of a
+  // lossy text description. Each image is fail-closed: an invalid reference
+  // becomes an explicit diagnostic note, never a silent drop that the model
+  // could misread as "the folder is empty".
+  if (nativeVision) {
+    const parts = textParts.slice();
+    for (let i = 0; i < imageJobs.length; i++) {
+      const image = imageJobs[i];
+      try {
+        validateImageReference(image.image_url);
+        parts.push({ type: 'image_url', image_url: { url: image.image_url } });
+      } catch {
+        parts.push({
+          type: 'text',
+          text: formatVisionFailure(i + 1, { kind: 'validation', status: 'none', bytes: 0 }, VISION_FAILURE_NOTE),
+        });
+      }
+    }
+    return parts;
+  }
 
   const descriptions = await Promise.all(imageJobs.map(async (c) => {
     if (typeof describeImageResult === 'function') return describeImageResult(c.image_url, focusHint);
@@ -526,6 +550,10 @@ async function translateRequest(body) {
   let pendingReasoning = null; // reasoning item from Codex, attached to the next assistant tool_calls message
   const focusHint = extractFocusHint(body);
   const channelNote = { sent: false };
+  // Selector de modelos: `body.model` (lo que el cliente eligió en el picker)
+  // decide el modelo wire y si la imagen viaja nativa (visión) o como texto.
+  const selection = resolveModelSelection(MODEL_CATALOG, body.model, DEFAULT_MODEL);
+  const nativeVision = selection.nativeVision === true;
 
   if (body.instructions) {
     // El system de Codex Desktop (plugins del navegador, doc de tools) puede
@@ -539,7 +567,7 @@ async function translateRequest(body) {
       case 'message': {
         let role = item.role || 'user';
         if (role === 'developer' || role === 'system') role = 'system';
-        const parts = await chatContentParts(item.content, focusHint, channelNote);
+        const parts = await chatContentParts(item.content, focusHint, channelNote, nativeVision);
         if (parts.length) {
           // Supervisor reminders (injected by the codex-supervisor PostToolUse
           // hook as `additionalContext`, which Codex relays as a developer
@@ -618,7 +646,7 @@ async function translateRequest(body) {
         // the task text. Surface it as a user message so the subagent actually
         // sees the task; otherwise it falls in `default` and is dropped, leaving
         // the subagent with only its role instructions.
-        const parts = await chatContentParts(item.content, focusHint, channelNote);
+        const parts = await chatContentParts(item.content, focusHint, channelNote, nativeVision);
         if (parts.length) {
           messages.push({ role: 'user', content: parts });
         } else if (typeof item.text === 'string' && item.text) {
@@ -704,7 +732,7 @@ async function translateRequest(body) {
   const mergedFinal = reorder;
 
   const chat = {
-    model: MODEL,
+    model: selection.id,
     messages: mergedFinal,
     stream: !!body.stream,
     stream_options: { include_usage: true },

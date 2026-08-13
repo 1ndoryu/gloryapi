@@ -25,7 +25,7 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 - Aislamiento, snapshot real, bóveda DPAPI, importación original 22/22, credencial TokenHarbor,
   recovery y rutas externas.
-- Catálogo activo de cuatro modelos: Andoryyu, OpenCode Zen, TokenHarbor y OpenCode Go; la ruta
+- Catálogo activo de cuatro familias: Andoryyu, OpenCode Zen, TokenHarbor y OpenCode Go; la ruta
   explícita `deepseek-v4-flash:free` queda fijada a TokenHarbor.
 - Catálogo/registry/settings/routing/autosave y wizard provider→activación fail-closed.
 - Bridge modular y agnóstico: server.js orquesta; config, HTTP, Responses, SSE, translation,
@@ -35,6 +35,15 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 - UI: `SortableModelRow` compartido; ledger de workarounds y threat model actualizados.
 - Panel operativo completamente localizado al español: navegación, enrutamiento, claves, analítica,
   configuración, estados, errores y wizard de proveedores; contratos, rutas y valores reales intactos.
+- CommandCode integrado como proveedor activo con tres modelos explicit-only (DeepSeek V4 Flash,
+  Muse Spark 1.2 Contributor y DeepSeek V4 Pro). El flujo de credencial usa `api_keys` + DPAPI,
+  pero la instancia local actual todavía no tiene una fila `commandcode`; la clave debe añadirse
+  desde el panel antes de enviar solicitudes reales.
+- Selector de modelos del bridge: el picker de Codex Desktop consume el catálogo local y la caché
+  aislada regenerados por `prepare-isolated-home.ps1`, y expone Auto, OpenCode Zen, TokenHarbor y
+  los tres CommandCode; `body.model` se resuelve contra el catálogo versionado
+  `glory-bridge-model-catalog-v1`.
+- Muse Spark 1.2 usa visión nativa (bloques `image_url`); el resto conserva la adaptación a texto.
 
 ## Evidencia del bloque actual
 

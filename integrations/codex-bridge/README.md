@@ -33,6 +33,12 @@ apunta a un upstream OpenAI-compatible por defecto; cambiar de proveedor no requ
 `BRIDGE_CAPABILITY_MATRIX_JSON` permite declarar combinaciones cliente/adapter/provider/modelo sin editar
 el código; los estados de soporte siguen siendo calculados por el bridge y nunca se aceptan desde ese JSON.
 
+`BRIDGE_MODEL_CATALOG_JSON` permite reemplazar el catálogo de modelos del selector sin tocar código.
+Cada entrada es `{ id, pickerId?, provider, displayName, nativeVision, contextWindow }`; `pickerId` es
+opcional y solo sirve como alias compatible con el filtro del renderer de Desktop. El bridge siempre lo
+traduce al `id` real antes de enviar la solicitud. El esquema versionado es
+`glory-bridge-model-catalog-v1` (ver `model-catalog.js`). El bridge siempre conserva la entrada `auto`.
+
 El contrato de entrada se identifica como `BRIDGE_REQUEST_SCHEMA=glory-responses-request-v1`. Los campos
 de extensión desconocidos se toleran, pero tipos conocidos inválidos fallan cerrado con una ruta estructural
 sanitizada.
@@ -76,6 +82,36 @@ sin commit por indicación del usuario.
   `function_call_output` dentro de `response.output`.
 - La descarga de URLs arbitrarias está deshabilitada para evitar SSRF. Los resultados
   de búsqueda se marcan como contenido web no confiable.
+
+## Selector de modelos y visión nativa
+
+El selector es el picker de modelos de la aplicación Codex Desktop, que consume
+`/v1/models` del bridge y envía el `model` elegido en el body de cada request
+Responses. En versiones de Desktop que filtran los IDs de proveedores personalizados, el catálogo local
+usa `pickerId` con IDs reconocidos por ese renderer; el nombre visible sigue indicando el proveedor real.
+El bridge no crea una UI paralela: resuelve `body.model` contra el
+catálogo versionado `glory-bridge-model-catalog-v1` y lo traduce al modelo wire
+que GloryAPI enruta.
+
+- `auto` (o modelo ausente) conserva el comportamiento anterior: envía
+  `deepseek-v4-flash` y GloryAPI aplica su cadena de fallback existente.
+- Selección explícita: el bridge envía el id exacto del modelo elegido. Los tres
+  modelos CommandCode quedan fijados a su propio proveedor en GloryAPI
+  (`deepseek/deepseek-v4-flash`, `meta/muse-spark-1.2-contributor` y
+  `deepseek/deepseek-v4-pro`); un fallo devuelve error estructurado visible y
+  nunca salta silenciosamente a otro proveedor gratuito.
+- Los modelos CommandCode son explicit-only: no entran en la cadena `auto` de
+  GloryAPI para no gastar crédito sin selección expresa.
+- Visión nativa: cuando el modelo elegido está marcado `nativeVision: true` en el
+  catálogo (Muse Spark 1.2 Contributor, multimodal), el bridge reenvía el bloque
+  `image_url` validado al upstream para que el modelo vea la imagen directamente.
+  El resto de modelos conservan la adaptación lossy a texto (el modelo de visión
+  describe la imagen). Una imagen inválida bajo visión nativa produce una nota de
+  diagnóstico explícita; nunca se descarta en silencio ni se interpreta como
+  "carpeta vacía".
+- La credencial de CommandCode se guarda con el flujo seguro existente de GloryAPI
+  (`api_keys` + DPAPI `CurrentUser`) mediante `POST /api/keys` con
+  `platform: "commandcode"`; el bridge nunca conoce ni reenvía esa clave.
 
 ## Seguridad por defecto
 
@@ -148,10 +184,13 @@ sin commit por indicación del usuario.
   evita el cierre prematuro sin permitir bucles infinitos.
 - Las cachés persistentes tienen TTL y límite de bytes; se escriben con `fsync`/rename y
   no conservan el reasoning sintético.
-- La visión no se anuncia en `/capabilities` ni en `/v1/models` sin configuración explícita
-  y probe de salud aprobado; cada intento valida todas las respuestas DNS y bloquea rangos
-  privados. La conexión usa el conjunto de direcciones ya validado como `lookup` fijado,
-  conserva SNI para HTTPS y no sigue redirects.
+- La visión lossy (texto) no se anuncia en `/capabilities` ni en `/v1/models` sin
+  configuración explícita y probe de salud aprobado; cada intento valida todas las
+  respuestas DNS y bloquea rangos privados. La conexión usa el conjunto de direcciones
+  ya validado como `lookup` fijado, conserva SNI para HTTPS y no sigue redirects. La
+  visión nativa (bloques `image_url`) no depende del modelo de visión: solo se activa
+  para modelos del catálogo marcados como multimodales y reutiliza la validación de
+  imagen bounded (MIME + magic bytes + 8 MiB).
 - Si una ruta devuelve `429`, el bridge conserva sus reintentos acotados y prueba la
   siguiente ruta configurada. Si todas fallan, el modelo recibe un diagnóstico explícito
   de que la imagen sí llegó pero no pudo describirse; nunca se transforma en “carpeta vacía”.
@@ -282,7 +321,8 @@ También se puede preparar sin abrirla todavía, o usar la modalidad CLI/TUI:
 .\mode\start-codex-bridge.ps1
 ```
 
-`-RefreshConfig` actualiza únicamente la copia de configuración base del home aislado. El home
+`-RefreshConfig` actualiza únicamente la copia de configuración base del home aislado y regenera el
+catálogo de modelos que usa el selector de Desktop. El home
 normal no se sobrescribe. `-BridgeHome`, `-SourceCodexHome`, `-ProfileName` y `-BridgePort` permiten
 adaptar la instalación sin editar el script. La modalidad `-Desktop` abre directamente `ChatGPT.exe` con un
 `--user-data-dir` y un `--profile` propios para evitar reutilizar la instancia gráfica normal. Si la

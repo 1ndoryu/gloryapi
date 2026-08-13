@@ -94,6 +94,33 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     const row = getDb().prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?').get('tokenharbor', 'deepseek-v4-flash:free') as { id: number };
     expect(selection.restrictedChain?.[0]).toBe(row.id);
   });
+
+  it('fija cada modelo CommandCode a su propio proveedor (cadena de un solo eslabón)', () => {
+    const commandCodeModels = [
+      'deepseek/deepseek-v4-flash',
+      'meta/muse-spark-1.2-contributor',
+      'deepseek/deepseek-v4-pro',
+    ];
+    for (const modelId of commandCodeModels) {
+      const db = getDb();
+      db.prepare(`
+        INSERT OR IGNORE INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, enabled)
+        VALUES ('commandcode', ?, 'CommandCode', 9, 9, 1)
+      `).run(modelId);
+      const selection = resolveProxyModelSelection(modelId, buildMessages(false));
+      if ('error' in selection) throw new Error(`${modelId}: ${selection.error.message}`);
+      expect(selection.restrictedChain).toHaveLength(1);
+      const row = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?')
+        .get('commandcode', modelId) as { id: number };
+      expect(selection.restrictedChain?.[0]).toBe(row.id);
+    }
+  });
+
+  it('un modelo CommandCode sin fila de catálogo devuelve model_not_found', () => {
+    const selection = resolveProxyModelSelection('deepseek/deepseek-v4-pro', buildMessages(false));
+    if (!('error' in selection)) throw new Error('expected model_not_found for a missing CommandCode row');
+    expect(selection.error.code).toBe('model_not_found');
+  });
 });
 
 describe('PROVIDER_FAILURE_POLICY — cooldowns por clase de fallo', () => {

@@ -8,7 +8,7 @@ describe('clean GloryAPI catalog', () => {
     const db = getDb()
     normalizeGloryCatalog(db)
 
-    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 4 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 7 })
     expect(db.prepare(`
       SELECT m.platform, m.model_id, m.display_name, fc.priority
       FROM models m JOIN fallback_config fc ON fc.model_db_id = m.id
@@ -41,11 +41,35 @@ describe('clean GloryAPI catalog', () => {
     ])
   })
 
+  it('keeps CommandCode models explicit-only (never in the auto fallback chain)', () => {
+    initDb(':memory:')
+    const db = getDb()
+    normalizeGloryCatalog(db)
+
+    const commandCodeModels = db.prepare(`
+      SELECT model_id, display_name
+        FROM models
+       WHERE platform = 'commandcode'
+       ORDER BY intelligence_rank ASC
+    `).all()
+    expect(commandCodeModels).toEqual([
+      { model_id: 'deepseek/deepseek-v4-flash', display_name: 'DeepSeek V4 Flash (CommandCode)' },
+      { model_id: 'meta/muse-spark-1.2-contributor', display_name: 'Muse Spark 1.2 Contributor (CommandCode)' },
+      { model_id: 'deepseek/deepseek-v4-pro', display_name: 'DeepSeek V4 Pro (CommandCode)' },
+    ])
+    const inFallback = db.prepare(`
+      SELECT COUNT(*) AS count
+        FROM fallback_config fc JOIN models m ON m.id = fc.model_db_id
+       WHERE m.platform = 'commandcode'
+    `).get()
+    expect(inFallback).toEqual({ count: 0 })
+  })
+
   it('starts a fresh operational database without the legacy catalog migrations', () => {
     initDb(':memory:', { catalogMode: 'operational' })
     const db = getDb()
 
-    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 4 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 7 })
     expect(db.prepare('SELECT COUNT(*) AS count FROM fallback_config').get()).toEqual({ count: 4 })
     expect(db.prepare("SELECT value FROM settings WHERE key = 'catalog_schema_version'").get()).toEqual({ value: 'glory-v1' })
     expect(db.prepare("SELECT name FROM pragma_table_info('models') WHERE name = 'monthly_token_budget'").get()).toBeUndefined()
@@ -66,7 +90,7 @@ describe('clean GloryAPI catalog', () => {
     normalizeGloryCatalog(db)
     normalizeGloryCatalog(db)
 
-    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 4 })
+    expect(db.prepare('SELECT COUNT(*) AS count FROM models').get()).toEqual({ count: 7 })
     expect(db.prepare('SELECT COUNT(*) AS count FROM fallback_config').get()).toEqual({ count: 4 })
     expect(db.prepare("SELECT COUNT(*) AS count FROM models WHERE platform = 'legacy-provider'").get()).toEqual({ count: 0 })
     expect(db.prepare('SELECT platform, label, fingerprint FROM api_keys').all()).toEqual([

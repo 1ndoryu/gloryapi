@@ -8,6 +8,7 @@ const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 const bridgeSources = [
   'server.js',
   'config.js',
+  'model-catalog.js',
   'reasoning-cache.js',
   'vision.js',
   'request-translator.js',
@@ -185,6 +186,18 @@ test('the versioned Responses fixture covers lifecycle and tool invariants', () 
   assert.match(server, /VISION_DISABLE/);
 });
 
+test('the model selector is a versioned catalog and Muse keeps native vision', () => {
+  assert.match(server, /glory-bridge-model-catalog-v1/);
+  assert.match(server, /BRIDGE_MODEL_CATALOG_JSON/);
+  assert.match(server, /meta\/muse-spark-1\.2-contributor/);
+  assert.match(server, /nativeVision/);
+  assert.match(server, /type: 'image_url', image_url: \{ url: image\.image_url \}/);
+  assert.match(server, /resolveModelSelection\(MODEL_CATALOG, body\.model, DEFAULT_MODEL\)/);
+  // La visión nativa solo se activa para modelos del catálogo marcados como
+  // multimodales; los modelos de texto conservan la adaptación a texto.
+  assert.match(server, /input_modalities: entry\.nativeVision === true \? \['text', 'image'\] : \['text'\]/);
+});
+
 test('web search does not fetch arbitrary model-provided URLs', () => {
   assert.match(server, /descarga directa de URL está deshabilitada/);
   assert.match(server, /Contenido web no confiable/);
@@ -233,6 +246,24 @@ test('diagnostic logs stay metadata-only for prompt-bearing paths', () => {
   assert.doesNotMatch(server, /COMPACT SUMMARY.*\$\{summaryText\}/s);
   assert.doesNotMatch(server, /DEBUG\)\s+log\('chat request:',\s*JSON\.stringify\(chat\)/);
   assert.match(server, /if \(!config\.logging\.full\) delete safe\.body/);
+});
+
+test('the isolated home prepares a bridge model catalog for the Desktop picker', () => {
+  const prepare = read('mode', 'prepare-isolated-home.ps1');
+  const builder = read('mode', 'build-model-catalog.cjs');
+  assert.match(prepare, /build-model-catalog\.cjs/);
+  assert.match(prepare, /models_cache\.json/);
+  assert.match(prepare, /Get-Command node/);
+  assert.match(prepare, /No se pudo generar el catálogo de modelos del bridge/);
+  // El picker de Desktop consume model_catalog_json (models.json), no /v1/models.
+  assert.match(builder, /model_catalog_json/);
+  assert.match(builder, /meta\/muse-spark-1\.2-contributor/);
+  assert.match(builder, /deepseek\/deepseek-v4-pro/);
+  assert.match(builder, /input_modalities/);
+  assert.match(builder, /supports_image_detail_original/);
+  assert.match(builder, /models_cache\.json-destino/);
+  assert.match(builder, /fetched_at/);
+  assert.match(builder, /pickerId/);
 });
 
 test('mode switch scripts delegate to the fail-closed controller', () => {

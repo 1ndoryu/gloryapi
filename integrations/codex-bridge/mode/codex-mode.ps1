@@ -227,7 +227,9 @@ if ($Mode -eq 'deepseek') {
     if (-not (Test-Path -LiteralPath $isolatedLauncher -PathType Leaf)) {
         throw "Falta el launcher del home aislado: $isolatedLauncher"
     }
-    & $isolatedLauncher -Desktop
+    # Regenera también el catálogo y la configuración del perfil aislado para
+    # que una instalación anterior no conserve un selector obsoleto.
+    & $isolatedLauncher -RefreshConfig -Desktop
     if ($LASTEXITCODE -ne 0) {
         throw 'No se pudo abrir la sesión DeepSeek aislada.'
     }

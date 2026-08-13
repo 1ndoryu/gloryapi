@@ -9,11 +9,11 @@ import {
   type RegistrySnapshot,
 } from '@gloryapi/shared/types.js';
 
-export const ACTIVE_PROVIDER_PLATFORMS = ['andoryyu', 'opencode-zen', 'tokenharbor', 'opencode-go'] as const;
+export const ACTIVE_PROVIDER_PLATFORMS = ['andoryyu', 'opencode-zen', 'tokenharbor', 'opencode-go', 'commandcode'] as const;
 export const ARCHIVED_PROVIDER_PLATFORMS = [
   'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral',
   'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
-  'kilo', 'pollinations', 'llm7', 'huggingface', 'commandcode',
+  'kilo', 'pollinations', 'llm7', 'huggingface',
   'siliconflow', 'bluesminds', 'bazaarlink', 'hyperbolic', 'deepinfra',
   'scaleway', 'nebius', 'novita', 'morph', 'publicai', 'nousresearch',
   'reka', 'sensenova', 'puter', 'tokenrouter', 'bynara',
@@ -89,6 +89,21 @@ export const ACTIVE_PROVIDER_DEFINITIONS: Array<Omit<ProviderDefinition, 'creden
     endpoint: 'https://opencode.ai/zen/go/v1',
     authScheme: 'bearer',
     capabilities: activeCapabilities,
+    timeoutMs: 120_000,
+  },
+  {
+    platform: 'commandcode',
+    displayName: 'CommandCode',
+    lifecycle: 'active',
+    enabled: true,
+    adapter: 'openai-compatible',
+    endpoint: 'https://api.commandcode.ai/provider/v1',
+    authScheme: 'bearer',
+    // CommandCode expone tanto modelos de texto (DeepSeek) como modelos con
+    // visión nativa (Muse Spark 1.2). La capability `multimodal` se declara a
+    // nivel de proveedor porque el endpoint acepta bloques image_url; el
+    // bridge decide por modelo concreto si reenvía la imagen o la describe.
+    capabilities: { ...activeCapabilities, multimodal: true },
     timeoutMs: 120_000,
   },
 ];

@@ -105,7 +105,12 @@ function createBridgeHttpServer({
         namespaces: { status: 'adapted' },
         deferredToolDiscovery: { status: 'adapted' },
         webSearch: { status: 'adapted' },
-        vision: { status: visionConfigured ? 'unverified' : 'unsupported', reason: visionConfigured ? 'vision_health_probe_pending' : 'vision_not_configured' },
+        vision: {
+          status: visionConfigured ? 'adapted' : 'unsupported',
+          reason: visionConfigured
+            ? 'native_image_forwarding_for_vision_models_plus_lossy_text_adaptation_fallback'
+            : 'vision_not_configured',
+        },
         cancellation: { status: 'supported' },
         contextCompaction: { status: 'unsupported', reason: 'native_codex_compaction_only' },
         codexDesktopE2E: { status: 'unverified', reason: 'desktop_fixture_pending' },
@@ -262,31 +267,48 @@ function createBridgeHttpServer({
           namespaces: true,
           deferredToolDiscovery: true,
           webSearch: true,
-          vision: false,
+          vision: visionConfigured,
+          nativeVision: visionConfigured,
           visionConfigured,
           internalWebLoop: true,
           standaloneWebSearch: false,
           cancellation: true,
           contextCompaction: false,
         },
-        limitations: ['vision_requires_explicit_config_and_health_probe', 'vision_is_lossy_text_adaptation', 'standalone_web_search_not_advertised', 'codex_desktop_e2e_pending'],
+        limitations: [
+          'vision_requires_explicit_config_and_health_probe',
+          'native_image_forwarding_only_for_multimodal_catalog_models',
+          'lossy_text_adaptation_used_for_non_vision_models',
+          'standalone_web_search_not_advertised',
+          'codex_desktop_e2e_pending',
+        ],
       }));
       return;
     }
     if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname === '/models')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      const modelList = [{
-        id: upstream.model,
-        slug: upstream.model,
-        object: 'model',
-        created: 0,
-        owned_by: identity.providerName,
-        input_modalities: visionConfigured ? ['text'] : ['text'],
-        context_window: config.context.limitTokens,
-        max_context_window: config.context.limitTokens,
-        effective_context_window_percent: 100,
-        auto_compact_token_limit: config.context.limitTokens,
-      }, { id: 'auto', slug: 'auto', object: 'model', created: 0, owned_by: identity.providerName }];
+      // Selector de modelos: la lista sale del catálogo versionado
+      // (config.catalog.entries), no de un condicional en el servidor. Cada
+      // entrada declara su id wire y si acepta imagen nativa (input_modalities).
+      const catalogEntries = Array.isArray(config.catalog.entries) ? config.catalog.entries : [];
+      const modelList = catalogEntries.map((entry) => {
+        const contextWindow = Number.isSafeInteger(entry.contextWindow) && entry.contextWindow > 0
+          ? entry.contextWindow
+          : config.context.limitTokens;
+        return {
+          id: entry.id,
+          slug: entry.id,
+          object: 'model',
+          created: 0,
+          owned_by: entry.provider === 'auto' ? identity.providerName : entry.provider,
+          name: entry.displayName || entry.id,
+          input_modalities: entry.nativeVision === true ? ['text', 'image'] : ['text'],
+          context_window: contextWindow,
+          max_context_window: contextWindow,
+          effective_context_window_percent: 100,
+          auto_compact_token_limit: config.context.limitTokens,
+        };
+      });
       res.end(JSON.stringify({ object: 'list', data: modelList, models: modelList }));
       return;
     }
