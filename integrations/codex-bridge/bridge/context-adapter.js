@@ -54,7 +54,7 @@ function createContextAdapter({
 // with a heuristic fallback if the summarization call fails (fail-open).
 
 // COMPACTACIÓN DESACTIVADA por defecto (2026-08-09): Codex nativo hace la
-// autocompactación en la app (auto_compact_token_limit=120000 en models.json,
+// autocompactación en la app (auto_compact_token_limit=150000 en models.json,
 // mismo valor que en VS Code), con contadores exactos y UNA sola vez. El bridge
 // se queda fuera para no recompactar/re-resumir lo que ya compactó el app
 // (eso destruía los buenos resúmenes). No existe un override de entorno: Codex

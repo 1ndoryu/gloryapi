@@ -74,6 +74,9 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
     const tokenHarbor = catalog.models.find((entry) => entry.slug === 'gpt-5.5');
     assert.equal(tokenHarbor.supports_reasoning, false);
     assert.deepEqual(tokenHarbor.supported_reasoning_levels, []);
+    assert.ok(catalog.models.every((entry) => entry.context_window === 150000));
+    assert.ok(catalog.models.every((entry) => entry.max_context_window === 150000));
+    assert.ok(catalog.models.every((entry) => entry.auto_compact_token_limit === 150000));
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }

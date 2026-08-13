@@ -24,6 +24,10 @@
 
 const MODEL_CATALOG_SCHEMA = 'glory-bridge-model-catalog-v1';
 const AUTO_MODEL_ID = 'auto';
+// Desktop must see one conservative threshold for every provider/model. The
+// upstreams may advertise larger windows, but the bridge needs Codex to
+// autocompact before those large histories degrade the provider loop.
+const BRIDGE_CONTEXT_WINDOW = 150000;
 const MAX_CATALOG_ENTRIES = 64;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
 const PROVIDER_PATTERN = /^(auto|[a-z][a-z0-9-]{0,63})$/;
@@ -40,7 +44,7 @@ const DEFAULT_MODEL_CATALOG = [
     displayName: 'Auto (router de GloryAPI)',
     nativeVision: false,
     supportsReasoning: true,
-    contextWindow: null,
+    contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
   {
     id: 'deepseek-v4-flash',
@@ -49,7 +53,7 @@ const DEFAULT_MODEL_CATALOG = [
     displayName: 'DeepSeek V4 Flash (Auto)',
     nativeVision: false,
     supportsReasoning: true,
-    contextWindow: null,
+    contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
   {
     id: 'deepseek-v4-flash-free',
@@ -58,7 +62,7 @@ const DEFAULT_MODEL_CATALOG = [
     displayName: 'DeepSeek V4 Flash (OpenCode Zen)',
     nativeVision: false,
     supportsReasoning: true,
-    contextWindow: null,
+    contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
   {
     id: 'deepseek-v4-flash:free',
@@ -67,7 +71,7 @@ const DEFAULT_MODEL_CATALOG = [
     displayName: 'DeepSeek V4 Flash (TokenHarbor Free)',
     nativeVision: false,
     supportsReasoning: false,
-    contextWindow: null,
+    contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
   {
     id: 'deepseek/deepseek-v4-flash',
@@ -76,7 +80,7 @@ const DEFAULT_MODEL_CATALOG = [
     displayName: 'DeepSeek V4 Flash (CommandCode)',
     nativeVision: false,
     supportsReasoning: true,
-    contextWindow: 1048576,
+    contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
   {
     id: 'meta/muse-spark-1.2-contributor',
@@ -85,7 +89,7 @@ const DEFAULT_MODEL_CATALOG = [
     displayName: 'Muse Spark 1.2 Contributor (CommandCode)',
     nativeVision: true,
     supportsReasoning: true,
-    contextWindow: 1050000,
+    contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
   {
     id: 'deepseek/deepseek-v4-pro',
@@ -94,7 +98,7 @@ const DEFAULT_MODEL_CATALOG = [
     displayName: 'DeepSeek V4 Pro (CommandCode)',
     nativeVision: false,
     supportsReasoning: true,
-    contextWindow: 1048576,
+    contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
 ];
 
@@ -147,7 +151,7 @@ function parseModelCatalog(raw) {
       displayName: 'Auto (router de GloryAPI)',
       nativeVision: false,
       supportsReasoning: true,
-      contextWindow: null,
+      contextWindow: BRIDGE_CONTEXT_WINDOW,
     });
   }
   return entries;
@@ -199,6 +203,7 @@ function hasNativeVision(catalog, modelId) {
 module.exports = {
   MODEL_CATALOG_SCHEMA,
   AUTO_MODEL_ID,
+  BRIDGE_CONTEXT_WINDOW,
   DEFAULT_MODEL_CATALOG,
   parseModelCatalog,
   resolveModelSelection,

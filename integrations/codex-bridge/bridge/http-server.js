@@ -295,7 +295,7 @@ function createBridgeHttpServer({
       const catalogEntries = Array.isArray(config.catalog.entries) ? config.catalog.entries : [];
       const modelList = catalogEntries.map((entry) => {
         const contextWindow = Number.isSafeInteger(entry.contextWindow) && entry.contextWindow > 0
-          ? entry.contextWindow
+          ? Math.min(entry.contextWindow, config.context.limitTokens)
           : config.context.limitTokens;
         return {
           id: entry.id,
@@ -308,7 +308,7 @@ function createBridgeHttpServer({
           context_window: contextWindow,
           max_context_window: contextWindow,
           effective_context_window_percent: 100,
-          auto_compact_token_limit: config.context.limitTokens,
+          auto_compact_token_limit: contextWindow,
         };
       });
       res.end(JSON.stringify({ object: 'list', data: modelList, models: modelList }));

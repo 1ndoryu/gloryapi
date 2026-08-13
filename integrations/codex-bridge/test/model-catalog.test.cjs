@@ -6,6 +6,7 @@ const test = require('node:test');
 const {
   MODEL_CATALOG_SCHEMA,
   DEFAULT_MODEL_CATALOG,
+  BRIDGE_CONTEXT_WINDOW,
   parseModelCatalog,
   resolveModelSelection,
   hasNativeVision,
@@ -25,6 +26,7 @@ test('the default catalog is versioned, keeps auto first and exposes the three C
   assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek/deepseek-v4-flash').nativeVision, false);
   assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek-v4-flash:free').supportsReasoning, false);
   assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek/deepseek-v4-pro').nativeVision, false);
+  assert.ok(DEFAULT_MODEL_CATALOG.every((entry) => entry.contextWindow === BRIDGE_CONTEXT_WINDOW));
 });
 
 test('resolveModelSelection maps missing and auto to the configured default', () => {

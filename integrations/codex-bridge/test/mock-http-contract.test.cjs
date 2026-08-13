@@ -126,6 +126,9 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   assert.deepEqual(modelsBody.models, modelsBody.data);
   assert.equal(modelsBody.models[0].owned_by, 'gloryapi');
   assert.equal(modelsBody.models[0].slug, modelsBody.models[0].id);
+  assert.ok(modelsBody.models.every((entry) => entry.context_window === 150000));
+  assert.ok(modelsBody.models.every((entry) => entry.max_context_window === 150000));
+  assert.ok(modelsBody.models.every((entry) => entry.auto_compact_token_limit === 150000));
 
   const wrongMethod = await fetch(`${base}/v1/models`, { method: 'POST' });
   assert.equal(wrongMethod.status, 405);

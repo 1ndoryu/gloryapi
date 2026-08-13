@@ -52,6 +52,9 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 - El web loop interno tiene un presupuesto configurable (`BRIDGE_WEB_TOOL_ROUNDS`) y, al agotarlo,
   elimina la herramienta web y solicita una síntesis final con los resultados ya obtenidos; una nueva
   petición web en esa síntesis falla de forma recuperable para no permitir ciclos infinitos.
+- El catálogo del bridge y el home aislado unifican `context_window`, `max_context_window` y
+  `auto_compact_token_limit` en `150000`; el bridge limita también `CONTEXT_LIMIT_TOKENS` a ese valor
+  por defecto para que Codex compacte igual al cambiar de modelo.
 
 ## Evidencia del bloque actual
 

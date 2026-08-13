@@ -31,7 +31,7 @@
  * Context window: when the translated messages exceed the limit, the oldest
  * messages are compacted into a single system summary (native autocompaction,
  * like ChatGPT) keeping the most recent turns intact.
- *   CONTEXT_LIMIT_TOKENS   context window      (default 120000)
+ *   CONTEXT_LIMIT_TOKENS   context window      (default 150000)
  *   COMPACT_KEEP_TOKENS    recent tokens kept intact (default 30000)
  */
 

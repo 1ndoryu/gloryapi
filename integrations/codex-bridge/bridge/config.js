@@ -242,7 +242,7 @@ const config = Object.freeze({
   },
   context: {
     disabled: env.BRIDGE_COMPACTION_DISABLED !== '0',
-    limitTokens: boundedEnvInt('CONTEXT_LIMIT_TOKENS', 120000, 1000, 1000000),
+    limitTokens: boundedEnvInt('CONTEXT_LIMIT_TOKENS', 150000, 1000, 1000000),
     keepTokens: boundedEnvInt('COMPACT_KEEP_TOKENS', 30000, 100, 500000),
     summaryMaxTokens: boundedEnvInt('COMPACT_MAX_TOKENS', 16000, 256, 100000),
     safetyFactor: boundedEnvFloat('BRIDGE_COMPACTION_SAFETY_FACTOR', 1.25, 0, 4),
