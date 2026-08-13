@@ -45,7 +45,11 @@ sanitizada.
 
 El perfil de herramientas se elige con `BRIDGE_TOOL_PROFILE=codex-desktop|generic`. El primero mantiene los
 shims necesarios para builds de Codex Desktop que descubren tarde algunas herramientas; `generic` solo reenvía
-las herramientas anunciadas por el cliente. El transporte streaming acepta además `BRIDGE_STREAM_IDLE_TIMEOUT_MS`
+las herramientas anunciadas por el cliente. `BRIDGE_TOOL_SEARCH_MODE=direct|client` controla el descubrimiento
+diferido: por defecto `codex-desktop` usa `direct` para evitar bucles cuando el cliente vuelve a solicitar
+`tool_search` sin descubrir ninguna herramienta, y `generic` conserva `client` para clientes que gestionan ese
+protocolo. `BRIDGE_TOOL_SEARCH_DIRECTIVE` permite personalizar la instrucción que recibe el modelo en modo
+directo. El transporte streaming acepta además `BRIDGE_STREAM_IDLE_TIMEOUT_MS`
 (180 s por defecto) y `BRIDGE_STREAM_TOTAL_TIMEOUT_MS` (6 min por defecto); ambos deadlines cubren también el
 body después de recibir headers.
 

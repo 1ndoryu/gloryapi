@@ -178,6 +178,23 @@ test('tool compatibility is selected by profile instead of being hardcoded', () 
   assert.equal(output.desktop.collaborationAliases, true);
 });
 
+test('tool discovery defaults to direct shims for Codex and remains configurable', () => {
+  const readMode = (env) => {
+    const result = spawnSync(
+      process.execPath,
+      ['-e', "const { config } = require('./bridge/config'); process.stdout.write(config.tools.toolSearchMode);"],
+      { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout;
+  };
+
+  assert.equal(readMode({ BRIDGE_TOOL_PROFILE: 'codex-desktop' }), 'direct');
+  assert.equal(readMode({ BRIDGE_TOOL_PROFILE: 'generic' }), 'client');
+  assert.equal(readMode({ BRIDGE_TOOL_PROFILE: 'codex-desktop', BRIDGE_TOOL_SEARCH_MODE: 'client' }), 'client');
+  assert.equal(readMode({ BRIDGE_TOOL_PROFILE: 'generic', BRIDGE_TOOL_SEARCH_MODE: 'direct' }), 'direct');
+});
+
 test('unknown tool profiles fail closed instead of enabling Codex shims', () => {
   const result = spawnSync(
     process.execPath,

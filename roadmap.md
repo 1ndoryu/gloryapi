@@ -52,6 +52,9 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 - El web loop interno tiene un presupuesto configurable (`BRIDGE_WEB_TOOL_ROUNDS`) y, al agotarlo,
   elimina la herramienta web y solicita una síntesis final con los resultados ya obtenidos; una nueva
   petición web en esa síntesis falla de forma recuperable para no permitir ciclos infinitos.
+- El descubrimiento diferido `tool_search` del perfil `codex-desktop` usa modo directo por defecto
+  (`BRIDGE_TOOL_SEARCH_MODE=direct`), con shims concretos y directiva configurable; `generic` conserva
+  el modo cliente para integraciones que sí gestionan el protocolo de descubrimiento.
 - El catálogo del bridge y el home aislado unifican `context_window`, `max_context_window` y
   `auto_compact_token_limit` en `150000`; el bridge limita también `CONTEXT_LIMIT_TOKENS` a ese valor
   por defecto para que Codex compacte igual al cambiar de modelo.
@@ -59,7 +62,7 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 ## Evidencia del bloque actual
 
 - `npm test`: 50 archivos / 281 tests PASS.
-- Suite bridge: 165/165 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
+- Suite bridge: 168/168 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
   CLI/Desktop controlados, switches seguros sin mutación del home normal, el web loop del navegador,
   el nudge universal sin depender de frases de intención, recuperación de herramientas mixtas en
   streaming/no-streaming, límite de rondas con síntesis final sin herramienta web, auditoría inconclusa sin falso `completed` y protección

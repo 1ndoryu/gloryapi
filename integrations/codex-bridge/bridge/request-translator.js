@@ -38,6 +38,9 @@ function createRequestTranslator({ config, describeImage, describeImageResult, e
   const NUDGE_RETRIES = config.recovery.nudgeRetries;
   const EXECUTION_DIRECTIVE = config.recovery.executionDirective;
   const toolProfile = resolveToolProfile(config.tools.profile);
+  const toolSearchMode = config.tools.toolSearchMode || (toolProfile.name === 'generic' ? 'client' : 'direct');
+  const TOOL_SEARCH_DIRECTIVE = config.recovery.toolSearchDirective ||
+    'No invoques tool_search en este perfil. Usa directamente las herramientas ya expuestas en esta solicitud.';
 
 // Request translation: Responses request body -> chat/completions body
 // ---------------------------------------------------------------------------
@@ -465,11 +468,21 @@ const AUTOMATION_UPDATE_TOOL = {
  * name the model will call back with -> { namespace, name } so we can restore the
  * namespace/name pair Codex expects in function_call output items.
  */
-function translateTools(responsesTools) {
+function translateTools(responsesTools, options = {}) {
   const tools = [];
   const toolMap = new Map();
   const customTools = new Set();
-  for (const tool of responsesTools || []) flattenOneTool(tool, tools, toolMap, customTools);
+  const searchMode = options.toolSearchMode || 'client';
+  for (const tool of responsesTools || []) {
+    // A client-owned tool_search has no useful retry protocol at this boundary:
+    // if discovery returns no usable tool, the app sends the same request and
+    // DeepSeek repeats the search. Direct mode removes that loop trigger.
+    if (tool && tool.type === 'tool_search' && searchMode === 'direct') {
+      log(`tool_search disabled mode=${searchMode}`);
+      continue;
+    }
+    flattenOneTool(tool, tools, toolMap, customTools);
+  }
   // The codex-desktop profile injects the in-app browser's Node REPL `js` tool.
   // The app only exposes
   // it via tool_search discovery (which DeepSeek never performs), so without this
@@ -575,7 +588,8 @@ async function translateRequest(body) {
   const messages = [];
   let latestVisibleUserText = '';
   const userToolCount = Array.isArray(body.tools) ? body.tools.length : 0;
-  const { tools, toolMap, customTools } = translateTools(body.tools);
+  const requestedToolSearch = Array.isArray(body.tools) && body.tools.some((tool) => tool?.type === 'tool_search');
+  const { tools, toolMap, customTools } = translateTools(body.tools, { toolSearchMode });
   let pendingReasoning = null; // reasoning item from Codex, attached to the next assistant tool_calls message
   const focusHint = extractFocusHint(body);
   const channelNote = { sent: false };
@@ -589,6 +603,9 @@ async function translateRequest(body) {
     // El system de Codex Desktop (plugins del navegador, doc de tools) puede
     // ser enorme; se recorta para que el modelo no se sature y devuelva vacío.
     messages.push({ role: 'system', content: boundSystemContent(body.instructions) });
+  }
+  if (requestedToolSearch && toolSearchMode === 'direct') {
+    messages.push({ role: 'system', content: TOOL_SEARCH_DIRECTIVE });
   }
 
   for (const item of body.input || []) {

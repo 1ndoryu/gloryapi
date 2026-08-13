@@ -60,6 +60,24 @@ test('generic profile forwards only client-advertised tools', async () => {
   assert.equal(result.toolMap.has('collaborationspawn_agent'), false);
 });
 
+test('codex-desktop removes client-owned tool_search and explains the direct path', async () => {
+  const result = await translate('codex-desktop', [
+    { type: 'tool_search', name: 'tool_search' },
+  ]);
+  const names = (result.chat.tools || []).map(tool => tool.function.name);
+  assert.equal(names.includes('tool_search'), false);
+  assert.match(JSON.stringify(result.chat.messages), /no invoques tool_search/i);
+});
+
+test('generic profile preserves client-owned tool_search', async () => {
+  const result = await translate('generic', [
+    { type: 'tool_search', name: 'tool_search' },
+  ]);
+  const names = (result.chat.tools || []).map(tool => tool.function.name);
+  assert.equal(names.includes('tool_search'), true);
+  assert.equal(result.toolMap.get('tool_search').search, true);
+});
+
 test('translator preserves the last real user message separately from injected context', async () => {
   const translator = makeTranslator('codex-desktop');
   const result = await translator.translateRequest({

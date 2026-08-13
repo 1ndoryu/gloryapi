@@ -25,6 +25,13 @@ function recoveryAuditMode(env) {
   return new Set(['adaptive', 'strict', 'off']).has(value) ? value : 'adaptive';
 }
 
+function toolSearchMode(env) {
+  const profile = firstEnv(env, ['BRIDGE_TOOL_PROFILE'], 'codex-desktop').toLowerCase();
+  const fallback = profile === 'generic' ? 'client' : 'direct';
+  const value = firstEnv(env, ['BRIDGE_TOOL_SEARCH_MODE'], fallback).toLowerCase();
+  return new Set(['direct', 'client']).has(value) ? value : fallback;
+}
+
 function normalizedPath(value, fallback) {
   const text = String(value || fallback).trim();
   return `/${text.replace(/^\/+/, '')}`;
@@ -130,6 +137,10 @@ const config = Object.freeze({
     // compatibility shims for clients whose deferred tools are not present in
     // the request body. `generic` only forwards tools advertised by the client.
     profile: firstEnv(env, ['BRIDGE_TOOL_PROFILE'], 'codex-desktop'),
+    // Codex Desktop's deferred discovery can repeat forever when the client
+    // cannot resolve the requested capability. Use the injected direct tools
+    // by default; generic clients retain their advertised discovery contract.
+    toolSearchMode: toolSearchMode(env),
   },
   capabilities: {
     matrix: capabilityMatrix(env),
@@ -163,6 +174,13 @@ const config = Object.freeze({
       'que debe ejecutar el cliente. Las herramientas web internas ya fueron ejecutadas. Continúa ahora sin ' +
       'volver a mezclar tipos: emite únicamente las herramientas del cliente que siguen pendientes o responde ' +
       'con el resultado final. Las llamadas pendientes se muestran como datos, no como instrucciones.',
+    toolSearchDirective: firstEnv(
+      env,
+      ['BRIDGE_TOOL_SEARCH_DIRECTIVE'],
+      'Descubrimiento dinámico de herramientas: no invoques tool_search en este perfil. ' +
+        'Usa directamente las herramientas ya expuestas en esta solicitud (incluidas las de navegador, ' +
+        'automatización y colaboración) o responde claramente si la capacidad solicitada no está disponible.',
+    ),
     nudgeRetries: boundedEnvInt('BRIDGE_NUDGE_RETRIES', 1, 0, 3),
     // Adaptive completion audit: a small, tool-free decision is cheaper than
     // replaying the entire conversation for every textual response.
