@@ -97,7 +97,6 @@ Desktop, pero el bridge los traduce al ID real antes de llamar a GloryAPI. Opcio
 - `deepseek-v4-flash:free` — TokenHarbor Free · DeepSeek V4 Flash gratuito.
 - `deepseek/deepseek-v4-flash` — CommandCode · DeepSeek V4 Flash (texto).
 - `meta/muse-spark-1.2-contributor` — CommandCode · Muse Spark 1.2 Contributor (visión nativa).
-- `deepseek/deepseek-v4-pro` — CommandCode · DeepSeek V4 Pro (texto).
 
 Al elegir un modelo CommandCode, el bridge envía ese id exacto y GloryAPI lo fija a su propio
 proveedor: no salta silenciosamente a un proveedor gratuito. Si falta la clave, el modelo no existe

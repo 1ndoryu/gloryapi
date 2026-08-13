@@ -71,7 +71,6 @@ function appendFallbackRows(db: Database.Database, additions: readonly ModelAddi
 export function migrateModelsV27(db: Database.Database) {
   ensureModelBenchmarkColumns(db);
   const additions: ModelAddition[] = [
-    ['bazaarlink', 'deepseek-v4-pro', 'DeepSeek V4 Pro (Bazaarlink)', 5, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['bazaarlink', 'deepseek-v4-flash', 'DeepSeek V4 Flash (Bazaarlink)', 10, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['bazaarlink', 'qwen3.7-max', 'Qwen 3.7 Max (Bazaarlink)', 3, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['bazaarlink', 'qwen3-235b-a22b', 'Qwen 3 235B (Bazaarlink)', 6, 9, 'Frontier', null, null, null, null, 'free', 1048576],
@@ -84,7 +83,6 @@ export function migrateModelsV27(db: Database.Database) {
     ['bazaarlink', 'mimo-v2.5-pro', 'MiMo V2.5 Pro (Bazaarlink)', 7, 9, 'Large', null, null, null, null, 'free', 1048576],
     ['bazaarlink', 'deepseek-r1', 'DeepSeek R1 (Bazaarlink)', 2, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['bazaarlink', 'mistral-large', 'Mistral Large (Bazaarlink)', 6, 9, 'Frontier', null, null, null, null, 'free', 128000],
-    ['deepinfra', 'deepseek-ai/DeepSeek-V4-Pro', 'DeepSeek V4 Pro (DeepInfra)', 5, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['deepinfra', 'deepseek-ai/DeepSeek-V4-Flash', 'DeepSeek V4 Flash (DeepInfra)', 10, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['deepinfra', 'Qwen/Qwen3.7-Max', 'Qwen 3.7 Max (DeepInfra)', 3, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['deepinfra', 'Qwen/Qwen3-235B-A22B-Instruct-2507', 'Qwen 3 235B (DeepInfra)', 6, 9, 'Frontier', null, null, null, null, 'free', 1048576],
@@ -94,7 +92,6 @@ export function migrateModelsV27(db: Database.Database) {
     ['deepinfra', 'meta-llama/Llama-4-Scout-17B-16E-Instruct', 'Llama 4 Scout (DeepInfra)', 8, 9, 'Large', null, null, null, null, 'free', 524288],
     ['deepinfra', 'XiaomiMiMo/MiMo-V2.5', 'MiMo V2.5 (DeepInfra)', 9, 9, 'Large', null, null, null, null, 'free', 1048576],
     ['deepinfra', 'XiaomiMiMo/MiMo-V2.5-Pro', 'MiMo V2.5 Pro (DeepInfra)', 7, 9, 'Large', null, null, null, null, 'free', 1048576],
-    ['novita', 'deepseek/deepseek-v4-pro', 'DeepSeek V4 Pro (Novita)', 5, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['novita', 'deepseek/deepseek-v4-flash', 'DeepSeek V4 Flash (Novita)', 10, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['novita', 'qwen/qwen3.7-max', 'Qwen 3.7 Max (Novita)', 3, 9, 'Frontier', null, null, null, null, 'free', 1048576],
     ['novita', 'qwen/qwen3-235b-a22b', 'Qwen 3 235B (Novita)', 6, 9, 'Frontier', null, null, null, null, 'free', 1048576],
@@ -189,7 +186,6 @@ export function migrateModelsV32(db: Database.Database) {
 
   db.transaction(() => {
     const inserted = insertModels(db, additions);
-    db.prepare("UPDATE models SET enabled = 1 WHERE platform = 'nvidia' AND model_id = 'deepseek-ai/deepseek-v4-pro'").run();
     if (inserted) refreshSnapshots(db);
     appendFallbackRows(db, additions);
   })();

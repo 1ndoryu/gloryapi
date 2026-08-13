@@ -92,10 +92,7 @@ describe('Full Integration Flow', () => {
     const modelOrder = new Map(body.map((m, index: number) => [`${m.platform}:${m.modelId}`, index]));
     expect(modelOrder.get('google:gemini-3.5-flash')).toBeLessThan(modelOrder.get('google:gemini-3-flash-preview'));
     expect(modelOrder.get('google:gemini-3.5-flash')).toBeLessThan(modelOrder.get('ollama:gemini-3-flash-preview'));
-    expect(modelOrder.get('ollama:glm-5.1')).toBeLessThan(modelOrder.get('ollama:deepseek-v4-pro'));
-    expect(modelOrder.get('ollama:deepseek-v4-pro')).toBeLessThan(modelOrder.get('ollama:qwen3.5:397b'));
     expect(modelOrder.get('huggingface:zai-org/GLM-5.1')).toBeLessThan(modelOrder.get('huggingface:Qwen/Qwen3.5-397B-A17B'));
-    expect(modelOrder.get('nvidia:deepseek-ai/deepseek-v4-pro')).toBeLessThan(modelOrder.get('nvidia:qwen/qwen3-coder-480b-a35b-instruct'));
     expect(modelOrder.get('google:gemma-4-31b-it')).toBeLessThan(modelOrder.get('openrouter:deepseek/deepseek-v4-flash:free'));
     expect(modelOrder.get('openrouter:deepseek/deepseek-v4-flash:free')).toBeLessThan(modelOrder.get('openrouter:qwen/qwen3-next-80b-a3b-instruct:free'));
 

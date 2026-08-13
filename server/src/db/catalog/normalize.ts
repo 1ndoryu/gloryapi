@@ -66,16 +66,6 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       contextWindow: 1050000,
       explicitOnly: true,
     },
-    {
-      platform: 'commandcode',
-      modelId: 'deepseek/deepseek-v4-pro',
-      displayName: 'DeepSeek V4 Pro (CommandCode)',
-      intelligenceRank: 7,
-      speedRank: 7,
-      sizeLabel: 'Frontier',
-      contextWindow: 1048576,
-      explicitOnly: true,
-    },
   ] as const;
 
   const keepModelClauses = targetModels.map(() => '(platform = ? AND model_id = ?)').join(' OR ');

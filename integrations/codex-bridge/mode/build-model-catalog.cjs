@@ -33,7 +33,6 @@ const DESCRIPTIONS = {
   'deepseek-v4-flash': 'Enrutamiento automático de GloryAPI con fallback entre proveedores.',
   'deepseek/deepseek-v4-flash': 'DeepSeek V4 Flash a través de CommandCode.',
   'meta/muse-spark-1.2-contributor': 'Muse Spark 1.2 Contributor a través de CommandCode (visión nativa).',
-  'deepseek/deepseek-v4-pro': 'DeepSeek V4 Pro a través de CommandCode.',
 };
 
 // Entrada mínima válida (schema documentado por Codex) usada solo si el home

@@ -15,7 +15,6 @@ export function migrateModelsV25(db: Database.Database) {
 export function migrateModelsV26(db: Database.Database) {
   ensureModelBenchmarkColumns(db);
   const additions = [
-    ['opencode-go', 'deepseek-v4-pro', 'DeepSeek V4 Pro (Go)', 5, 9, 'Frontier', null, null, null, null, 'paid (Go)', 1048576],
     ['opencode-go', 'deepseek-v4-flash', 'DeepSeek V4 Flash (Go)', 10, 9, 'Frontier', null, null, null, null, 'paid (Go)', 1048576],
     ['opencode-go', 'mimo-v2.5', 'MiMo V2.5 (Go)', 9, 9, 'Large', null, null, null, null, 'paid (Go)', 1048576],
     ['opencode-go', 'mimo-v2.5-pro', 'MiMo V2.5 Pro (Go)', 7, 9, 'Large', null, null, null, null, 'paid (Go)', 1048576],

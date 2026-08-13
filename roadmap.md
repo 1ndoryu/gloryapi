@@ -40,13 +40,14 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 - UI: `SortableModelRow` compartido; ledger de workarounds y threat model actualizados.
 - Panel operativo completamente localizado al español: navegación, enrutamiento, claves, analítica,
   configuración, estados, errores y wizard de proveedores; contratos, rutas y valores reales intactos.
-- CommandCode integrado como proveedor activo con tres modelos explicit-only (DeepSeek V4 Flash,
-  Muse Spark 1.2 Contributor y DeepSeek V4 Pro). El flujo de credencial usa `api_keys` + DPAPI,
+- CommandCode integrado como proveedor activo con dos modelos explicit-only (DeepSeek V4 Flash y
+  Muse Spark 1.2 Contributor). El modelo Pro fue retirado del catálogo y no se enruta. El flujo de
+  credencial usa `api_keys` + DPAPI,
   pero la instancia local actual todavía no tiene una fila `commandcode`; la clave debe añadirse
   desde el panel antes de enviar solicitudes reales.
 - Selector de modelos del bridge: el picker de Codex Desktop consume el catálogo local y la caché
   aislada regenerados por `prepare-isolated-home.ps1`, y expone Auto, OpenCode Zen, TokenHarbor y
-  los tres CommandCode; `body.model` se resuelve contra el catálogo versionado
+  los dos modelos CommandCode restantes; `body.model` se resuelve contra el catálogo versionado
   `glory-bridge-model-catalog-v1`.
 - Muse Spark 1.2 usa visión nativa (bloques `image_url`); el resto conserva la adaptación a texto.
 - El web loop interno tiene un presupuesto configurable (`BRIDGE_WEB_TOOL_ROUNDS`) y, al agotarlo,

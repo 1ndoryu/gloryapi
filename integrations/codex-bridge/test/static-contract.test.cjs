@@ -258,7 +258,7 @@ test('the isolated home prepares a bridge model catalog for the Desktop picker',
   // El picker de Desktop consume model_catalog_json (models.json), no /v1/models.
   assert.match(builder, /model_catalog_json/);
   assert.match(builder, /meta\/muse-spark-1\.2-contributor/);
-  assert.match(builder, /deepseek\/deepseek-v4-pro/);
+  assert.doesNotMatch(builder, /deepseek\/deepseek-v4-pro/);
   assert.match(builder, /input_modalities/);
   assert.match(builder, /supports_image_detail_original/);
   assert.match(builder, /models_cache\.json-destino/);

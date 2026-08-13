@@ -12,20 +12,19 @@ const {
   hasNativeVision,
 } = require('../bridge/model-catalog');
 
-test('the default catalog is versioned, keeps auto first and exposes the three CommandCode models', () => {
+test('the default catalog is versioned, keeps auto first and exposes the remaining CommandCode models', () => {
   assert.equal(MODEL_CATALOG_SCHEMA, 'glory-bridge-model-catalog-v1');
   assert.equal(DEFAULT_MODEL_CATALOG[0].id, 'auto');
   const ids = DEFAULT_MODEL_CATALOG.map((entry) => entry.id);
   assert.ok(ids.includes('deepseek/deepseek-v4-flash'));
   assert.ok(ids.includes('meta/muse-spark-1.2-contributor'));
-  assert.ok(ids.includes('deepseek/deepseek-v4-pro'));
   // Solo Muse declara visión nativa.
   const muse = DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'meta/muse-spark-1.2-contributor');
   assert.equal(muse.nativeVision, true);
   assert.equal(muse.supportsReasoning, true);
   assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek/deepseek-v4-flash').nativeVision, false);
   assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek-v4-flash:free').supportsReasoning, false);
-  assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek/deepseek-v4-pro').nativeVision, false);
+  assert.equal(ids.includes('deepseek/deepseek-v4-pro'), false);
   assert.ok(DEFAULT_MODEL_CATALOG.every((entry) => entry.contextWindow === BRIDGE_CONTEXT_WINDOW));
 });
 

@@ -50,11 +50,6 @@ const benchmarkGroups: ReadonlyArray<BenchmarkGroup> = [
     artificialAnalysisCodingIndex: 37.8402076318743,
   },
   {
-    models: [['nvidia', 'deepseek-ai/deepseek-v4-pro'], ['huggingface', 'deepseek-ai/DeepSeek-V4-Pro'], ['ollama', 'deepseek-v4-pro']],
-    arenaElo: 1504,
-    artificialAnalysisCodingIndex: 47.4747474747475,
-  },
-  {
     models: [['google', 'gemma-4-31b-it'], ['nvidia', 'google/gemma-4-31b-it'], ['openrouter', 'google/gemma-4-31b-it:free'], ['ollama', 'gemma4:31b'], ['huggingface', 'google/gemma-4-31B-it']],
     arenaElo: 1497,
     artificialAnalysisCodingIndex: 38.7100168350168,

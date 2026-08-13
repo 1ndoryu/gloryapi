@@ -60,7 +60,7 @@ The problem is that stacking them by hand is painful: fourteen different SDKs, f
 </tr>
 <tr>
 <td align="center"><a href="https://opencode.ai"><b>OpenCode Zen</b><br/>DeepSeek V4 Flash · MiMo V2.5 · Qwen3.6</a></td>
-<td align="center"><a href="https://opencode.ai"><b>OpenCode Go</b><br/>DeepSeek V4 Pro · MiMo V2.5 Pro</a></td>
+<td align="center"><a href="https://opencode.ai"><b>OpenCode Go</b><br/>MiMo V2.5 Pro</a></td>
 <td align="center"><a href="https://pollinations.ai"><b>Pollinations</b><br/>GPT-OSS 20B (anonymous)</a></td>
 <td align="center"><a href="https://llm7.io"><b>LLM7</b><br/>GPT-OSS · Llama 3.1 · Codestral</a></td>
 </tr>

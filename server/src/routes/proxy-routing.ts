@@ -20,7 +20,7 @@ export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; 
     { platform: 'tokenharbor', modelId: 'deepseek-v4-flash:free' },
   ],
   // CommandCode es un proveedor de pago con selección explícita: cada uno de
-  // sus tres modelos queda fijado a su propio proveedor. Un fallo del modelo
+  // sus dos modelos queda fijado a su propio proveedor. Un fallo del modelo
   // (sin clave, cuota agotada, timeout) debe devolver un error estructurado y
   // visible, nunca un salto silencioso a un proveedor gratuito distinto.
   'deepseek/deepseek-v4-flash': [
@@ -28,9 +28,6 @@ export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; 
   ],
   'meta/muse-spark-1.2-contributor': [
     { platform: 'commandcode', modelId: 'meta/muse-spark-1.2-contributor' },
-  ],
-  'deepseek/deepseek-v4-pro': [
-    { platform: 'commandcode', modelId: 'deepseek/deepseek-v4-pro' },
   ],
 }
 

@@ -120,7 +120,6 @@ El selector debe permitir, como mínimo:
 - `Auto`.
 - CommandCode → DeepSeek Flash.
 - CommandCode → Muse Spark 1.2 Contributor.
-- CommandCode → DeepSeek V4 Pro (latest).
 - Los proveedores/modelos existentes que ya exponga el catálogo, sin eliminarlos.
 
 Si la aplicación no permite selector dinámico en la versión instalada, documentar la limitación exacta
@@ -133,7 +132,6 @@ y construir primero el contrato/catálogo estable para que la UI pueda consumirl
 - Modelos que deben exponerse de CommandCode:
   - DeepSeek Flash
   - Muse Spark 1.2 Contributor: <https://commandcode.ai/models/muse-spark-1-2-contributor>
-  - DeepSeek V4 Pro (latest): <https://commandcode.ai/models/deepseek-v4-pro>
 - La clave API fue proporcionada por el usuario, pero NO debe copiarse a este archivo, al código, a Git,
   logs ni a mensajes. Debe registrarse mediante la UI/bóveda DPAPI de GloryAPI. Como fue pegada en texto
   plano, recomendar al usuario revocarla y generar otra antes de almacenarla.
@@ -144,7 +142,7 @@ y construir primero el contrato/catálogo estable para que la UI pueda consumirl
    modelos, límites y compatibilidad con OpenAI Chat Completions o Responses.
 2. Registrar `commandcode` en el catálogo/registro de proveedores de GloryAPI, sin hardcodear la clave.
 3. Añadir la credencial mediante el flujo seguro existente de `api_keys` + DPAPI.
-4. Añadir únicamente los tres modelos solicitados de CommandCode. No importar automáticamente todo el
+4. Añadir únicamente los dos modelos restantes solicitados de CommandCode. No importar automáticamente todo el
    catálogo remoto.
 5. Mantener `Auto` como opción predeterminada del selector. `Auto` debe conservar el enrutamiento/fallback
    actual de GloryAPI.
@@ -214,7 +212,7 @@ no asumir que CommandCode usa la misma ruta o el mismo formato que OpenCode, Tok
 - Build de servidor y type-check.
 - Tests del catálogo/registro de proveedores y credenciales.
 - Test de selección `auto` sin cambios de comportamiento.
-- Test de selección explícita de cada uno de los tres modelos CommandCode.
+- Test de selección explícita de cada uno de los dos modelos CommandCode.
 - Test de modelo/proveedor inválido.
 - Test de clave ausente o deshabilitada.
 - Test de error HTTP, timeout y streaming interrumpido.
@@ -234,7 +232,7 @@ no asumir que CommandCode usa la misma ruta o el mismo formato que OpenCode, Tok
 ## Definition of Done
 
 - CommandCode aparece en el catálogo y puede recibir una credencial desde la UI segura.
-- Los tres modelos solicitados aparecen con nombres e IDs correctos.
+- Los dos modelos restantes aparecen con nombres e IDs correctos; DeepSeek V4 Pro está retirado.
 - El selector del perfil bridge ofrece `Auto` y selección explícita.
 - `Auto` mantiene el comportamiento anterior.
 - La selección explícita enruta correctamente y deja evidencia de proveedor/modelo sin secretos.

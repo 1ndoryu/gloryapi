@@ -76,7 +76,6 @@ describe('Provider registry API', () => {
       'opencode-go:deepseek-v4-flash',
       'commandcode:deepseek/deepseek-v4-flash',
       'commandcode:meta/muse-spark-1.2-contributor',
-      'commandcode:deepseek/deepseek-v4-pro',
     ])
     expect(snapshot.providers.every(provider => provider.lifecycle === 'active')).toBe(true)
     expect(JSON.stringify(snapshot)).not.toContain('encrypted_key')
@@ -150,7 +149,7 @@ describe('Provider registry API', () => {
     const snapshot = await requestRegistry(app)
     const archived = snapshot.providers.find(provider => provider.platform === 'groq')
     expect(archived).toMatchObject({ lifecycle: 'archived', credentialCount: 1, endpoint: '' })
-    expect(snapshot.models).toHaveLength(7)
+    expect(snapshot.models).toHaveLength(6)
   })
 
   it('exposes declarative templates and accepts a new provider as an inert draft', async () => {
@@ -208,7 +207,7 @@ describe('Provider registry API', () => {
       contextWindow: 32768,
       capabilities: { streaming: true, tools: false, reasoning: false, multimodal: false, maxContextWindow: 32768 },
     }])
-    expect((await requestRegistry(app)).models).toHaveLength(7)
+    expect((await requestRegistry(app)).models).toHaveLength(6)
   })
 
   it('requires an explicit key and never auto-selects discovered models', async () => {

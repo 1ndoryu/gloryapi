@@ -34,7 +34,7 @@ const PROVIDER_PATTERN = /^(auto|[a-z][a-z0-9-]{0,63})$/;
 
 // `auto` resolves to `config.upstream.model` (the current default) and keeps
 // the existing GloryAPI routing/fallback chain. The explicit rows below mirror
-// the catalog GloryAPI already exposes plus the three CommandCode models the
+// the catalog GloryAPI already exposes plus the two remaining CommandCode models the
 // user can pin. Muse Spark 1.2 is the only native-vision model in this set.
 const DEFAULT_MODEL_CATALOG = [
   {
@@ -88,15 +88,6 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'commandcode',
     displayName: 'Muse Spark 1.2 Contributor (CommandCode)',
     nativeVision: true,
-    supportsReasoning: true,
-    contextWindow: BRIDGE_CONTEXT_WINDOW,
-  },
-  {
-    id: 'deepseek/deepseek-v4-pro',
-    pickerId: 'gpt-5.6-luna',
-    provider: 'commandcode',
-    displayName: 'DeepSeek V4 Pro (CommandCode)',
-    nativeVision: false,
     supportsReasoning: true,
     contextWindow: BRIDGE_CONTEXT_WINDOW,
   },

@@ -147,13 +147,11 @@ describe('Migration idempotency', () => {
     expect(byId.get('meta-llama/llama-3.2-3b-instruct:free')?.intelligence_rank).toBeLessThan(byId.get('cognitivecomputations/dolphin-mistral-24b-venice-edition:free')?.intelligence_rank ?? Number.MAX_SAFE_INTEGER)
   })
 
-  it('V16 preserves DeepSeek V4 Pro ordering against Qwen families', () => {
+  it('V16 preserves Qwen family ordering', () => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64)
     const db = initDb(':memory:')
-    const rows = db.prepare(`SELECT platform, model_id, intelligence_rank FROM models WHERE (platform = 'nvidia' AND model_id IN ('deepseek-ai/deepseek-v4-pro', 'deepseek-ai/deepseek-v4-flash', 'qwen/qwen3-coder-480b-a35b-instruct')) OR (platform = 'cerebras' AND model_id = 'qwen-3-235b-a22b-instruct-2507') OR (platform = 'google' AND model_id = 'gemma-4-31b-it') OR (platform = 'openrouter' AND model_id IN ('google/gemma-4-31b-it:free', 'qwen/qwen3-next-80b-a3b-instruct:free'))`).all() as { platform: string; model_id: string; intelligence_rank: number }[]
+    const rows = db.prepare(`SELECT platform, model_id, intelligence_rank FROM models WHERE (platform = 'nvidia' AND model_id IN ('deepseek-ai/deepseek-v4-flash', 'qwen/qwen3-coder-480b-a35b-instruct')) OR (platform = 'cerebras' AND model_id = 'qwen-3-235b-a22b-instruct-2507') OR (platform = 'google' AND model_id = 'gemma-4-31b-it') OR (platform = 'openrouter' AND model_id IN ('google/gemma-4-31b-it:free', 'qwen/qwen3-next-80b-a3b-instruct:free'))`).all() as { platform: string; model_id: string; intelligence_rank: number }[]
     const rank = new Map(rows.map(row => [`${row.platform}:${row.model_id}`, row.intelligence_rank]))
-    expect(rank.get('nvidia:deepseek-ai/deepseek-v4-pro')).toBeLessThan(rank.get('cerebras:qwen-3-235b-a22b-instruct-2507'))
-    expect(rank.get('nvidia:deepseek-ai/deepseek-v4-pro')).toBeLessThan(rank.get('nvidia:qwen/qwen3-coder-480b-a35b-instruct'))
     expect(rank.get('cerebras:qwen-3-235b-a22b-instruct-2507')).toBeLessThan(rank.get('nvidia:qwen/qwen3-coder-480b-a35b-instruct'))
     expect(rank.get('google:gemma-4-31b-it')).toBe(rank.get('openrouter:google/gemma-4-31b-it:free'))
     expect(rank.get('google:gemma-4-31b-it')).toBeLessThan(rank.get('nvidia:deepseek-ai/deepseek-v4-flash'))

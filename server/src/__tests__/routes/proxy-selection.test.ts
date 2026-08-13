@@ -99,7 +99,6 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     const commandCodeModels = [
       'deepseek/deepseek-v4-flash',
       'meta/muse-spark-1.2-contributor',
-      'deepseek/deepseek-v4-pro',
     ];
     for (const modelId of commandCodeModels) {
       const db = getDb();
@@ -116,7 +115,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     }
   });
 
-  it('un modelo CommandCode sin fila de catálogo devuelve model_not_found', () => {
+  it('DeepSeek V4 Pro retirado devuelve model_not_found', () => {
     const selection = resolveProxyModelSelection('deepseek/deepseek-v4-pro', buildMessages(false));
     if (!('error' in selection)) throw new Error('expected model_not_found for a missing CommandCode row');
     expect(selection.error.code).toBe('model_not_found');

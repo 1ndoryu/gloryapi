@@ -15,7 +15,6 @@ const arenaCodingOrder: ReadonlyArray<ReadonlyArray<RankedModel>> = [
   [['cloudflare', '@cf/moonshotai/kimi-k2.6'], ['huggingface', 'moonshotai/Kimi-K2.6'], ['nvidia', 'moonshotai/kimi-k2.6'], ['ollama', 'kimi-k2.6']],
   [['google', 'gemini-3.5-flash']],
   [['google', 'gemini-3-flash-preview'], ['ollama', 'gemini-3-flash-preview']],
-  [['nvidia', 'deepseek-ai/deepseek-v4-pro'], ['huggingface', 'deepseek-ai/DeepSeek-V4-Pro'], ['ollama', 'deepseek-v4-pro']],
   [['google', 'gemma-4-31b-it'], ['nvidia', 'google/gemma-4-31b-it'], ['openrouter', 'google/gemma-4-31b-it:free'], ['ollama', 'gemma4:31b'], ['huggingface', 'google/gemma-4-31B-it']],
   [['ollama', 'glm-5']],
   [['ollama', 'qwen3.5:397b'], ['huggingface', 'Qwen/Qwen3.5-397B-A17B']],

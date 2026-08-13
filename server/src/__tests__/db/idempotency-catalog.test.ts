@@ -118,16 +118,13 @@ describe('Catalog migration invariants', () => {
     const rows = db.prepare(`
       SELECT platform, model_id, enabled, intelligence_rank
         FROM models
-       WHERE (platform = 'ollama' AND model_id IN ('glm-5.1', 'kimi-k2.6', 'gemini-3-flash-preview', 'deepseek-v4-pro', 'glm-5', 'qwen3.5:397b', 'deepseek-v4-flash', 'minimax-m2.7'))
-          OR (platform = 'huggingface' AND model_id IN ('zai-org/GLM-5.1', 'deepseek-ai/DeepSeek-V4-Pro', 'google/gemma-4-31B-it', 'google/gemma-4-26B-A4B-it', 'Qwen/Qwen3.5-397B-A17B', 'Qwen/Qwen3-235B-A22B-Instruct-2507', 'MiniMaxAI/MiniMax-M2.7'))
+       WHERE (platform = 'ollama' AND model_id IN ('glm-5.1', 'kimi-k2.6', 'gemini-3-flash-preview', 'glm-5', 'qwen3.5:397b', 'deepseek-v4-flash', 'minimax-m2.7'))
+          OR (platform = 'huggingface' AND model_id IN ('zai-org/GLM-5.1', 'google/gemma-4-31B-it', 'google/gemma-4-26B-A4B-it', 'Qwen/Qwen3.5-397B-A17B', 'Qwen/Qwen3-235B-A22B-Instruct-2507', 'MiniMaxAI/MiniMax-M2.7'))
     `).all() as Array<{ platform: string; model_id: string; enabled: number; intelligence_rank: number }>
-    expect(rows).toHaveLength(15)
+    expect(rows).toHaveLength(13)
     for (const row of rows) expect(row.enabled).toBe(1)
 
     const rank = new Map(rows.map(row => [`${row.platform}:${row.model_id}`, row.intelligence_rank]))
-    expect(rank.get('ollama:glm-5.1')).toBeLessThan(rank.get('ollama:deepseek-v4-pro'))
-    expect(rank.get('ollama:deepseek-v4-pro')).toBeLessThan(rank.get('ollama:qwen3.5:397b'))
-    expect(rank.get('huggingface:zai-org/GLM-5.1')).toBeLessThan(rank.get('huggingface:deepseek-ai/DeepSeek-V4-Pro'))
     expect(rank.get('huggingface:google/gemma-4-31B-it')).toBeLessThan(rank.get('huggingface:MiniMaxAI/MiniMax-M2.7'))
     expect(rank.get('huggingface:google/gemma-4-26B-A4B-it')).toBeLessThan(rank.get('huggingface:MiniMaxAI/MiniMax-M2.7'))
   })

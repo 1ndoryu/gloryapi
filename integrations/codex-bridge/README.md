@@ -99,10 +99,10 @@ que GloryAPI enruta.
 
 - `auto` (o modelo ausente) conserva el comportamiento anterior: envía
   `deepseek-v4-flash` y GloryAPI aplica su cadena de fallback existente.
-- Selección explícita: el bridge envía el id exacto del modelo elegido. Los tres
-  modelos CommandCode quedan fijados a su propio proveedor en GloryAPI
-  (`deepseek/deepseek-v4-flash`, `meta/muse-spark-1.2-contributor` y
-  `deepseek/deepseek-v4-pro`); un fallo devuelve error estructurado visible y
+- Selección explícita: el bridge envía el id exacto del modelo elegido. Los dos
+  modelos CommandCode disponibles quedan fijados a su propio proveedor en GloryAPI
+  (`deepseek/deepseek-v4-flash` y `meta/muse-spark-1.2-contributor`); el modelo Pro fue
+  retirado y ya no se publica ni se enruta; un fallo devuelve error estructurado visible y
   nunca salta silenciosamente a otro proveedor gratuito.
 - Los modelos CommandCode son explicit-only: no entran en la cadena `auto` de
   GloryAPI para no gastar crédito sin selección expresa.
