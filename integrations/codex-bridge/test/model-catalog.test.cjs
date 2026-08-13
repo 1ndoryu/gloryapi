@@ -21,7 +21,9 @@ test('the default catalog is versioned, keeps auto first and exposes the three C
   // Solo Muse declara visión nativa.
   const muse = DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'meta/muse-spark-1.2-contributor');
   assert.equal(muse.nativeVision, true);
+  assert.equal(muse.supportsReasoning, true);
   assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek/deepseek-v4-flash').nativeVision, false);
+  assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek-v4-flash:free').supportsReasoning, false);
   assert.equal(DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'deepseek/deepseek-v4-pro').nativeVision, false);
 });
 
@@ -31,12 +33,14 @@ test('resolveModelSelection maps missing and auto to the configured default', ()
     id: defaultModel,
     provider: 'auto',
     nativeVision: false,
+    supportsReasoning: true,
     explicit: false,
   });
   assert.deepEqual(resolveModelSelection(DEFAULT_MODEL_CATALOG, 'auto', defaultModel), {
     id: defaultModel,
     provider: 'auto',
     nativeVision: false,
+    supportsReasoning: true,
     explicit: false,
   });
 });
@@ -47,6 +51,7 @@ test('resolveModelSelection pins CommandCode models to their exact id and vision
     id: 'deepseek/deepseek-v4-flash',
     provider: 'commandcode',
     nativeVision: false,
+    supportsReasoning: true,
     explicit: true,
   });
   const muse = resolveModelSelection(DEFAULT_MODEL_CATALOG, 'meta/muse-spark-1.2-contributor', 'deepseek-v4-flash');
@@ -54,6 +59,7 @@ test('resolveModelSelection pins CommandCode models to their exact id and vision
     id: 'meta/muse-spark-1.2-contributor',
     provider: 'commandcode',
     nativeVision: true,
+    supportsReasoning: true,
     explicit: true,
   });
 });
@@ -64,6 +70,7 @@ test('resolveModelSelection maps Desktop-safe picker ids back to real provider i
     id: 'meta/muse-spark-1.2-contributor',
     provider: 'commandcode',
     nativeVision: true,
+    supportsReasoning: true,
     explicit: true,
   });
 });
@@ -74,6 +81,7 @@ test('an unknown model passes through fail-closed (no native vision, GloryAPI re
     id: 'some/unknown-model',
     provider: 'unknown',
     nativeVision: false,
+    supportsReasoning: false,
     explicit: true,
   });
   assert.equal(hasNativeVision(DEFAULT_MODEL_CATALOG, 'some/unknown-model'), false);

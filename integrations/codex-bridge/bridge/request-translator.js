@@ -1,6 +1,34 @@
 const { resolveToolProfile } = require('./tool-profile');
 const { resolveModelSelection } = require('./model-catalog');
 
+// Codex Responses sends the picker value as `reasoning.effort`. Keep the
+// legacy flat field too because some clients/profiles send
+// `reasoning_effort` directly. GloryAPI intentionally accepts only its
+// canonical four values; aliases are normalized here at the client boundary.
+function normalizeReasoningEffort(value) {
+  if (typeof value !== 'string') return undefined;
+  switch (value.trim().toLowerCase()) {
+    case 'minimal': return 'low';
+    case 'low': return 'low';
+    case 'medium': return 'medium';
+    case 'high': return 'high';
+    case 'max': return 'max';
+    case 'xhigh':
+    case 'ultra': return 'max';
+    case 'none':
+    case 'off': return undefined;
+    default: return undefined;
+  }
+}
+
+function requestReasoningEffort(body, selection) {
+  if (!selection.supportsReasoning) return undefined;
+  const nested = body.reasoning && typeof body.reasoning === 'object'
+    ? body.reasoning.effort
+    : undefined;
+  return normalizeReasoningEffort(nested ?? body.reasoning_effort);
+}
+
 function createRequestTranslator({ config, describeImage, describeImageResult, extractFocusHint, validateImageReference, boundSystemContent, log, reasoningFor }) {
   const DEFAULT_MODEL = config.upstream.model;
   const MODEL_CATALOG = Array.isArray(config.catalog.entries) ? config.catalog.entries : [];
@@ -554,6 +582,7 @@ async function translateRequest(body) {
   // decide el modelo wire y si la imagen viaja nativa (visión) o como texto.
   const selection = resolveModelSelection(MODEL_CATALOG, body.model, DEFAULT_MODEL);
   const nativeVision = selection.nativeVision === true;
+  const reasoningEffort = requestReasoningEffort(body, selection);
 
   if (body.instructions) {
     // El system de Codex Desktop (plugins del navegador, doc de tools) puede
@@ -748,6 +777,7 @@ async function translateRequest(body) {
   if (typeof body.tool_choice === 'string' && body.tool_choice) chat.tool_choice = body.tool_choice;
   if (typeof body.parallel_tool_calls === 'boolean') chat.parallel_tool_calls = body.parallel_tool_calls;
   if (typeof body.max_output_tokens === 'number') chat.max_tokens = body.max_output_tokens;
+  if (reasoningEffort) chat.reasoning_effort = reasoningEffort;
 
   // Anti falso-complete (capa preventiva, 2026-08-10): con tools disponibles y
   // una conversación real, recordamos al modelo ejecutar en este turno. Mensaje
@@ -766,4 +796,4 @@ async function translateRequest(body) {
   return { translateRequest, translateTools, flattenOneTool, normalizeOutput };
 }
 
-module.exports = { createRequestTranslator };
+module.exports = { createRequestTranslator, normalizeReasoningEffort, requestReasoningEffort };

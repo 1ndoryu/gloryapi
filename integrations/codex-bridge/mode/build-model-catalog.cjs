@@ -122,6 +122,29 @@ function cloneEntry(template, catalogEntry, index) {
   entry.description = DESCRIPTIONS[catalogEntry.id] || catalogEntry.displayName;
   entry.input_modalities = nativeVision ? ['text', 'image'] : ['text'];
   entry.supports_image_detail_original = nativeVision;
+  entry.supports_reasoning = catalogEntry.supportsReasoning === true;
+  if (catalogEntry.supportsReasoning) {
+    // Minimal/source templates may omit reasoning metadata. Keep the picker
+    // usable with the same conservative levels as the bundled template.
+    entry.default_reasoning_level = entry.default_reasoning_level || 'high';
+    entry.supported_reasoning_levels = Array.isArray(entry.supported_reasoning_levels)
+      && entry.supported_reasoning_levels.length
+      ? entry.supported_reasoning_levels
+      : [
+          { effort: 'low', description: 'Fast responses with lighter reasoning' },
+          { effort: 'high', description: 'Extra high reasoning depth for complex problems' },
+          { effort: 'max', description: 'Maximum reasoning depth for the hardest problems' },
+        ];
+    entry.reasoning_summary_format = entry.reasoning_summary_format || 'experimental';
+    entry.supports_reasoning_summaries = entry.supports_reasoning_summaries !== false;
+  } else {
+    // The effort selector is a shared Desktop control, but unsupported models
+    // must not advertise a reasoning level that the bridge would silently drop.
+    entry.default_reasoning_level = 'none';
+    entry.supported_reasoning_levels = [];
+    entry.reasoning_summary_format = 'none';
+    entry.supports_reasoning_summaries = false;
+  }
   entry.context_window = contextWindow;
   entry.max_context_window = contextWindow;
   entry.auto_compact_token_limit = contextWindow;

@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { createRequestTranslator } = require('../bridge/request-translator');
+const { createRequestTranslator, normalizeReasoningEffort } = require('../bridge/request-translator');
 const { DEFAULT_MODEL_CATALOG } = require('../bridge/model-catalog');
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -75,6 +75,39 @@ test('native vision forwards the image_url block to a multimodal model', async (
   assert.deepEqual(imagePart.image_url, { url: PNG_DATA_URL });
   // Sin adaptación de texto: el modelo de visión nunca se invoca.
   assert.equal(calls.describeImage, 0);
+});
+
+test('Responses effort reaches Muse as canonical reasoning_effort', async () => {
+  const { translateRequest } = createTranslator();
+  const { chat } = await translateRequest({
+    model: 'gpt-5.6-terra',
+    reasoning: { effort: 'high' },
+    stream: true,
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'razona' }] }],
+  });
+
+  assert.equal(chat.model, 'meta/muse-spark-1.2-contributor');
+  assert.equal(chat.reasoning_effort, 'high');
+});
+
+test('unsupported models do not receive a reasoning control', async () => {
+  const { translateRequest } = createTranslator();
+  const { chat } = await translateRequest({
+    model: 'gpt-5.5',
+    reasoning: { effort: 'high' },
+    stream: true,
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'respuesta breve' }] }],
+  });
+
+  assert.equal(chat.model, 'deepseek-v4-flash:free');
+  assert.equal(Object.hasOwn(chat, 'reasoning_effort'), false);
+});
+
+test('effort aliases are normalized at the Responses boundary', () => {
+  assert.equal(normalizeReasoningEffort('minimal'), 'low');
+  assert.equal(normalizeReasoningEffort('xhigh'), 'max');
+  assert.equal(normalizeReasoningEffort('ultra'), 'max');
+  assert.equal(normalizeReasoningEffort('none'), undefined);
 });
 
 test('text-only models keep the lossy vision-to-text adaptation', async () => {

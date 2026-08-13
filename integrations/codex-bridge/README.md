@@ -102,6 +102,11 @@ que GloryAPI enruta.
   nunca salta silenciosamente a otro proveedor gratuito.
 - Los modelos CommandCode son explicit-only: no entran en la cadena `auto` de
   GloryAPI para no gastar crédito sin selección expresa.
+- Esfuerzo de razonamiento: el selector de Codex envía `reasoning.effort` y el
+  bridge lo traduce a `reasoning_effort` (`low`, `medium`, `high` o `max`). Muse
+  Spark 1.2 declara soporte, así que `Alto` llega a CommandCode como
+  `reasoning_effort: "high"`; el servidor conserva sus límites por proveedor y
+  modelo. TokenHarbor declara que no lo soporta y no recibe ese parámetro.
 - Visión nativa: cuando el modelo elegido está marcado `nativeVision: true` en el
   catálogo (Muse Spark 1.2 Contributor, multimodal), el bridge reenvía el bloque
   `image_url` validado al upstream para que el modelo vea la imagen directamente.

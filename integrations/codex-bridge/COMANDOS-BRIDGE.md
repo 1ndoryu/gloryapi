@@ -106,6 +106,10 @@ o el proveedor falla, la respuesta es un error estructurado visible, no un cierr
 Muse Spark 1.2 tiene visión nativa: con ese modelo, las imágenes se reenvían como `image_url` para
 que el modelo las vea directamente. Con el resto de modelos se conserva la descripción por texto.
 
+El selector `Esfuerzo` también se aplica por modelo. En Muse, `Alto` se envía a CommandCode como
+`reasoning_effort: "high"` y `Máximo` como `reasoning_effort: "max"`. Los modelos que no declaran
+razonamiento, como TokenHarbor Free, no reciben el parámetro ni anuncian niveles en el catálogo.
+
 Para guardar la credencial de CommandCode (bóveda DPAPI, nunca en código ni en logs), usa el panel
 local de GloryAPI o su API segura:
 

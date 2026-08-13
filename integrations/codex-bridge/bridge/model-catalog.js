@@ -16,6 +16,9 @@
  *   - displayName: human-readable Spanish label for the model picker.
  *   - nativeVision: true when the model accepts image_url blocks natively.
  *                  When false the bridge keeps the lossy text adaptation.
+ *   - supportsReasoning: true when the model/provider accepts the effort
+ *                        control. The translator uses this as a local
+ *                        fail-closed guard before sending reasoning_effort.
  *   - contextWindow: informational token window for the picker (nullable).
  */
 
@@ -36,6 +39,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'auto',
     displayName: 'Auto (router de GloryAPI)',
     nativeVision: false,
+    supportsReasoning: true,
     contextWindow: null,
   },
   {
@@ -44,6 +48,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'auto',
     displayName: 'DeepSeek V4 Flash (Auto)',
     nativeVision: false,
+    supportsReasoning: true,
     contextWindow: null,
   },
   {
@@ -52,6 +57,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'opencode-zen',
     displayName: 'DeepSeek V4 Flash (OpenCode Zen)',
     nativeVision: false,
+    supportsReasoning: true,
     contextWindow: null,
   },
   {
@@ -60,6 +66,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'tokenharbor',
     displayName: 'DeepSeek V4 Flash (TokenHarbor Free)',
     nativeVision: false,
+    supportsReasoning: false,
     contextWindow: null,
   },
   {
@@ -68,6 +75,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'commandcode',
     displayName: 'DeepSeek V4 Flash (CommandCode)',
     nativeVision: false,
+    supportsReasoning: true,
     contextWindow: 1048576,
   },
   {
@@ -76,6 +84,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'commandcode',
     displayName: 'Muse Spark 1.2 Contributor (CommandCode)',
     nativeVision: true,
+    supportsReasoning: true,
     contextWindow: 1050000,
   },
   {
@@ -84,6 +93,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'commandcode',
     displayName: 'DeepSeek V4 Pro (CommandCode)',
     nativeVision: false,
+    supportsReasoning: true,
     contextWindow: 1048576,
   },
 ];
@@ -105,6 +115,7 @@ function normalizeEntry(raw, index) {
     provider,
     displayName,
     nativeVision: raw.nativeVision === true,
+    supportsReasoning: raw.supportsReasoning === true || raw.reasoning === true,
     contextWindow,
   };
 }
@@ -135,6 +146,7 @@ function parseModelCatalog(raw) {
       provider: 'auto',
       displayName: 'Auto (router de GloryAPI)',
       nativeVision: false,
+      supportsReasoning: true,
       contextWindow: null,
     });
   }
@@ -156,7 +168,15 @@ function resolveModelSelection(catalog, requestedModel, defaultModel) {
     ? requestedModel.trim()
     : '';
   if (!requested || requested === AUTO_MODEL_ID) {
-    return { id: defaultModel, provider: 'auto', nativeVision: false, explicit: false };
+    const defaultEntry = catalog.find((candidate) => candidate.id === defaultModel);
+    const autoEntry = catalog.find((candidate) => candidate.id === AUTO_MODEL_ID);
+    return {
+      id: defaultModel,
+      provider: 'auto',
+      nativeVision: false,
+      supportsReasoning: defaultEntry?.supportsReasoning === true || autoEntry?.supportsReasoning === true,
+      explicit: false,
+    };
   }
   const entry = catalog.find((candidate) => candidate.id === requested || candidate.pickerId === requested);
   if (entry) {
@@ -164,10 +184,11 @@ function resolveModelSelection(catalog, requestedModel, defaultModel) {
       id: entry.id,
       provider: entry.provider,
       nativeVision: entry.nativeVision === true,
+      supportsReasoning: entry.supportsReasoning === true,
       explicit: true,
     };
   }
-  return { id: requested, provider: 'unknown', nativeVision: false, explicit: true };
+  return { id: requested, provider: 'unknown', nativeVision: false, supportsReasoning: false, explicit: true };
 }
 
 function hasNativeVision(catalog, modelId) {

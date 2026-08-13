@@ -69,6 +69,11 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
     const flash = catalog.models.find((entry) => entry.slug === 'gpt-5.6-sol');
     assert.deepEqual(flash.input_modalities, ['text']);
     assert.equal(flash.base_instructions, 'Codex system prompt');
+    assert.equal(muse.supports_reasoning, true);
+    assert.deepEqual(muse.supported_reasoning_levels.map((level) => level.effort), ['low', 'high', 'max']);
+    const tokenHarbor = catalog.models.find((entry) => entry.slug === 'gpt-5.5');
+    assert.equal(tokenHarbor.supports_reasoning, false);
+    assert.deepEqual(tokenHarbor.supported_reasoning_levels, []);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -85,6 +90,7 @@ test('build-model-catalog falls back to a minimal catalog without a source templ
     assert.equal(catalog.models[0].slug, 'codex-auto-review');
     assert.equal(catalog.models[0].visibility, 'list');
     assert.equal(catalog.models[0].supported_in_api, true);
+    assert.equal(catalog.models[0].supports_reasoning, true);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
