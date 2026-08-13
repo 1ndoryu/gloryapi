@@ -34,6 +34,7 @@ function createUpstreamAdapter({
   const EMPTY_RECOVERY_TIMEOUT_MS = recovery.emptyTimeoutMs;
   const EMPTY_RECOVERY_DIRECTIVE = recovery.emptyDirective;
   const MIXED_TOOL_RECOVERY_RETRIES = recovery.mixedToolRetries;
+  const WEB_TOOL_ROUNDS = recovery.webToolRounds;
   const MIXED_TOOL_DIRECTIVE = recovery.mixedToolDirective;
   const REQUEST_ID_HEADER = logging.requestIdHeader;
   const FALLBACK_REASONING = fallbackReasoning;
@@ -317,6 +318,79 @@ async function appendWebToolTurn(working, message, webCalls) {
   }
 }
 
+function toolDefinitionName(tool) {
+  if (tool && tool.function && typeof tool.function.name === 'string') return tool.function.name;
+  return tool && typeof tool.name === 'string' ? tool.name : '';
+}
+
+function cloneForWebLimitSynthesis(chat, toolMap) {
+  const webToolNames = new Set(
+    [...toolMap.entries()]
+      .filter(([, route]) => route && route.web)
+      .map(([name]) => name),
+  );
+  // Do not copy the source request kind: preserveCanaryProvider also copies
+  // non-configurable lifecycle metadata, while this recovery must be tagged as
+  // a new bounded synthesis request.
+  const synthesisChat = preserveCanaryProvider({ __canaryProvider: chat.__canaryProvider }, {
+    ...chat,
+    messages: [...(chat.messages || [])],
+    stream: false,
+  });
+  if (Array.isArray(chat.tools)) {
+    const retainedTools = chat.tools.filter((tool) => !webToolNames.has(toolDefinitionName(tool)));
+    if (retainedTools.length) synthesisChat.tools = retainedTools;
+    else delete synthesisChat.tools;
+  }
+  attachRequestId(synthesisChat, chat.__gloryRequestId);
+  for (const key of ['__userTools', '__latestUserText']) {
+    if (typeof chat[key] === 'boolean' || typeof chat[key] === 'string') {
+      Object.defineProperty(synthesisChat, key, {
+        value: chat[key],
+        enumerable: false,
+      });
+    }
+  }
+  return synthesisChat;
+}
+
+async function synthesizeAfterWebLimit(working, toolMap, authorization, addUsage, rounds) {
+  const synthesisChat = cloneForWebLimitSynthesis(working, toolMap);
+  synthesisChat.messages.push({
+    role: 'system',
+    content:
+      'Se alcanzó el límite seguro de búsquedas web internas. Usa únicamente los resultados ya obtenidos. ' +
+      'No solicites otra búsqueda web. Responde con una síntesis útil; si faltan datos, indícalo claramente.',
+  });
+  Object.defineProperty(synthesisChat, '__requestKind', { value: 'web_limit_synthesis', enumerable: false });
+  Object.defineProperty(synthesisChat, '__parentRequestId', {
+    value: working.__gloryRequestId || '',
+    enumerable: false,
+  });
+  logRequest({
+    ts: new Date().toISOString(),
+    kind: 'web_loop_limit_synthesis',
+    requestId: working.__gloryRequestId,
+    status: 200,
+    rounds,
+    removedWebTools: true,
+  });
+  const json = await fetchWithTimeoutRecovery(synthesisChat, authorization);
+  addUsage(json);
+  const message = assistantMessageFrom(json);
+  const webCalls = assistantToolCalls(message).filter((call) => {
+    const route = lookupToolCall(call.function && call.function.name, toolMap, new Set());
+    return route && route.web;
+  });
+  if (webCalls.length) {
+    const error = new Error('El modelo siguió solicitando búsquedas web después de la recuperación acotada');
+    error.statusCode = 502;
+    error.code = 'web_tool_limit_recovery_exhausted';
+    throw error;
+  }
+  return { json, synthesisChat };
+}
+
 function mixedToolRecoveryMessage(clientCalls) {
   return `${MIXED_TOOL_DIRECTIVE}\n` +
     `Llamadas de cliente pendientes (JSON de datos): ${deferredClientToolSummary(clientCalls)}`;
@@ -503,20 +577,25 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
   const aggregateUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, reasoning_tokens: 0 };
   let lastPromptTokens = 0;
   let mixedRecoveryAttempts = 0;
+  let webRounds = 0;
 
-  // Mixed recovery consumes a provider round. Reserve enough additional
-  // rounds for the configured recoveries plus the normal web-loop budget,
-  // so a final web-only response still gets a follow-up completion request.
-  const maxRounds = 3 + MIXED_TOOL_RECOVERY_RETRIES;
-  for (let round = 0; round < maxRounds; round += 1) {
-    let json = await fetchWithTimeoutRecovery(working, authorization);
-    const usage = json.usage || {};
-    lastPromptTokens = usage.prompt_tokens || 0;
+  const addUsage = (json) => {
+    const usage = json && json.usage || {};
+    lastPromptTokens = usage.prompt_tokens || lastPromptTokens;
     aggregateUsage.prompt_tokens += usage.prompt_tokens || 0;
     aggregateUsage.completion_tokens += usage.completion_tokens || 0;
     aggregateUsage.total_tokens += usage.total_tokens || 0;
     aggregateUsage.reasoning_tokens +=
       (usage.completion_tokens_details && usage.completion_tokens_details.reasoning_tokens) || 0;
+  };
+
+  // Mixed recovery consumes a provider round. Reserve enough additional
+  // rounds for the configured recoveries plus the normal web-loop budget,
+  // so a final web-only response still gets a follow-up completion request.
+  const maxRounds = WEB_TOOL_ROUNDS + MIXED_TOOL_RECOVERY_RETRIES;
+  for (let round = 0; round < maxRounds; round += 1) {
+    let json = await fetchWithTimeoutRecovery(working, authorization);
+    addUsage(json);
 
     let message = assistantMessageFrom(json);
     if (!message || !Object.keys(message).length) {
@@ -569,10 +648,16 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
       continue;
     }
     await appendWebToolTurn(working, message, webCalls);
+    webRounds += 1;
+    if (webRounds >= WEB_TOOL_ROUNDS) {
+      const synthesis = await synthesizeAfterWebLimit(working, toolMap, authorization, addUsage, round + 1);
+      return { json: synthesis.json, aggregateUsage, lastPromptTokens, working: synthesis.synthesisChat };
+    }
   }
 
-  const error = new Error('upstream exceeded the internal web-tool round limit');
+  const error = new Error('web loop ended without a bounded synthesis recovery');
   error.statusCode = 502;
+  error.code = 'web_tool_loop_incomplete';
   throw error;
 }
 

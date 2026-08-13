@@ -283,6 +283,61 @@ test('web loop con intención posterior a búsqueda => reintenta la herramienta 
   assert.equal(events.find((entry) => entry.event === 'response.completed').data.response.end_turn, false);
 });
 
+test('web loop al límite sintetiza con los resultados sin repetir búsquedas', async (t) => {
+  let requestCount = 0;
+  const bridge = await startBridge((body) => {
+    requestCount += 1;
+    if (requestCount <= 2) {
+      return {
+        json: {
+          choices: [{
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: '',
+              tool_calls: [{
+                id: `call_limit_${requestCount}`,
+                type: 'function',
+                function: { name: 'web_search', arguments: '{"query":"misma consulta"}' },
+              }],
+            },
+            finish_reason: 'tool_calls',
+          }],
+          usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+        },
+      };
+    }
+    assert.ok(!body.tools || !body.tools.some((tool) => tool.function && tool.function.name === 'web_search'));
+    return {
+      json: {
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'Síntesis con los resultados ya obtenidos.' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 },
+      },
+    };
+  }, { BRIDGE_WEB_TOOL_ROUNDS: '2' });
+  t.after(bridge.cleanup);
+
+  const response = await fetch(
+    `${bridge.base}/v1/responses`,
+    responsesRequest({
+      model: 'deepseek-v4-flash',
+      stream: true,
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'consulta la web' }] }],
+      tools: [{ type: 'web_search', name: 'web_search' }],
+    }),
+  );
+  const events = sseEvents(await response.text());
+  assert.equal(response.status, 200);
+  assert.equal(requestCount, 3, 'debe reservar una última llamada sin web_search');
+  assert.ok(events.some((entry) => entry.event === 'response.output_text.delta' && /Síntesis/.test(entry.data.delta)));
+  assert.ok(events.some((entry) => entry.event === 'response.completed'));
+  assert.ok(!events.some((entry) => entry.event === 'response.failed'));
+});
+
 test('web loop con auditoría inconclusa => response.failed, nunca completed', async (t) => {
   let requestCount = 0;
   const bridge = await startBridge(() => {

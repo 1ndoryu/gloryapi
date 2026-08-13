@@ -154,6 +154,10 @@ const config = Object.freeze({
     // A mixed provider turn is recoverable, but never retry it without a cap:
     // repeated model output must not become an infinite web/tool loop.
     mixedToolRetries: boundedEnvInt('BRIDGE_MIXED_TOOL_RECOVERY_RETRIES', 1, 0, 2),
+    // Internal web searches get a small, independent budget. A final synthesis
+    // request is allowed after this budget so a bounded loop does not discard
+    // useful results merely because the model asked for one more search.
+    webToolRounds: boundedEnvInt('BRIDGE_WEB_TOOL_ROUNDS', 3, 1, 10),
     mixedToolDirective:
       'Recuperación de herramientas: la respuesta anterior mezcló herramientas web internas con herramientas ' +
       'que debe ejecutar el cliente. Las herramientas web internas ya fueron ejecutadas. Continúa ahora sin ' +

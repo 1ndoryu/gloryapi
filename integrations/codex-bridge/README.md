@@ -205,6 +205,12 @@ que GloryAPI enruta.
   2). Si el modelo vuelve a mezclar después del límite, se emite un error
   explícito `web_loop_error` y se registra `mixed_tool_recovery_exhausted`; esto
   evita el cierre prematuro sin permitir bucles infinitos.
+- El bucle web tiene `BRIDGE_WEB_TOOL_ROUNDS` (3 por defecto) más las rondas de
+  recuperación mixta. Si alcanza ese límite después de ejecutar una búsqueda,
+  el bridge elimina las herramientas web y hace una última síntesis acotada con
+  los resultados ya obtenidos. Así un modelo que insiste en buscar no corta el
+  turno útilmente; si vuelve a pedir web en esa síntesis, se devuelve un error
+  recuperable `web_tool_limit_recovery_exhausted` para impedir un bucle infinito.
 - Las cachés persistentes tienen TTL y límite de bytes; se escriben con `fsync`/rename y
   no conservan el reasoning sintético.
 - La visión lossy (texto) no se anuncia en `/capabilities` ni en `/v1/models` sin

@@ -49,6 +49,20 @@ test('mixed tool recovery is configurable but bounded', () => {
   assert.equal(JSON.parse(result.stdout).retries, 2);
 });
 
+test('web tool rounds are configurable and bounded', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['-e', "const { config } = require('./bridge/config'); process.stdout.write(JSON.stringify({ rounds: config.recovery.webToolRounds }));"],
+    {
+      cwd: root,
+      env: { ...process.env, BRIDGE_WEB_TOOL_ROUNDS: '99' },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).rounds, 10);
+});
+
 test('nudge recovery has bounded attempts and total budget', () => {
   const result = spawnSync(
     process.execPath,

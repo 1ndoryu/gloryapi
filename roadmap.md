@@ -49,14 +49,17 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
   los tres CommandCode; `body.model` se resuelve contra el catálogo versionado
   `glory-bridge-model-catalog-v1`.
 - Muse Spark 1.2 usa visión nativa (bloques `image_url`); el resto conserva la adaptación a texto.
+- El web loop interno tiene un presupuesto configurable (`BRIDGE_WEB_TOOL_ROUNDS`) y, al agotarlo,
+  elimina la herramienta web y solicita una síntesis final con los resultados ya obtenidos; una nueva
+  petición web en esa síntesis falla de forma recuperable para no permitir ciclos infinitos.
 
 ## Evidencia del bloque actual
 
 - `npm test`: 50 archivos / 281 tests PASS.
-- Suite bridge: 132/132 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
+- Suite bridge: 165/165 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
   CLI/Desktop controlados, switches seguros sin mutación del home normal, el web loop del navegador,
   el nudge universal sin depender de frases de intención, recuperación de herramientas mixtas en
-  streaming/no-streaming, límite de rondas, auditoría inconclusa sin falso `completed` y protección
+  streaming/no-streaming, límite de rondas con síntesis final sin herramienta web, auditoría inconclusa sin falso `completed` y protección
   contra inyección en argumentos. La auditoría también continúa ante una narración intermedia y solo
   emite `response.failed` al agotar sus 3 rondas o presupuesto.
 - `npm run build` (shared, server y client): PASS. Vite conserva únicamente el warning existente de
