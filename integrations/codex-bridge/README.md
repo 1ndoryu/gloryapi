@@ -186,7 +186,9 @@ que GloryAPI enruta.
   el proveedor, sin guardar prompts ni claves. También conserva el esfuerzo de
   razonamiento solicitado y los tokens de razonamiento cuando el proveedor los
   devuelve; si solo hay deltas de streaming, los marca como `estimados`, y si
-  no hay ninguna señal los marca como `sin dato`.
+  no hay ninguna señal los marca como `no confirmado`. Para CommandCode, el
+  bridge solicita el uso final del stream (`stream_options.include_usage`) y
+  GloryAPI no acepta un cero provisional como prueba de razonamiento.
 - La generación automática de título de Desktop se reconoce por su contrato
   estructurado estricto (`codex_output_schema` con `title` y `description`) y
   por el alias configurable de título (`BRIDGE_TITLE_MODEL_ALIASES`, por

@@ -26,7 +26,7 @@ describe('reasoning telemetry', () => {
     })).toBe(23)
     expect(extractProviderReasoningTokens({
       completion_tokens_details: { reasoning_tokens: 0 },
-    })).toBe(0)
+    })).toBeNull()
   })
 
   it('returns no false provider measurement when usage omits reasoning', () => {

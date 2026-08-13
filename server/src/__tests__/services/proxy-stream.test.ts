@@ -76,4 +76,26 @@ describe('stream proxy reasoning telemetry', () => {
       reasoningTokensSource: 'estimated',
     })
   })
+
+  it('does not let provisional zero usage suppress observed reasoning deltas', async () => {
+    const onSuccess = vi.fn()
+    await streamProxyResponse({
+      route: routeWithChunks([
+        { choices: [{ delta: { reasoning_content: '123456789' } }], usage: { completion_tokens_details: { reasoning_tokens: 0 } } },
+        { choices: [{ delta: { content: 'respuesta' } }] },
+        { choices: [], usage: { completion_tokens_details: { reasoning_tokens: 0 } } },
+      ]),
+      messages: [{ role: 'user', content: 'hola' }],
+      options: {},
+      res: responseMock(),
+      attempt: 0,
+      onSuccess,
+      onMidStreamError: vi.fn(),
+    })
+
+    expect(onSuccess).toHaveBeenCalledWith(3, {
+      reasoningTokens: 3,
+      reasoningTokensSource: 'estimated',
+    })
+  })
 })

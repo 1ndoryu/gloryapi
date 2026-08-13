@@ -183,6 +183,7 @@ register(new OpenAICompatProvider({
   baseUrl: activeDefinition('commandcode').endpoint,
   timeoutMs: 120_000,
   maxReasoningEffort: 'max',
+  includeStreamUsage: true,
 }));
 
 // OpenCode Go — OpenAI-compatible. Go subscription tier of opencode.ai.

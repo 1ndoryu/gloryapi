@@ -50,10 +50,11 @@ export async function streamProxyResponse({
     for await (const chunk of generator) {
       const reportedReasoningTokens = extractProviderReasoningTokens(chunk.usage);
       if (reportedReasoningTokens !== null) providerReasoningTokens = reportedReasoningTokens;
-      if (providerReasoningTokens === null) {
-        const delta = chunk.choices[0]?.delta;
-        estimatedReasoningTokens += estimateReasoningTokens(delta?.reasoning_content ?? delta?.reasoning);
-      }
+      const delta = chunk.choices[0]?.delta;
+      // Keep estimating from observed reasoning deltas until a positive
+      // provider value arrives. A provisional usage=0 frame must not suppress
+      // evidence that the model actually emitted reasoning.
+      estimatedReasoningTokens += estimateReasoningTokens(delta?.reasoning_content ?? delta?.reasoning);
       if (!streamStarted) {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');

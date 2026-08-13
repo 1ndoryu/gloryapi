@@ -7,6 +7,7 @@ type OpenAIRequestBody = {
   tool_choice?: unknown;
   parallel_tool_calls?: boolean;
   reasoning_effort?: string;
+  stream_options?: { include_usage?: boolean };
 };
 
 function parseBody<T>(init: RequestInit | undefined): T {
@@ -137,6 +138,40 @@ describe('OpenAICompatProvider', () => {
 
     expect(capturedBody.reasoning_effort).toBe('high');
     expect(chunks).toEqual(['hi']);
+  });
+
+  it('requests terminal usage for CommandCode streaming reasoning telemetry', async () => {
+    const commandCode = new OpenAICompatProvider({
+      platform: 'commandcode',
+      name: 'CommandCode',
+      baseUrl: 'https://api.commandcode.ai/provider/v1',
+      maxReasoningEffort: 'max',
+      includeStreamUsage: true,
+    });
+    const encoder = new TextEncoder();
+    let capturedBody: OpenAIRequestBody | undefined;
+    vi.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      capturedBody = parseBody<OpenAIRequestBody>(init);
+      return {
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"id":"chunk-1","object":"chat.completion.chunk","created":123,"model":"deepseek/deepseek-v4-flash","choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'));
+            controller.close();
+          },
+        }),
+      } as unknown as Response;
+    });
+
+    for await (const _chunk of commandCode.streamChatCompletion(
+      'my-key',
+      [{ role: 'user', content: 'test' }],
+      'deepseek/deepseek-v4-flash',
+      { reasoning_effort: 'high' },
+    )) { /* consume */ }
+
+    expect(capturedBody?.reasoning_effort).toBe('high');
+    expect(capturedBody?.stream_options).toEqual({ include_usage: true });
   });
 
   it('should throw on error response', async () => {

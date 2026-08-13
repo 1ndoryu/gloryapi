@@ -86,6 +86,8 @@ export class OpenAICompatProvider extends BaseProvider {
    * reaches the client, so the router can always fall back to the next model.
    * Trade-off: no live streaming from this provider. */
   private readonly bufferUntilDone: boolean;
+  /** Ask providers that support it for the terminal usage SSE frame. */
+  private readonly includeStreamUsage: boolean;
 
   constructor(opts: {
     platform: Platform;
@@ -100,6 +102,7 @@ export class OpenAICompatProvider extends BaseProvider {
     modelAliases?: Record<string, string>;
     bufferUntilContent?: boolean;
     bufferUntilDone?: boolean;
+    includeStreamUsage?: boolean;
   }) {
     super();
     this.platform = opts.platform;
@@ -114,6 +117,7 @@ export class OpenAICompatProvider extends BaseProvider {
     this.modelAliases = opts.modelAliases ?? {};
     this.bufferUntilContent = opts.bufferUntilContent ?? false;
     this.bufferUntilDone = opts.bufferUntilDone ?? false;
+    this.includeStreamUsage = opts.includeStreamUsage ?? false;
   }
 
   private effectiveTransport(modelId?: string): { baseUrl: string; timeoutMs: number; modelAlias: string | null } {
@@ -262,6 +266,7 @@ export class OpenAICompatProvider extends BaseProvider {
         tool_choice: options?.tool_choice,
         parallel_tool_calls: options?.parallel_tool_calls,
         ...(options?.reasoning_effort ? { reasoning_effort: this.clampReasoningEffort(options.reasoning_effort, modelId) } : {}),
+        ...(this.includeStreamUsage ? { stream_options: { include_usage: true } } : {}),
         stream: true,
       }),
     }, transport.timeoutMs, options?.signal);

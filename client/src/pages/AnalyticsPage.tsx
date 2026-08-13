@@ -305,7 +305,7 @@ export default function AnalyticsPage() {
                               <div className="text-[10px] text-muted-foreground">
                                 Razonamiento: {reasoningEffortLabel(entry.reasoningEffort)} · {
                                   entry.reasoningTokensSource === 'none'
-                                    ? 'sin dato'
+                                    ? 'no confirmado'
                                     : `${formatTokens(entry.reasoningTokens)}${entry.reasoningTokensSource === 'estimated' ? ' estimados' : ' del proveedor'}`
                                 }
                               </div>

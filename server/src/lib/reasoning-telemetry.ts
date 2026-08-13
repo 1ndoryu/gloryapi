@@ -11,14 +11,16 @@ type UsageRecord = {
   output_tokens_details?: { reasoning_tokens?: unknown }
 }
 
-function nonNegativeInteger(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null
+function positiveInteger(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null
   return Math.round(value)
 }
 
 /**
- * Providers disagree on where reasoning usage lives. Prefer an explicit value
- * from the provider and keep the fallback estimator visibly labelled.
+ * Providers disagree on where reasoning usage lives. Prefer a positive,
+ * explicit value from the provider. A reported zero is deliberately ignored:
+ * some gateways emit a provisional usage frame with zero reasoning tokens
+ * before the terminal frame, and it must not erase observed reasoning deltas.
  */
 export function extractProviderReasoningTokens(usage: unknown): number | null {
   if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return null
@@ -29,7 +31,7 @@ export function extractProviderReasoningTokens(usage: unknown): number | null {
     value.output_tokens_details?.reasoning_tokens,
   ]
   for (const candidate of candidates) {
-    const tokens = nonNegativeInteger(candidate)
+    const tokens = positiveInteger(candidate)
     if (tokens !== null) return tokens
   }
   return null

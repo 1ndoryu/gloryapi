@@ -27,8 +27,21 @@ guardar prompts, respuestas ni credenciales.
 
 - [x] Columnas nuevas migran sin recrear la base.
 - [x] Streaming y no streaming registran esfuerzo y fuente de tokens.
-- [x] Analytics muestra el esfuerzo y distingue proveedor/estimación/sin dato.
+- [x] Analytics muestra el esfuerzo y distingue proveedor/estimación/no confirmado.
 - [x] Pruebas de extracción, streaming y migración pasan.
 - [x] Build de shared, server y client pasa.
 - [x] Runtime reiniciado y endpoint de Analytics verificado mediante la base
   operativa migrada y el health check de GloryAPI en `:3101`.
+
+## Corrección posterior — CommandCode streaming
+
+- CommandCode recibe `reasoning_effort: high` y, para su streaming, también
+  `stream_options.include_usage: true`.
+- Los ceros provisionales de uso ya no se consideran razonamiento confirmado ni
+  borran los deltas de razonamiento observados.
+- La pantalla muestra `no confirmado` cuando no existe evidencia suficiente;
+  nunca presenta un cero ambiguo como razonamiento real.
+- Smoke directo sin guardar contenido: HTTP 200, 11 fragmentos de razonamiento
+  y `completion_tokens_details.reasoning_tokens: 11`.
+- Evidencia posterior: suite server 53 archivos/294 tests PASS y build completo
+  PASS; runtime reiniciado en `:3101`.
