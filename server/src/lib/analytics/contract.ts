@@ -1,8 +1,12 @@
 export type SummaryRow = {
   total_requests: number;
+  main_requests: number | null;
+  auxiliary_requests: number | null;
   success_count: number | null;
   total_input_tokens: number | null;
   total_output_tokens: number | null;
+  cached_input_tokens: number | null;
+  cache_write_tokens: number | null;
   avg_latency_ms: number | null;
 };
 
@@ -49,6 +53,10 @@ export type HistoryRow = {
   created_at: string;
   api_key_id: number | null;
   api_key_label: string | null;
+  request_kind: string | null;
+  parent_request_id: string | null;
+  cached_input_tokens: number | null;
+  cache_write_tokens: number | null;
   result_brief: string;
 };
 

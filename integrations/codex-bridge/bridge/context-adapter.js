@@ -30,6 +30,10 @@ function createContextAdapter({
   const NUDGE_TIMEOUT_RECOVERY_MS = recovery.nudgeTimeoutRecoveryMs || NUDGE_TIMEOUT_MS;
   const NUDGE_MAX_ATTEMPTS = recovery.nudgeMaxAttempts || 1;
   const NUDGE_BUDGET_MS = recovery.nudgeBudgetMs || NUDGE_TIMEOUT_RECOVERY_MS;
+  const AUDIT_ENABLED = recovery.auditEnabled !== false;
+  const AUDIT_MODE = recovery.auditMode || (AUDIT_ENABLED ? 'adaptive' : 'off');
+  const AUDIT_TIMEOUT_MS = recovery.auditTimeoutMs || NUDGE_TIMEOUT_MS;
+  const AUDIT_MAX_CHARS = recovery.auditMaxChars || 5000;
   function preserveCanaryProvider(source, target) {
     if (typeof source.__canaryProvider === 'string') {
       Object.defineProperty(target, '__canaryProvider', {
@@ -182,14 +186,10 @@ function withSpawnForkFix(name, argsString) {
 // DeepSeek a veces cierra con texto sin invocar la herramienta ("Voy a escanear
 // los .md...", "Sigo la auditoría leyendo...", "I will check..."), y Codex
 // Desktop interpreta texto sin function_call como fin de turno y cierra con
-// task_complete sin ejecutar nada. Capas: (A) directiva preventiva en el prompt
-// cuando hay tools; (B) HOOK UNIVERSAL de confirmación: toda respuesta final sin
-// tool_calls recibe UN reintento preguntando si realmente terminó ("ok" cierra;
-// cualquier otra cosa continúa con la acción); (C) telemetría con kinds
-// nudge_retry / nudge_confirm / nudge_noop / nudge_error / nudge_timeout_retry.
-// Una auditoría inconclusa nunca equivale a confirmación. La heurística
-// isFutureIntentNarration ya no decide el gatillo: solo aporta el campo `intent`
-// de telemetría (quedó corta ante redacciones como "Sigo ... leyendo").
+// task_complete sin ejecutar nada. La política adaptativa evita reenviar el
+// historial completo cuando no hace falta: audita con un cuerpo mínimo los
+// turnos ambiguos y solo construye la continuación completa si la auditoría no
+// confirma el cierre. Una auditoría inconclusa nunca equivale a confirmación.
 function isFutureIntentNarration(text) {
   if (!text) return false;
   // ES + EN: la narración de intención futura sin ejecución ocurre en ambos
@@ -241,6 +241,147 @@ function currentTurnHasToolMessages(messages) {
   return false;
 }
 
+function messageText(message) {
+  if (!message) return '';
+  if (typeof message.content === 'string') return message.content;
+  if (!Array.isArray(message.content)) return '';
+  return message.content.map((part) => part && typeof part.text === 'string' ? part.text : '').filter(Boolean).join('\n');
+}
+
+function latestUserText(messages) {
+  for (let i = (messages || []).length - 1; i >= 0; i -= 1) {
+    if (messages[i] && messages[i].role === 'user') return messageText(messages[i]);
+  }
+  return '';
+}
+
+// This is intentionally based on the user's request, not on a phrase chosen by
+// the model. It avoids paying for an audit on greetings while still auditing
+// action-shaped turns that could close after a narration without a tool call.
+function isActionOrientedRequest(messages) {
+  const text = latestUserText(messages).trim();
+  if (!text) return false;
+  return /\b(abr(e|ir)|actualiza|añade|analiza|arregla|busca|cambia|comprueba|configura|corrige|crea|diagnostica|ejecuta|escribe|inspecciona|instala|lee|lista|muestra|obten|ordena|prueba|revisa|repite|resuelve|reinicia|usa|verifica|abre|add|analy[sz]e|build|check|configure|create|diagnose|edit|execute|fix|inspect|install|list|open|read|review|run|search|sort|test|update|verify)\b/i.test(text);
+}
+
+function isUserConfirmationRequest(messages) {
+  const text = latestUserText(messages).trim().toLowerCase().replace(/[.!?,;:]+$/g, '');
+  return /^(ok|okay|vale|listo|ya está|ya esta|terminaste|terminó|termino|eso es todo|nada más|nada mas)$/.test(text);
+}
+
+function shouldAuditCompletion(chat, text) {
+  if (!AUDIT_ENABLED || AUDIT_MODE === 'off' || NUDGE_RETRIES <= 0) return false;
+  if (chat && chat.__requestKind && chat.__requestKind !== 'main') return false;
+  if (!chat || chat.__userTools !== true || !Array.isArray(chat.tools) || !chat.tools.length) return false;
+  if (AUDIT_MODE === 'strict') return true;
+  const hasCurrentTools = currentTurnHasToolMessages(chat.messages || []);
+  if (!hasCurrentTools && isUserConfirmationRequest(chat.messages || [])) return false;
+  return hasCurrentTools
+    || isActionOrientedRequest(chat.messages || [])
+    || isFutureIntentNarration(text);
+}
+
+function boundedAuditText(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= AUDIT_MAX_CHARS) return text;
+  return `${text.slice(0, AUDIT_MAX_CHARS - 1)}…`;
+}
+
+function buildAuditChat(chat, finalText) {
+  const auditChat = {
+    model: chat.model,
+    messages: [
+      {
+        role: 'system',
+        content: 'Auditoría de cierre. Responde únicamente COMPLETE o CONTINUE. COMPLETE significa que la respuesta candidata satisface el pedido. CONTINUE significa que falta una acción de herramienta. No ejecutes herramientas y no expliques tu decisión.',
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          pedido: boundedAuditText(latestUserText(chat.messages || [])),
+          respuesta: boundedAuditText(finalText),
+          herramientasDisponibles: Array.isArray(chat.tools) ? chat.tools.length : 0,
+          herramientasEjecutadasEnEsteTurno: currentTurnHasToolMessages(chat.messages || []),
+        }),
+      },
+    ],
+    stream: false,
+    max_tokens: 8,
+  };
+  preserveCanaryProvider(chat, auditChat);
+  if (typeof attachRequestId === 'function' && chat.__gloryRequestId) attachRequestId(auditChat, chat.__gloryRequestId);
+  Object.defineProperty(auditChat, '__requestKind', { value: 'audit', enumerable: false });
+  Object.defineProperty(auditChat, '__parentRequestId', { value: chat.__gloryRequestId || '', enumerable: false });
+  return auditChat;
+}
+
+function auditDecision(text) {
+  const normalized = String(text || '').trim().toLowerCase().replace(/[.!?,;:]+$/g, '');
+  const first = normalized.split(/\s+/)[0].replace(/[^a-záéíóúüñ]/gi, '');
+  if (/^(ok|okay|okey|yes|si|sí|confirmado|confirmada)$/.test(normalized)) return 'confirmed';
+  if (first === 'complete' || first === 'completado' || first === 'done') return 'confirmed';
+  if (first === 'continue' || first === 'continuar' || first === 'incompleto') return 'continue';
+  return null;
+}
+
+async function auditCompletion(chat, authorization, finalText, options = {}) {
+  const startedAt = Date.now();
+  const auditChat = buildAuditChat(chat, finalText);
+  const timeoutMs = Math.max(1, Number(options.timeoutMs) || AUDIT_TIMEOUT_MS);
+  try {
+    const json = await fetchUpstreamCompletion(auditChat, authorization, timeoutMs);
+    const message = json.choices && json.choices[0] && json.choices[0].message ? json.choices[0].message : {};
+    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+    const text = typeof message.content === 'string' ? message.content : '';
+    const decision = toolCalls.length ? 'continue' : auditDecision(text);
+    const result = {
+      status: decision === 'confirmed' ? 'confirmed' : decision === 'continue' ? 'continue' : 'inconclusive_unconfirmed',
+      toolCalls,
+      reasoning: message.reasoning_content || '',
+      routedVia: json.__routedVia || null,
+      text,
+      latencyMs: Date.now() - startedAt,
+      attempts: 1,
+      audit: true,
+    };
+    logRequest({
+      ts: new Date().toISOString(),
+      kind: 'completion_audit',
+      requestId: chat.__gloryRequestId,
+      status: 200,
+      decision: result.status,
+      routedVia: result.routedVia,
+      inputChars: boundedAuditText(latestUserText(chat.messages || [])).length,
+      candidateChars: boundedAuditText(finalText).length,
+      latencyMs: result.latencyMs,
+    });
+    return result;
+  } catch (error) {
+    const timedOut = error && error.__timedOut === true;
+    logRequest({
+      ts: new Date().toISOString(),
+      kind: 'completion_audit_error',
+      requestId: chat.__gloryRequestId,
+      status: error.statusCode || 502,
+      error: error.message,
+      timedOut,
+      latencyMs: Date.now() - startedAt,
+    });
+    return {
+      status: timedOut ? 'inconclusive_timeout' : 'inconclusive_error',
+      failureType: timedOut ? 'timeout' : 'upstream_error',
+      error: error && error.message ? error.message : 'completion audit failed',
+      toolCalls: [],
+      reasoning: '',
+      routedVia: null,
+      text: '',
+      latencyMs: Date.now() - startedAt,
+      attempts: 1,
+      audit: true,
+    };
+  }
+}
+
 // El retry reenvía el texto final como mensaje assistant (contexto de lo
 // anunciado) y añade la directiva de confirmación de cierre como user.
 function buildNudgeChat(chat, finalText) {
@@ -259,6 +400,8 @@ function buildNudgeChat(chat, finalText) {
   if (typeof attachRequestId === 'function' && chat.__gloryRequestId) {
     attachRequestId(nudgeChat, chat.__gloryRequestId);
   }
+  Object.defineProperty(nudgeChat, '__requestKind', { value: 'continuation', enumerable: false });
+  Object.defineProperty(nudgeChat, '__parentRequestId', { value: chat.__gloryRequestId || '', enumerable: false });
   return nudgeChat;
 }
 
@@ -266,10 +409,13 @@ function buildNudgeChat(chat, finalText) {
 // inconclusive_timeout o inconclusive_error. Una narración intermedia recibe
 // rondas adicionales de ejecución; si el presupuesto se agota, el resultado
 // inconcluso nunca puede convertirse en un cierre exitoso del turno.
-async function nudgeForToolCalls(chat, authorization, finalText) {
+async function nudgeForToolCalls(chat, authorization, finalText, options = {}) {
   const nudgeChat = buildNudgeChat(chat, finalText);
   const startedAt = Date.now();
-  const deadline = startedAt + NUDGE_BUDGET_MS;
+  const budgetMs = Math.max(1, Number(options.budgetMs) || NUDGE_BUDGET_MS);
+  const deadline = startedAt + budgetMs;
+  const firstTimeoutMs = Math.max(1, Number(options.timeoutMs) || NUDGE_TIMEOUT_MS);
+  const recoveryTimeoutMs = Math.max(1, Number(options.recoveryTimeoutMs) || NUDGE_TIMEOUT_RECOVERY_MS);
   let attempt = 0;
   for (;;) {
     const remainingMs = deadline - Date.now();
@@ -288,7 +434,7 @@ async function nudgeForToolCalls(chat, authorization, finalText) {
     }
     attempt += 1;
     const timeoutMs = Math.min(
-      attempt === 1 ? NUDGE_TIMEOUT_MS : NUDGE_TIMEOUT_RECOVERY_MS,
+      attempt === 1 ? firstTimeoutMs : recoveryTimeoutMs,
       remainingMs,
     );
     try {
@@ -358,7 +504,7 @@ async function nudgeForToolCalls(chat, authorization, finalText) {
           kind: 'nudge_timeout_retry',
           requestId: chat.__gloryRequestId,
           status: 502,
-          timeoutMs: Math.min(NUDGE_TIMEOUT_RECOVERY_MS, deadline - Date.now()),
+          timeoutMs: Math.min(recoveryTimeoutMs, deadline - Date.now()),
           attempt: attempt + 1,
         });
         continue;
@@ -376,6 +522,39 @@ async function nudgeForToolCalls(chat, authorization, finalText) {
       };
     }
   }
+}
+
+// The compact audit is the default gate. Only a CONTINUE decision pays for the
+// old full-context continuation, and an inconclusive audit fails closed through
+// that same bounded continuation path.
+async function auditThenNudge(chat, authorization, finalText) {
+  const startedAt = Date.now();
+  const budgetMs = NUDGE_BUDGET_MS;
+  const audit = await auditCompletion(chat, authorization, finalText, {
+    // The audit must leave room for the real continuation. A slow audit is
+    // only useful if it does not consume the entire recovery budget first.
+    timeoutMs: Math.min(AUDIT_TIMEOUT_MS, NUDGE_TIMEOUT_MS, budgetMs),
+  });
+  if (audit.status === 'confirmed' || audit.status === 'tool_calls') return audit;
+  const remainingMs = budgetMs - (Date.now() - startedAt);
+  if (remainingMs <= 0) {
+    return {
+      ...audit,
+      status: 'inconclusive_timeout',
+      failureType: 'timeout',
+      error: 'audit and continuation budget exhausted',
+      latencyMs: Date.now() - startedAt,
+      attempts: audit.attempts || 1,
+    };
+  }
+  const continuation = await nudgeForToolCalls(chat, authorization, finalText, {
+    budgetMs: remainingMs,
+    timeoutMs: Math.min(NUDGE_TIMEOUT_MS, remainingMs),
+    recoveryTimeoutMs: Math.min(NUDGE_TIMEOUT_RECOVERY_MS, remainingMs),
+  });
+  if (continuation && continuation.audit !== true) continuation.audit = audit;
+  if (continuation) continuation.latencyMs = Date.now() - startedAt;
+  return continuation;
 }
 
 // ---------------------------------------------------------------------------
@@ -658,6 +837,9 @@ async function compactContext(chat, auth, options = {}) {
     isFutureIntentNarration,
     isConfirmationText,
     currentTurnHasToolMessages,
+    shouldAuditCompletion,
+    auditCompletion,
+    auditThenNudge,
     nudgeForToolCalls,
   };
 }

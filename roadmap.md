@@ -23,6 +23,11 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Bloques ya cerrados localmente
 
+- Ahorro de tokens del bridge: plan ejecutado y conservado en
+  `Agente/planes/completados/plan-ahorro-tokens-bridge-2026-08-12.md`; clasificador de
+  títulos, auditoría compacta, presupuesto total compartido, telemetría de
+  caché/tipo de solicitud y Analytics en español.
+
 - Aislamiento, snapshot real, bóveda DPAPI, importación original 22/22, credencial TokenHarbor,
   recovery y rutas externas.
 - Catálogo activo de cuatro familias: Andoryyu, OpenCode Zen, TokenHarbor y OpenCode Go; la ruta

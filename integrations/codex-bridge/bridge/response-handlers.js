@@ -23,8 +23,9 @@ function createResponseHandlers({
   const { sseEvent, assistantMessageFrom, assistantText, assistantToolCalls, hasVisibleAssistantAction,
     responseItemsForToolCalls, responseUsageFromChatUsage, emitResponseCompleted, createReasoningForwarder } = responseHelpers;
   const {
-    visibleReasoning, realTokens, totalTokens, calibrate, nudgeForToolCalls,
+    visibleReasoning, realTokens, totalTokens, calibrate, nudgeForToolCalls, auditThenNudge,
     isFutureIntentNarration, isConfirmationText, currentTurnHasToolMessages,
+    shouldAuditCompletion,
   } = context;
   const SseParserError = sseParserError;
 
@@ -33,7 +34,7 @@ function createResponseHandlers({
       if (!res.writableEnded && !res.destroyed) res.write(': nudge-recovery\n\n');
     }, 10000);
     try {
-      return await nudgeForToolCalls(chat, upstreamAuthHeader(), finalText);
+      return await (auditThenNudge || nudgeForToolCalls)(chat, upstreamAuthHeader(), finalText);
     } finally {
       clearInterval(keepAlive);
     }
@@ -158,10 +159,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
   if (
     toolCalls.length === 0 &&
     text &&
-    chat.__userTools === true &&
-    Array.isArray(chat.tools) &&
-    chat.tools.length &&
-    NUDGE_RETRIES > 0
+    shouldAuditCompletion(resolved.working, text)
   ) {
     const nudge = await runNudgeWithKeepAlive(res, resolved.working, text);
     const failure = nudgeFailure(nudge, text);
@@ -549,25 +547,16 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     return;
   }
 
-  // Anti falso-complete (capa B, 2026-08-10; hook universal 2026-08-11): si el
-  // modelo cierra con texto sin tool_calls teniendo tools disponibles, le
-  // preguntamos si realmente terminó. "ok" confirma el cierre; tool_calls
-  // continúa el turno; timeout, error o una respuesta no confirmatoria emiten
-  // response.failed solo después de agotar las rondas acotadas. El texto original
-  // ya se emitió como deltas (no hay vuelta atrás), pero nunca se emite
-  // response.completed para una auditoría inconclusa.
-  // El guard es universal: una respuesta final con tools disponibles recibe
-  // una confirmación acotada aunque ya haya ejecutado tools en este turno. Así
-  // no depende de que el modelo escriba una frase reconocible de intención;
-  // si terminó, responde "ok" y conservamos el texto original.
+  // Anti falso-complete: en modo adaptativo, una respuesta textual ambigua con
+  // tools disponibles pasa por una auditoría compacta. Solo si no confirma el
+  // cierre se reenvía el contexto completo para continuar. El texto original
+  // ya se emitió como delta, pero nunca se emite response.completed si la
+  // recuperación queda inconclusa.
   let nudgeReasoning = '';
   if (
     toolCalls.size === 0 &&
     text &&
-    chat.__userTools === true &&
-    Array.isArray(chat.tools) &&
-    chat.tools.length &&
-    NUDGE_RETRIES > 0
+    shouldAuditCompletion(chat, text)
   ) {
     const nudge = await runNudgeWithKeepAlive(res, chat, text);
     const failure = nudgeFailure(nudge, text);
@@ -746,19 +735,15 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
     return;
   }
   output.push(...renderedTools.items);
-  // Anti falso-complete (capa B, 2026-08-10; hook universal 2026-08-11): misma
-  // lógica que en el path streaming — toda respuesta final sin tool_calls recibe
-  // el request de confirmación; las tool_calls del retry se añaden al output
-  // final, y "ok" confirma el cierre con el texto original.
+  // Anti falso-complete: misma política adaptativa que en streaming. La
+  // auditoría compacta confirma cierres claros; la continuación completa solo
+  // se usa cuando hace falta ejecutar una acción pendiente.
   if (
     toolCalls.length === 0 &&
     assistantText(message) &&
-    gateChat.__userTools === true &&
-    Array.isArray(gateChat.tools) &&
-    gateChat.tools.length &&
-    NUDGE_RETRIES > 0
+    shouldAuditCompletion(gateChat, assistantText(message))
   ) {
-    const nudge = await nudgeForToolCalls(gateChat, upstreamAuthHeader(), assistantText(message));
+    const nudge = await (auditThenNudge || nudgeForToolCalls)(gateChat, upstreamAuthHeader(), assistantText(message));
     const failure = nudgeFailure(nudge, assistantText(message));
     if (failure) {
       logRequest({

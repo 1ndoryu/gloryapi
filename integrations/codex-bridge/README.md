@@ -161,18 +161,26 @@ que GloryAPI enruta.
   `response.reasoning_summary_text.delta`; no se expone la cadena de pensamiento
   cruda ni el texto sintético de fallback. La ruta no streaming también incluye
   el resumen como un item `reasoning`.
-- La auditoría de cierre tiene un presupuesto total propio. La primera ronda usa
-  `BRIDGE_NUDGE_TIMEOUT_MS` (8 s por defecto, máximo 30 s); si agota el timeout,
-  dispone de una recuperación acotada con `BRIDGE_NUDGE_TIMEOUT_RECOVERY_MS`
-  (90 s por defecto). `BRIDGE_NUDGE_MAX_ATTEMPTS` (3, máximo 3) y
-  `BRIDGE_NUDGE_BUDGET_MS` (120 s, máximo 300 s) limitan el coste total. Un
-  timeout, error o respuesta sin confirmación/tool no se convierte en
-  `response.completed`: una respuesta narrativa intermedia se reenvía al modelo
-  con una directiva de ejecución obligatoria y se permiten rondas adicionales
-  dentro del mismo presupuesto. Solo una confirmación explícita (`ok`, `listo`,
-  etc.) o una llamada de herramienta permite continuar; si se agotan las rondas,
-  el streaming emite `response.failed` recuperable y el path no-streaming devuelve
-  error estructurado.
+- La auditoría de cierre es adaptativa y configurable con
+  `BRIDGE_AUDIT_MODE=adaptive|strict|off` (por defecto `adaptive`). `adaptive`
+  solo audita turnos ambiguos con herramientas disponibles; `strict` audita cada
+  respuesta textual elegible y `off` desactiva esta capa. `BRIDGE_AUDIT_ENABLED=0`
+  conserva compatibilidad y también la desactiva. La auditoría envía únicamente
+  un pedido y una respuesta acotados, sin historial ni schemas de herramientas.
+  Solo si responde `COMPLETE`/`ok` se evita el reenvío completo; cualquier otra
+  decisión intenta una continuación real con el contexto necesario.
+- Auditoría y continuación comparten el presupuesto de
+  `BRIDGE_NUDGE_BUDGET_MS` (120 s por defecto, máximo 300 s). La auditoría queda
+  limitada además por `BRIDGE_NUDGE_TIMEOUT_MS` para dejar tiempo a la acción.
+  `BRIDGE_NUDGE_MAX_ATTEMPTS` (3, máximo 3),
+  `BRIDGE_NUDGE_TIMEOUT_RECOVERY_MS` y `BRIDGE_AUDIT_MAX_CHARS` acotan las
+  rondas, la espera y el tamaño. Un timeout, error o respuesta no confirmatoria
+  nunca se convierte en `response.completed`: streaming emite `response.failed`
+  recuperable y non-streaming devuelve error estructurado.
+- Cada solicitud lleva telemetría interna (`main`, `audit`, `continuation`,
+  `recovery` o `auxiliary_title`) y una relación con el request principal. La
+  página Analytics muestra esa separación y los tokens cacheados que entregue
+  el proveedor, sin guardar prompts ni claves.
 - Una respuesta vacía o solo de razonamiento no cierra el turno. El bridge hace
   como máximo una recuperación acotada (`BRIDGE_EMPTY_RECOVERY_RETRIES`, por defecto
   1; timeout `BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS`, 90 s) con una directiva explícita;

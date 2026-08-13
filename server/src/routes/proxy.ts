@@ -18,7 +18,7 @@ import { recordRequest, recordTokens, setCooldown, isOnCooldown, getShortestCool
 import { recordProviderFailure, recordProviderSuccess } from '../services/health.js';
 import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
-import { logProxyRequest } from './proxy-log.js';
+import { logProxyRequest, type ProxyRequestTelemetry } from './proxy-log.js';
 import { getSettingNumber } from '../settings/registry.js';
 import { beginRoutingAttempt, finishRoutingAttempt } from '../services/routing-runtime.js';
 import { validateRouteCapabilities } from '../services/capabilities.js';
@@ -65,9 +65,50 @@ function safeRequestId(req: Request): string | undefined {
   return value && /^[A-Za-z0-9._:-]{1,96}$/.test(value) ? value : undefined;
 }
 
+function requestTelemetry(req: Request): ProxyRequestTelemetry {
+  const requestedKind = req.header('x-glory-request-kind');
+  const requestKind = requestedKind && /^(main|audit|continuation|recovery|summary|auxiliary_title)$/.test(requestedKind)
+    ? requestedKind
+    : 'main';
+  const parent = req.header('x-glory-parent-request-id');
+  return {
+    requestKind,
+    parentRequestId: parent && /^[A-Za-z0-9._:-]{1,96}$/.test(parent) ? parent : null,
+  };
+}
+
+function cacheTelemetry(usage: unknown): Pick<ProxyRequestTelemetry, 'cachedInputTokens' | 'cacheWriteTokens'> {
+  if (!usage || typeof usage !== 'object') return {};
+  const value = usage as {
+    prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number; cache_creation_tokens?: number };
+    input_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number; cache_creation_tokens?: number };
+  };
+  const details = value.prompt_tokens_details ?? value.input_tokens_details;
+  if (!details) return {};
+  return {
+    cachedInputTokens: details.cached_tokens ?? 0,
+    cacheWriteTokens: details.cache_write_tokens ?? details.cache_creation_tokens ?? 0,
+  };
+}
+
 proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = safeRequestId(req);
+  const telemetry = requestTelemetry(req);
+  const logRequest = (
+    platform: string,
+    modelId: string,
+    status: string,
+    inputTokens: number,
+    outputTokens: number,
+    latencyMs: number,
+    error: string | null,
+    keyId: number | null = null,
+    usage?: unknown,
+  ) => logProxyRequest(platform, modelId, status, inputTokens, outputTokens, latencyMs, error, keyId, {
+    ...telemetry,
+    ...cacheTelemetry(usage),
+  });
   if (requestId) res.setHeader('X-Glory-Request-Id', requestId);
   const requestAbortController = new AbortController();
   const abortOnDisconnect = () => {
@@ -231,7 +272,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     if (capabilityError) {
       excludedModels.add(`${route.platform}:${route.modelId}`); lastError = capabilityError; lastErrorKind = 'schema_mismatch';
       recordRoutingTraceAttempt(traceId, route, 'rejected', 'capability_not_supported', Date.now() - routeStartedAt);
-      logProxyRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, capabilityError.message, route.keyId);
+      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, Date.now() - start, capabilityError.message, route.keyId);
       continue;
     }
 
@@ -254,13 +295,13 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           finishRoutingAttempt(routingAttemptId, 'success', route);
           recordRoutingTraceAttempt(traceId, route, 'success', null, Date.now() - routeStartedAt);
           finishRoutingTrace(traceId, 'completed', route);
-          logProxyRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null, route.keyId);
+          logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null, route.keyId);
           },
           onMidStreamError: async (streamClassification, totalOutputTokens) => {
             finishRoutingAttempt(routingAttemptId, 'error', route);
             recordRoutingTraceAttempt(traceId, route, 'error', 'stream_truncated', Date.now() - routeStartedAt);
             finishRoutingTrace(traceId, 'failed');
-            logProxyRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamClassification.safeMessage, route.keyId);
+            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamClassification.safeMessage, route.keyId);
           },
         });
         return;
@@ -283,11 +324,11 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         if (attempt > 0) res.setHeader('X-Fallback-Attempts', String(attempt));
         res.json(result);
 
-        logProxyRequest(
+        logRequest(
           route.platform, route.modelId, 'success',
           result.usage?.prompt_tokens ?? 0,
           result.usage?.completion_tokens ?? 0,
-          Date.now() - start, null, route.keyId,
+          Date.now() - start, null, route.keyId, result.usage,
         );
         return;
       }
@@ -297,7 +338,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       const errorClassification = classifyProxyError(err, { coldStartRetryMs: route.coldStartRetryMs });
       recordRoutingTraceAttempt(traceId, route, 'error', routingTraceReason(err, { coldStartRetryMs: route.coldStartRetryMs }), Date.now() - routeStartedAt);
       const latency = Date.now() - start;
-      logProxyRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, latency, errorClassification.safeMessage, route.keyId);
+      logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, 0, latency, errorClassification.safeMessage, route.keyId);
 
       const retryable = errorClassification.retryable || isRetryableError(err);
       const schemaMismatch = isToolSchemaCompatibilityError(err) || errorClassification.code === 'schema_incompatible';

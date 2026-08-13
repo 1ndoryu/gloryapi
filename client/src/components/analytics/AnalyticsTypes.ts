@@ -13,13 +13,21 @@ export type RequestHistoryItem = {
   createdAt: string
   apiKeyId: number | null
   apiKeyLabel: string | null
+  requestKind: string
+  parentRequestId: string | null
+  cachedInputTokens: number
+  cacheWriteTokens: number
 }
 
 export type AnalyticsSummary = {
   totalRequests: number
+  mainRequests: number
+  auxiliaryRequests: number
   successRate: number
   totalInputTokens: number
   totalOutputTokens: number
+  cachedInputTokens: number
+  cacheWriteTokens: number
   avgLatencyMs: number
   estimatedCostSavings: number
 }

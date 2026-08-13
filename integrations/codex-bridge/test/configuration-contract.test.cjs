@@ -69,6 +69,20 @@ test('nudge recovery has bounded attempts and total budget', () => {
   assert.equal(output.budget, 300000);
 });
 
+test('completion audit mode is explicit and fail-safe', () => {
+  const result = spawnSync(
+    process.execPath,
+    ['-e', "const { config } = require('./bridge/config'); process.stdout.write(JSON.stringify({ mode: config.recovery.auditMode, enabled: config.recovery.auditEnabled }));"],
+    {
+      cwd: root,
+      env: { ...process.env, BRIDGE_AUDIT_MODE: 'typo' },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { mode: 'adaptive', enabled: true });
+});
+
 test('context compaction delegates summaries to the bounded upstream transport', () => {
   const env = {
     ...process.env,

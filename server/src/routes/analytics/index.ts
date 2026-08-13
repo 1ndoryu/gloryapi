@@ -64,9 +64,13 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
   const stats = db.prepare(`
     SELECT
       COUNT(*) as total_requests,
+      SUM(CASE WHEN request_kind = 'main' THEN 1 ELSE 0 END) as main_requests,
+      SUM(CASE WHEN request_kind <> 'main' THEN 1 ELSE 0 END) as auxiliary_requests,
       SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
       SUM(input_tokens) as total_input_tokens,
       SUM(output_tokens) as total_output_tokens,
+      SUM(cached_input_tokens) as cached_input_tokens,
+      SUM(cache_write_tokens) as cache_write_tokens,
       AVG(latency_ms) as avg_latency_ms
     FROM requests
     WHERE created_at >= ?
@@ -82,9 +86,13 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
 
   res.json({
     totalRequests,
+    mainRequests: stats.main_requests ?? 0,
+    auxiliaryRequests: stats.auxiliary_requests ?? 0,
     successRate: Math.round(successRate * 10) / 10,
     totalInputTokens: stats.total_input_tokens ?? 0,
     totalOutputTokens: stats.total_output_tokens ?? 0,
+    cachedInputTokens: stats.cached_input_tokens ?? 0,
+    cacheWriteTokens: stats.cache_write_tokens ?? 0,
     avgLatencyMs: Math.round(stats.avg_latency_ms ?? 0),
     estimatedCostSavings: Math.round((inputCost + outputCost) * 100) / 100,
   });
@@ -253,6 +261,10 @@ analyticsRouter.get('/history', (req: Request, res: Response) => {
       r.created_at,
       r.api_key_id,
       ak.label as api_key_label,
+      r.request_kind,
+      r.parent_request_id,
+      r.cached_input_tokens,
+      r.cache_write_tokens,
       CASE
         WHEN r.status = 'success' THEN 'Success'
         ELSE ${ERROR_CATEGORY_SQL.replaceAll('error', 'r.error')}
@@ -280,6 +292,10 @@ analyticsRouter.get('/history', (req: Request, res: Response) => {
     createdAt: r.created_at,
     apiKeyId: r.api_key_id,
     apiKeyLabel: r.api_key_label,
+    requestKind: r.request_kind ?? 'main',
+    parentRequestId: r.parent_request_id,
+    cachedInputTokens: r.cached_input_tokens ?? 0,
+    cacheWriteTokens: r.cache_write_tokens ?? 0,
   })));
 });
 

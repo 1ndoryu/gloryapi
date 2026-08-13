@@ -90,9 +90,12 @@ function responseItemsForToolCalls(toolCalls, toolMap, customTools) {
 }
 
 function responseUsageFromChatUsage(usage) {
+  const inputDetails = usage && (usage.prompt_tokens_details || usage.input_tokens_details) || {};
+  const cachedTokens = inputDetails.cached_tokens || inputDetails.cache_read_tokens || 0;
+  const cacheWriteTokens = inputDetails.cache_write_tokens || inputDetails.cache_creation_tokens || 0;
   return {
     input_tokens: usage ? usage.prompt_tokens || 0 : 0,
-    input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+    input_tokens_details: { cached_tokens: cachedTokens, cache_write_tokens: cacheWriteTokens },
     output_tokens: usage ? usage.completion_tokens || 0 : 0,
     output_tokens_details: {
       reasoning_tokens:

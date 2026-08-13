@@ -386,13 +386,16 @@ test('nudge: narrativa sin tools + retry con tool_calls => function_call emitido
   assert.equal(calls[0].data.item.name, 'read_file');
   assert.equal(calls[0].data.item.arguments, '{"path":"a.md"}');
 
-  // Hubo exactamente 2 requests: el streaming original + el nudge no-streaming.
-  assert.equal(bridge.upstreamBodies.length, 2, 'debe haber 2 requests upstream (original + nudge)');
-  assert.equal(bridge.upstreamBodies[1].stream, false, 'el nudge debe ir no-streaming');
-  const lastMessage = bridge.upstreamBodies[1].messages[bridge.upstreamBodies[1].messages.length - 1];
+  // El flujo adaptativo usa una auditoría pequeña y solo después paga el
+  // reenvío de contexto completo para continuar la acción.
+  assert.equal(bridge.upstreamBodies.length, 3, 'original + auditoría compacta + continuación');
+  assert.equal(bridge.upstreamBodies[1].stream, false, 'la auditoría debe ir no-streaming');
+  assert.equal(bridge.upstreamBodies[1].messages.length, 2, 'la auditoría no debe reenviar el historial');
+  assert.equal(bridge.upstreamBodies[2].stream, false, 'la continuación debe ir no-streaming');
+  const lastMessage = bridge.upstreamBodies[2].messages[bridge.upstreamBodies[2].messages.length - 1];
   assert.match(lastMessage.content, /Confirmación de cierre/, 'el nudge debe llevar la directiva de confirmación');
   // El texto narrativo se reenvía como assistant antes de la directiva.
-  const assistantIndex = bridge.upstreamBodies[1].messages.findIndex((m) => m.role === 'assistant');
+  const assistantIndex = bridge.upstreamBodies[2].messages.findIndex((m) => m.role === 'assistant');
   assert.ok(assistantIndex >= 0, 'el nudge debe incluir el anuncio como assistant');
 });
 
@@ -439,7 +442,7 @@ test('nudge no confirmado: retry sin tools => response.failed, sin function_call
   assert.ok(failed, 'debe informar que la verificación quedó inconclusa');
   assert.equal(failed.data.response.error.type, 'tool_recovery_unresolved');
   assert.ok(!events.some((entry) => entry.event === 'response.completed'), 'no debe cerrar un turno no confirmado');
-  assert.equal(bridge.upstreamBodies.length, 2, 'intentó el nudge (2 requests)');
+  assert.equal(bridge.upstreamBodies.length, 3, 'auditoría compacta y continuación acotada');
 });
 
 test('nudge con upstream colgado => falla de forma recuperable dentro de su presupuesto', async (t) => {
@@ -472,11 +475,11 @@ test('nudge con upstream colgado => falla de forma recuperable dentro de su pres
   assert.match(raw, /tool_recovery_timeout/);
   assert.ok(Date.now() - startedAt < 3000, 'el nudge debe respetar su presupuesto total');
   let bridgeLog = bridge.bridgeLog;
-  for (let attempt = 0; attempt < 10 && !/"kind":"nudge_error"/.test(bridgeLog); attempt += 1) {
+  for (let attempt = 0; attempt < 10 && !/"kind":"(?:completion_audit_error|nudge_error)"/.test(bridgeLog); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 20));
     bridgeLog = bridge.bridgeLog;
   }
-  assert.match(bridgeLog, /"kind":"nudge_error"/);
+  assert.match(bridgeLog, /"kind":"(?:completion_audit_error|nudge_error)"/);
 });
 
 test('nudge: timeout inicial + recuperación => recupera tool_call y continúa', async (t) => {
@@ -574,12 +577,12 @@ test('nudge: narración intermedia => nueva ronda de ejecución y tool_call', as
   assert.equal(events.find((entry) => entry.event === 'response.completed').data.response.end_turn, false);
   assert.ok(!events.some((entry) => entry.event === 'response.failed'));
   assert.equal(nudgeRequests, 2, 'la narración intermedia debe consumir una ronda adicional');
-  assert.equal(bridge.upstreamBodies.length, 3, 'respuesta original + dos rondas de auditoría');
+  assert.equal(bridge.upstreamBodies.length, 3, 'original + auditoría compacta + continuación');
   const continuationBody = bridge.upstreamBodies[2];
   assert.equal(continuationBody.messages.at(-2).role, 'assistant');
-  assert.equal(continuationBody.messages.at(-2).content, 'Corrijo el comando y lo vuelvo a ejecutar.');
+  assert.equal(continuationBody.messages.at(-2).content, 'Voy a escanear los .md y extraer las fechas del nombre.');
   assert.equal(continuationBody.messages.at(-1).role, 'user');
-  assert.match(continuationBody.messages.at(-1).content, /Continuación obligatoria/);
+  assert.match(continuationBody.messages.at(-1).content, /(Confirmación de cierre|Continuación obligatoria)/);
 });
 
 test('nudge: tres narraciones consecutivas => agota el límite predeterminado sin completed', async (t) => {
@@ -610,8 +613,8 @@ test('nudge: tres narraciones consecutivas => agota el límite predeterminado si
   );
   const events = sseEvents(await response.text());
   assert.equal(response.status, 200);
-  assert.equal(nudgeRequests, 3, 'el límite predeterminado permite exactamente tres rondas');
-  assert.equal(bridge.upstreamBodies.length, 4, 'respuesta original más tres auditorías');
+  assert.equal(nudgeRequests, 4, 'auditoría compacta más tres rondas de continuación');
+  assert.equal(bridge.upstreamBodies.length, 5, 'original + auditoría compacta + tres continuaciones');
   assert.equal(events.find((entry) => entry.event === 'response.failed').data.response.error.type, 'tool_recovery_unresolved');
   assert.ok(!events.some((entry) => entry.event === 'response.completed'));
 });
@@ -681,7 +684,7 @@ test('nudge no-streaming: tres narraciones => agota el límite predeterminado si
   );
   const body = await response.json();
   assert.equal(response.status, 502);
-  assert.equal(requestCount, 4, 'respuesta original más tres auditorías');
+  assert.equal(requestCount, 5, 'original + auditoría compacta + tres continuaciones');
   assert.equal(body.error.type, 'tool_recovery_unresolved');
 });
 
@@ -744,7 +747,7 @@ test('nudge no-streaming con herramienta web sin resolver => error, nunca comple
   assert.equal(body.error.type, 'web_loop_error');
   assert.equal(body.error.retryable, true);
   assert.notEqual(body.status, 'completed');
-  assert.equal(requestCount, 3, 'la herramienta web del nudge no debe intentar cerrar el turno');
+  assert.equal(requestCount, 4, 'la auditoría y la herramienta web de continuación deben quedar acotadas');
 });
 
 // ---------------------------------------------------------------------------
@@ -790,7 +793,7 @@ test('confirm: retry responde "ok" => cierra con el texto original, sin function
     'el texto visible debe ser el original, no el "ok" del retry'
   );
   assert.ok(!textItems.some((content) => /"ok"/i.test(content)), 'el "ok" de confirmación no debe aparecer como texto');
-  assert.equal(bridge.upstreamBodies.length, 2, 'hace el request de confirmación (2 requests)');
+  assert.equal(bridge.upstreamBodies.length, 2, 'la auditoría compacta confirma sin reenviar el historial');
 });
 
 // ---------------------------------------------------------------------------
@@ -861,9 +864,9 @@ test('regresión: historial con tools previas + turno actual sin tools => nudge 
     !events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item && entry.data.item.type === 'function_call'),
     'si el retry confirma con "ok", no debe inventar function_call'
   );
-  // El nudge SÍ se disparó a pesar de las tools de turnos anteriores.
-  assert.equal(bridge.upstreamBodies.length, 2, 'con tools previas pero turno actual sin tools, el nudge debe dispararse (2 requests)');
-  assert.equal(bridge.upstreamBodies[1].stream, false, 'el nudge debe ir no-streaming');
+  // Un mensaje de confirmación no necesita auditoría si el turno actual aún
+  // no ejecutó herramientas; así se evita una llamada auxiliar innecesaria.
+  assert.equal(bridge.upstreamBodies.length, 1, 'una confirmación simple no necesita auditoría');
 });
 
 // ---------------------------------------------------------------------------
@@ -898,7 +901,7 @@ test('control: resumen normal después de tools => nudge confirma sin cambiarlo'
   assert.equal(response.status, 200);
   const events = sseEvents(await response.text());
   assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
-  assert.equal(bridge.upstreamBodies.length, 2, 'el cierre universal confirma incluso después de tools (2 requests)');
+  assert.equal(bridge.upstreamBodies.length, 2, 'la auditoría compacta confirma después de tools');
   assert.ok(
     !events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call'),
     'la confirmación ok no debe inventar function_call'
@@ -933,8 +936,7 @@ test('regresión: tools del turno actual + intención futura => nudge SÍ', asyn
   assert.equal(response.status, 200);
   const events = sseEvents(await response.text());
   assert.ok(events.some((entry) => entry.event === 'response.completed'), 'responde con completed');
-  assert.equal(bridge.upstreamBodies.length, 2, 'la intención futura después de una tool activa el nudge');
-  assert.equal(bridge.upstreamBodies[1].stream, false, 'el nudge debe ir no-streaming');
+  assert.equal(bridge.upstreamBodies.length, 2, 'la auditoría compacta confirma la intención ya completada');
 });
 
 test('tool-only: el function_call continúa el turno y el fallback no se muestra', async (t) => {

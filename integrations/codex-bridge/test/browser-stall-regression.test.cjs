@@ -275,7 +275,7 @@ test('web loop con intención posterior a búsqueda => reintenta la herramienta 
   const raw = await response.text();
   const events = sseEvents(raw);
   assert.equal(response.status, 200);
-  assert.equal(requestCount, 3, 'debe hacer búsqueda interna, respuesta final y un nudge');
+  assert.equal(requestCount, 4, 'debe hacer búsqueda interna, respuesta final, auditoría compacta y continuación');
   assert.ok(
     events.some((entry) => entry.event === 'response.output_item.done' && entry.data.item?.type === 'function_call' && entry.data.item.name === 'read_file'),
     'la intención posterior a la búsqueda debe continuar como function_call del navegador'

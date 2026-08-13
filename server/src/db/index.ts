@@ -39,6 +39,7 @@ export function initDb(dbPath?: string, options: InitDbOptions = {}): Database.D
   db.pragma('foreign_keys = ON');
 
   createTables(db);
+  ensureRequestTelemetryColumns(db);
   const hasLegacyCredentialRows = Boolean(db.prepare(
     "SELECT 1 FROM api_keys WHERE encryption_scheme = 'legacy-aes-gcm' LIMIT 1",
   ).get());
@@ -152,6 +153,10 @@ function createTables(db: Database.Database) {
       latency_ms INTEGER NOT NULL DEFAULT 0,
       error TEXT,
       api_key_id INTEGER REFERENCES api_keys(id),
+      request_kind TEXT NOT NULL DEFAULT 'main',
+      parent_request_id TEXT,
+      cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -256,6 +261,27 @@ function ensureApiKeyVaultColumns(db: Database.Database): void {
 
 export function getUnifiedApiKey(): string {
   return readUnifiedApiKey(getDb());
+}
+
+/*
+ * The bridge started sending request-role metadata after existing GloryAPI
+ * databases were already in use. Keep the migration additive and idempotent so
+ * an upgrade never requires recreating the operational database or its keys.
+ */
+function ensureRequestTelemetryColumns(database: Database.Database): void {
+  const columns = new Set(
+    (database.prepare('PRAGMA table_info(requests)').all() as Array<{ name: string }>).map(column => column.name),
+  );
+  const additions: Array<[string, string]> = [
+    ['request_kind', "TEXT NOT NULL DEFAULT 'main'"],
+    ['parent_request_id', 'TEXT'],
+    ['cached_input_tokens', 'INTEGER NOT NULL DEFAULT 0'],
+    ['cache_write_tokens', 'INTEGER NOT NULL DEFAULT 0'],
+  ];
+  for (const [name, definition] of additions) {
+    if (!columns.has(name)) database.exec(`ALTER TABLE requests ADD COLUMN ${name} ${definition}`);
+  }
+  database.exec('CREATE INDEX IF NOT EXISTS idx_requests_kind ON requests(request_kind)');
 }
 
 export function regenerateUnifiedKey(): string {

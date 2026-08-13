@@ -53,7 +53,26 @@ function createUpstreamAdapter({
         enumerable: false,
       });
     }
+    for (const key of ['__requestKind', '__parentRequestId']) {
+      if (typeof source[key] === 'string' && source[key]) {
+        Object.defineProperty(target, key, {
+          value: source[key],
+          enumerable: false,
+        });
+      }
+    }
     return target;
+  }
+
+  function requestMetadataHeaders(chat) {
+    const headers = {};
+    if (typeof chat.__requestKind === 'string' && /^[a-z_]{1,32}$/.test(chat.__requestKind)) {
+      headers['X-Glory-Request-Kind'] = chat.__requestKind;
+    }
+    if (typeof chat.__parentRequestId === 'string' && /^[A-Za-z0-9._:-]{1,96}$/.test(chat.__parentRequestId)) {
+      headers['X-Glory-Parent-Request-Id'] = chat.__parentRequestId;
+    }
+    return headers;
   }
 
 // Web search: the bridge owns the complete provider-side tool loop.
@@ -317,6 +336,7 @@ async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM
         'Content-Type': 'application/json',
         Authorization: authorization,
         [REQUEST_ID_HEADER]: chat.__gloryRequestId,
+        ...requestMetadataHeaders(chat),
         ...canaryRoutingHeaders(chat),
       },
       body: JSON.stringify({ ...chat, stream: false }),
@@ -404,6 +424,7 @@ async function fetchUpstreamStream(chat, authorization, callerSignal) {
         'Content-Type': 'application/json',
         Authorization: authorization,
         [REQUEST_ID_HEADER]: chat.__gloryRequestId,
+        ...requestMetadataHeaders(chat),
         ...canaryRoutingHeaders(chat),
       },
       body: JSON.stringify({ ...chat, stream: true }),

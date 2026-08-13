@@ -53,6 +53,8 @@ const { createRequestLogger } = require('./request-log');
 const { redactString, redactValue } = require('./redaction');
 const { validateResponsesRequest } = require('./responses-schema');
 const { createMetrics } = require('./metrics');
+const { createRequestClassifier } = require('./request-classifier');
+const { writeLocalTitleResponse } = require('./title-responder');
 
 // Metadata-only diagnostics by default. Prompt bodies can contain credentials,
 // private files and conversation content, so full logging is explicit opt-in.
@@ -108,6 +110,8 @@ const requestLogger = createRequestLogger({
   },
 });
 
+const requestClassifier = createRequestClassifier();
+
 const rand = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 
 // DeepSeek requires reasoning_content for assistant tool calls. This adapter
@@ -158,6 +162,9 @@ const {
   isFutureIntentNarration,
   isConfirmationText,
   currentTurnHasToolMessages,
+  shouldAuditCompletion,
+  auditCompletion,
+  auditThenNudge,
   nudgeForToolCalls,
 } = contextAdapter;
 
@@ -244,6 +251,9 @@ const responseHandlers = createResponseHandlers({
     totalTokens,
     calibrate,
     nudgeForToolCalls,
+    shouldAuditCompletion,
+    auditCompletion,
+    auditThenNudge,
     isFutureIntentNarration,
     isConfirmationText,
     currentTurnHasToolMessages,
@@ -280,6 +290,8 @@ const bridgeHttp = createBridgeHttpServer({
   upstreamAuthHeader,
   validateResponsesRequest,
   metrics: bridgeMetrics,
+  classifyRequest: requestClassifier.classify,
+  writeLocalTitleResponse,
 });
 
 process.once('SIGINT', () => bridgeHttp.requestShutdown('SIGINT'));

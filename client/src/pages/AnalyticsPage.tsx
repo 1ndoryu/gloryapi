@@ -39,6 +39,18 @@ function formatHistoryTime(value: string): string {
   })
 }
 
+function requestKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    main: 'Principal',
+    audit: 'Auditoría',
+    continuation: 'Continuación',
+    recovery: 'Recuperación',
+    summary: 'Resumen',
+    auxiliary_title: 'Título local',
+  }
+  return labels[kind] ?? kind
+}
+
 const axisStyle = { fontSize: 11, fill: 'var(--muted-foreground)' } as const
 const gridStyle = 'var(--border)'
 const primaryFill = 'var(--foreground)'
@@ -104,13 +116,16 @@ export default function AnalyticsPage() {
 
       <div className="space-y-6">
         {/* Summary stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-3">
           <Stat label="Solicitudes" value={summary?.totalRequests ?? 0} />
+          <Stat label="Principales" value={summary?.mainRequests ?? 0} />
+          <Stat label="Auxiliares" value={summary?.auxiliaryRequests ?? 0} />
           <Stat label="Tasa de éxito" value={`${summary?.successRate ?? 0}%`} />
           <Stat label="Tokens de entrada" value={formatTokens(summary?.totalInputTokens)} />
           <Stat label="Tokens de salida" value={formatTokens(summary?.totalOutputTokens)} />
+          <Stat label="Tokens cacheados" value={formatTokens(summary?.cachedInputTokens)} />
           <Stat label="Latencia media" value={`${summary?.avgLatencyMs ?? 0} ms`} />
-          <Stat label="Ahorro estimado" value={`$${summary?.estimatedCostSavings ?? '0.00'}`} />
+          <Stat label="Coste estimado" value={`$${summary?.estimatedCostSavings ?? '0.00'}`} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -246,6 +261,10 @@ export default function AnalyticsPage() {
                           <TableCell className="min-w-[220px]">
                             <div className="text-sm font-medium">{entry.displayName}</div>
                             <div className="text-xs text-muted-foreground truncate max-w-[280px]">{entry.modelId}</div>
+                            <div className="text-[10px] text-muted-foreground mt-1">
+                              {requestKindLabel(entry.requestKind)}
+                              {entry.parentRequestId ? ' · vinculada al turno principal' : ''}
+                            </div>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{entry.platform}</TableCell>
                           <TableCell className="text-xs">
@@ -268,6 +287,9 @@ export default function AnalyticsPage() {
                           <TableCell className="text-right tabular-nums whitespace-nowrap">{entry.latencyMs} ms</TableCell>
                           <TableCell className="text-right tabular-nums pr-4 whitespace-nowrap">
                             {formatTokens(entry.inputTokens)} / {formatTokens(entry.outputTokens)}
+                            {entry.cachedInputTokens > 0 ? (
+                              <div className="text-[10px] text-muted-foreground">{formatTokens(entry.cachedInputTokens)} cacheados</div>
+                            ) : null}
                           </TableCell>
                         </TableRow>
                       ))}

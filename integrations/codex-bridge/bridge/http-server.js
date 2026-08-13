@@ -17,6 +17,8 @@ function createBridgeHttpServer({
   upstreamAuthHeader,
   validateResponsesRequest,
   metrics,
+  classifyRequest,
+  writeLocalTitleResponse,
 }) {
   const { identity, contract, upstream, limits, logging, vision, auth } = config;
   const lifecycleStates = ['starting', 'ready', 'blocked', 'draining', 'stopped'];
@@ -358,12 +360,36 @@ function createBridgeHttpServer({
 
       const requestId = requestIdFor(req);
       res.setHeader(logging.requestIdHeader, requestId);
+      const classification = typeof classifyRequest === 'function'
+        ? classifyRequest(body)
+        : { kind: 'main', reason: 'classifier_unavailable', fingerprint: null };
+      if (classification.kind === 'auxiliary_title' && typeof writeLocalTitleResponse === 'function') {
+        logRequest({
+          ts: new Date().toISOString(),
+          kind: 'local_auxiliary_title',
+          requestId,
+          requestKind: classification.kind,
+          classificationReason: classification.reason,
+          fingerprint: classification.fingerprint,
+          stream: body.stream !== false,
+        });
+        writeLocalTitleResponse(res, body, requestId, classification.fingerprint);
+        return;
+      }
       const { chat, toolMap, customTools } = await translateRequest(body);
       if (!Array.isArray(chat.messages) || chat.messages.length === 0) {
         writeJsonError(res, 400, 'invalid_request', 'Responses input must contain at least one supported message item');
         return;
       }
       attachRequestId(chat, requestId);
+      Object.defineProperty(chat, '__requestKind', {
+        value: classification.kind || 'main',
+        enumerable: false,
+      });
+      Object.defineProperty(chat, '__classificationReason', {
+        value: classification.reason || 'default',
+        enumerable: false,
+      });
       const canaryProvider = req.headers['x-glory-canary-provider'];
       if (config.canary.enabled && typeof canaryProvider === 'string' && /^[a-z0-9][a-z0-9-]{1,31}$/i.test(canaryProvider)) {
         Object.defineProperty(chat, '__canaryProvider', {
@@ -381,6 +407,9 @@ function createBridgeHttpServer({
         requestId,
         stream: !!body.stream,
         model: chat.model,
+        requestKind: classification.kind || 'main',
+        classificationReason: classification.reason || 'default',
+        fingerprint: classification.fingerprint || null,
         nMessages: chat.messages.length,
         roles: chat.messages.map((message) => message.role),
         body: chat,

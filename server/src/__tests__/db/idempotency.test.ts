@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import Database from 'better-sqlite3'
 import { initDb } from '../../db/index.js'
 
 describe('Migration idempotency', () => {
@@ -27,6 +28,37 @@ describe('Migration idempotency', () => {
 
     expect(repeated).toEqual(snapshot)
     expect(repeated.orphanFallbacks).toBe(0)
+  })
+
+  it('adds request telemetry columns to an existing operational requests table', () => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64)
+    const tmpPath = `/tmp/freeapi-request-telemetry-${Date.now()}.db`
+    const legacy = new Database(tmpPath)
+    legacy.exec(`
+      CREATE TABLE requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform TEXT NOT NULL,
+        model_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        latency_ms INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        api_key_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `)
+    legacy.close()
+
+    const db = initDb(tmpPath, { catalogMode: 'operational' })
+    const columns = db.prepare('PRAGMA table_info(requests)').all() as { name: string }[]
+    expect(columns.map(column => column.name)).toEqual(expect.arrayContaining([
+      'request_kind',
+      'parent_request_id',
+      'cached_input_tokens',
+      'cache_write_tokens',
+    ]))
+    db.close()
   })
 
   it('every enabled catalog row has exactly one fallback_config entry', () => {
