@@ -157,6 +157,9 @@ function createTables(db: Database.Database) {
       parent_request_id TEXT,
       cached_input_tokens INTEGER NOT NULL DEFAULT 0,
       cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+      reasoning_effort TEXT,
+      reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+      reasoning_tokens_source TEXT NOT NULL DEFAULT 'none',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -277,6 +280,9 @@ function ensureRequestTelemetryColumns(database: Database.Database): void {
     ['parent_request_id', 'TEXT'],
     ['cached_input_tokens', 'INTEGER NOT NULL DEFAULT 0'],
     ['cache_write_tokens', 'INTEGER NOT NULL DEFAULT 0'],
+    ['reasoning_effort', 'TEXT'],
+    ['reasoning_tokens', 'INTEGER NOT NULL DEFAULT 0'],
+    ['reasoning_tokens_source', "TEXT NOT NULL DEFAULT 'none'"],
   ];
   for (const [name, definition] of additions) {
     if (!columns.has(name)) database.exec(`ALTER TABLE requests ADD COLUMN ${name} ${definition}`);

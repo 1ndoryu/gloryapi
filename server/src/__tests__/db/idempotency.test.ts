@@ -57,6 +57,9 @@ describe('Migration idempotency', () => {
       'parent_request_id',
       'cached_input_tokens',
       'cache_write_tokens',
+      'reasoning_effort',
+      'reasoning_tokens',
+      'reasoning_tokens_source',
     ]))
     db.close()
   })

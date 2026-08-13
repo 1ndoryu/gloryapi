@@ -183,7 +183,10 @@ que GloryAPI enruta.
 - Cada solicitud lleva telemetría interna (`main`, `audit`, `continuation`,
   `recovery` o `auxiliary_title`) y una relación con el request principal. La
   página Analytics muestra esa separación y los tokens cacheados que entregue
-  el proveedor, sin guardar prompts ni claves.
+  el proveedor, sin guardar prompts ni claves. También conserva el esfuerzo de
+  razonamiento solicitado y los tokens de razonamiento cuando el proveedor los
+  devuelve; si solo hay deltas de streaming, los marca como `estimados`, y si
+  no hay ninguna señal los marca como `sin dato`.
 - La generación automática de título de Desktop se reconoce por su contrato
   estructurado estricto (`codex_output_schema` con `title` y `description`) y
   por el alias configurable de título (`BRIDGE_TITLE_MODEL_ALIASES`, por

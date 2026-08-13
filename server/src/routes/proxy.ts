@@ -31,6 +31,10 @@ import {
 import { classifyProxyError, type ProxyErrorClassification } from './proxy-errors.js';
 import { resolveProxyModelSelection } from './routing/proxy-selection.js';
 import { validateCanaryRoutingDirective } from './routing/canary-routing.js';
+import {
+  reasoningTelemetryFromUsage,
+  type ReasoningTelemetry,
+} from '../lib/reasoning-telemetry.js';
 
 export const proxyRouter = Router();
 registerModelRoutes(proxyRouter);
@@ -95,6 +99,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = safeRequestId(req);
   const telemetry = requestTelemetry(req);
+  let requestedReasoningEffort: ProxyRequestTelemetry['reasoningEffort'] = null;
   const logRequest = (
     platform: string,
     modelId: string,
@@ -105,9 +110,12 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     error: string | null,
     keyId: number | null = null,
     usage?: unknown,
+    reasoning?: ReasoningTelemetry,
   ) => logProxyRequest(platform, modelId, status, inputTokens, outputTokens, latencyMs, error, keyId, {
     ...telemetry,
+    reasoningEffort: requestedReasoningEffort,
     ...cacheTelemetry(usage),
+    ...(reasoning ?? reasoningTelemetryFromUsage(usage)),
   });
   if (requestId) res.setHeader('X-Glory-Request-Id', requestId);
   const requestAbortController = new AbortController();
@@ -154,6 +162,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     parallel_tool_calls,
     reasoning_effort,
   } = canonical;
+  requestedReasoningEffort = reasoning_effort ?? null;
 
   // Token estimation is intentionally a heuristic (~4 chars per token). Used
   // for routing decisions (skip a model whose budget is too small) and for
@@ -287,7 +296,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           options: { temperature, max_tokens, top_p, tools, tool_choice, parallel_tool_calls, reasoning_effort, requestId, signal: requestAbortController.signal },
           res,
           attempt,
-          onSuccess: async totalOutputTokens => {
+          onSuccess: async (totalOutputTokens, reasoning) => {
           recordTokens(route.platform, route.modelId, route.keyId, estimatedInputTokens + totalOutputTokens);
           recordSuccess(route.modelDbId);
           recordProviderSuccess(route.platform);
@@ -295,13 +304,13 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
           finishRoutingAttempt(routingAttemptId, 'success', route);
           recordRoutingTraceAttempt(traceId, route, 'success', null, Date.now() - routeStartedAt);
           finishRoutingTrace(traceId, 'completed', route);
-          logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null, route.keyId);
+          logRequest(route.platform, route.modelId, 'success', estimatedInputTokens, totalOutputTokens, Date.now() - start, null, route.keyId, undefined, reasoning);
           },
-          onMidStreamError: async (streamClassification, totalOutputTokens) => {
+          onMidStreamError: async (streamClassification, totalOutputTokens, reasoning) => {
             finishRoutingAttempt(routingAttemptId, 'error', route);
             recordRoutingTraceAttempt(traceId, route, 'error', 'stream_truncated', Date.now() - routeStartedAt);
             finishRoutingTrace(traceId, 'failed');
-            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamClassification.safeMessage, route.keyId);
+            logRequest(route.platform, route.modelId, 'error', estimatedInputTokens, totalOutputTokens, Date.now() - start, streamClassification.safeMessage, route.keyId, undefined, reasoning);
           },
         });
         return;

@@ -5,6 +5,7 @@ export type SummaryRow = {
   success_count: number | null;
   total_input_tokens: number | null;
   total_output_tokens: number | null;
+  total_reasoning_tokens: number | null;
   cached_input_tokens: number | null;
   cache_write_tokens: number | null;
   avg_latency_ms: number | null;
@@ -48,6 +49,9 @@ export type HistoryRow = {
   status: string;
   input_tokens: number | null;
   output_tokens: number | null;
+  reasoning_effort: string | null;
+  reasoning_tokens: number | null;
+  reasoning_tokens_source: string | null;
   latency_ms: number | null;
   error: string | null;
   created_at: string;

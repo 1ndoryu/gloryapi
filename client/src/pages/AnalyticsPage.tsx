@@ -51,6 +51,16 @@ function requestKindLabel(kind: string): string {
   return labels[kind] ?? kind
 }
 
+function reasoningEffortLabel(effort: RequestHistoryItem['reasoningEffort']): string {
+  const labels: Record<NonNullable<RequestHistoryItem['reasoningEffort']>, string> = {
+    low: 'Bajo',
+    medium: 'Medio',
+    high: 'Alto',
+    max: 'Máximo',
+  }
+  return effort ? labels[effort] : 'No solicitado'
+}
+
 const axisStyle = { fontSize: 11, fill: 'var(--muted-foreground)' } as const
 const gridStyle = 'var(--border)'
 const primaryFill = 'var(--foreground)'
@@ -123,6 +133,7 @@ export default function AnalyticsPage() {
           <Stat label="Tasa de éxito" value={`${summary?.successRate ?? 0}%`} />
           <Stat label="Tokens de entrada" value={formatTokens(summary?.totalInputTokens)} />
           <Stat label="Tokens de salida" value={formatTokens(summary?.totalOutputTokens)} />
+          <Stat label="Tokens de razonamiento" value={formatTokens(summary?.totalReasoningTokens)} />
           <Stat label="Tokens cacheados" value={formatTokens(summary?.cachedInputTokens)} />
           <Stat label="Latencia media" value={`${summary?.avgLatencyMs ?? 0} ms`} />
           <Stat label="Coste estimado" value={`$${summary?.estimatedCostSavings ?? '0.00'}`} />
@@ -289,6 +300,15 @@ export default function AnalyticsPage() {
                             {formatTokens(entry.inputTokens)} / {formatTokens(entry.outputTokens)}
                             {entry.cachedInputTokens > 0 ? (
                               <div className="text-[10px] text-muted-foreground">{formatTokens(entry.cachedInputTokens)} cacheados</div>
+                            ) : null}
+                            {entry.reasoningEffort ? (
+                              <div className="text-[10px] text-muted-foreground">
+                                Razonamiento: {reasoningEffortLabel(entry.reasoningEffort)} · {
+                                  entry.reasoningTokensSource === 'none'
+                                    ? 'sin dato'
+                                    : `${formatTokens(entry.reasoningTokens)}${entry.reasoningTokensSource === 'estimated' ? ' estimados' : ' del proveedor'}`
+                                }
+                              </div>
                             ) : null}
                           </TableCell>
                         </TableRow>

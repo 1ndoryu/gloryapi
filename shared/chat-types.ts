@@ -73,10 +73,22 @@ export interface ChatCompletionChoice {
   finish_reason: string | null;
 }
 
+export interface TokenUsageDetails {
+  cached_tokens?: number;
+  cache_write_tokens?: number;
+  cache_creation_tokens?: number;
+  reasoning_tokens?: number;
+}
+
 export interface TokenUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  reasoning_tokens?: number;
+  prompt_tokens_details?: TokenUsageDetails;
+  input_tokens_details?: TokenUsageDetails;
+  completion_tokens_details?: TokenUsageDetails;
+  output_tokens_details?: TokenUsageDetails;
 }
 
 export type ChatCompletionResponse = {
@@ -108,4 +120,5 @@ export type ChatCompletionChunk = {
     };
     finish_reason: string | null;
   }[];
+  usage?: TokenUsage;
 };

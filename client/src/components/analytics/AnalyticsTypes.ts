@@ -6,6 +6,9 @@ export type RequestHistoryItem = {
   status: 'success' | 'error'
   inputTokens: number
   outputTokens: number
+  reasoningEffort: 'low' | 'medium' | 'high' | 'max' | null
+  reasoningTokens: number
+  reasoningTokensSource: 'provider' | 'estimated' | 'none'
   latencyMs: number
   error: string | null
   errorPreview: string | null
@@ -26,6 +29,7 @@ export type AnalyticsSummary = {
   successRate: number
   totalInputTokens: number
   totalOutputTokens: number
+  totalReasoningTokens: number
   cachedInputTokens: number
   cacheWriteTokens: number
   avgLatencyMs: number
