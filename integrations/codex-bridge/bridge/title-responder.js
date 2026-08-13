@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { structuredTitleSchema } = require('./request-classifier');
 
 function textFromContent(content) {
   if (typeof content === 'string') return content;
@@ -23,6 +24,7 @@ function latestUserText(body) {
 
 function localTitle(body, maxLength = 80) {
   const source = latestUserText(body)
+    .replace(/^.*\bUser prompt:\s*/is, '')
     .replace(/^Message Type:\s*NEW_TASK\b[\s\S]*?Payload:\s*/i, '')
     .replace(/[`*_#]/g, '')
     .trim();
@@ -30,6 +32,16 @@ function localTitle(body, maxLength = 80) {
   if (source.length <= maxLength) return source;
   const shortened = source.slice(0, maxLength - 1).replace(/\s+\S*$/, '').trim();
   return `${shortened || source.slice(0, maxLength - 1)}…`;
+}
+
+function titleMaxLength(body) {
+  const configured = structuredTitleSchema(body)?.properties?.title?.maxLength;
+  return Number.isSafeInteger(configured) ? Math.min(80, Math.max(1, configured)) : 80;
+}
+
+function localTitleOutput(body, title) {
+  if (!structuredTitleSchema(body)) return title;
+  return JSON.stringify({ title, description: title });
 }
 
 function responseIdFor(fingerprint) {
@@ -53,8 +65,9 @@ function titleOutput(responseId, title) {
 
 function writeLocalTitleResponse(res, body, requestId, fingerprint) {
   const responseId = responseIdFor(fingerprint || requestId);
-  const title = localTitle(body);
-  const output = titleOutput(responseId, title);
+  const title = localTitle(body, titleMaxLength(body));
+  const outputText = localTitleOutput(body, title);
+  const output = titleOutput(responseId, outputText);
   if (body && body.stream === false) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
@@ -93,14 +106,14 @@ function writeLocalTitleResponse(res, body, requestId, fingerprint) {
     item_id: output[0].id,
     output_index: 0,
     content_index: 0,
-    delta: title,
+    delta: outputText,
   });
   sseEvent(res, 'response.output_text.done', {
     type: 'response.output_text.done',
     item_id: output[0].id,
     output_index: 0,
     content_index: 0,
-    text: title,
+    text: outputText,
   });
   sseEvent(res, 'response.output_item.done', { type: 'response.output_item.done', item: output[0] });
   sseEvent(res, 'response.completed', {
@@ -123,4 +136,4 @@ function writeLocalTitleResponse(res, body, requestId, fingerprint) {
   res.end();
 }
 
-module.exports = { latestUserText, localTitle, writeLocalTitleResponse };
+module.exports = { latestUserText, localTitle, localTitleOutput, titleMaxLength, writeLocalTitleResponse };

@@ -2,12 +2,6 @@ const crypto = require('node:crypto');
 
 const DEFAULT_TITLE_MODELS = Object.freeze(['gpt-5.6-luna']);
 
-function boundedInteger(value, fallback, min, max) {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed)) return fallback;
-  return Math.min(max, Math.max(min, parsed));
-}
-
 function textFromContent(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -33,6 +27,29 @@ function requestFingerprint(body) {
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex').slice(0, 24);
 }
 
+function structuredTitleSchema(body) {
+  const format = body?.text?.format;
+  const schema = format?.schema;
+  const properties = schema?.properties;
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  if (
+    format?.type !== 'json_schema' ||
+    format?.name !== 'codex_output_schema' ||
+    format?.strict !== true ||
+    schema?.type !== 'object' ||
+    schema?.additionalProperties !== false ||
+    properties?.title?.type !== 'string' ||
+    properties?.description?.type !== 'string' ||
+    !required.includes('title') ||
+    !required.includes('description')
+  ) return null;
+  return schema;
+}
+
+function isStructuredTitleRequest(body) {
+  return structuredTitleSchema(body) !== null;
+}
+
 function parseModelSet(raw, fallback) {
   if (Array.isArray(raw)) return new Set(raw.filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim()));
   if (typeof raw === 'string' && raw.trim()) {
@@ -50,86 +67,34 @@ function createRequestClassifier(options = {}) {
     options.titleModels || process.env.BRIDGE_TITLE_MODEL_ALIASES,
     defaultTitleModels,
   );
-  const duplicateWindowMs = boundedInteger(
-    options.duplicateWindowMs ?? process.env.BRIDGE_TITLE_DUPLICATE_WINDOW_MS,
-    15000,
-    1000,
-    60000,
-  );
-  const maxRecentEntries = boundedInteger(
-    options.maxRecentEntries ?? process.env.BRIDGE_CLASSIFIER_MAX_RECENT_ENTRIES,
-    256,
-    8,
-    4096,
-  );
-  const recent = new Map();
-  let nextLeaseId = 1;
-
-  function prune(now) {
-    for (const [fingerprint, entry] of recent) {
-      if (now - entry.at > duplicateWindowMs) recent.delete(fingerprint);
-    }
-  }
-
-  function classify(body, now = Date.now()) {
-    prune(now);
+  function classify(body) {
     const model = typeof body?.model === 'string' ? body.model.trim() : '';
     const fingerprint = requestFingerprint(body);
-    const previous = fingerprint ? recent.get(fingerprint) : null;
-    let kind = 'main';
-    let reason = 'default';
 
-    // Codex Desktop can ask one or more picker aliases to process the same
-    // initial input while creating a thread. Require an earlier request with
-    // the exact same user fingerprint but a different model: the first
-    // explicit request to any selectable model must always remain the main
-    // request. The alias set comes from the versioned catalog and remains
-    // overridable for other clients/providers. Until Desktop exposes a
-    // request-purpose signal, an intentional concurrent replay of the exact
-    // prompt on another model is indistinguishable and follows this rule.
-    if (
-      fingerprint &&
-      titleModels.has(model) &&
-      previous &&
-      previous.model &&
-      previous.active === true &&
-      previous.model !== model &&
-      now - previous.at <= duplicateWindowMs
-    ) {
-      kind = 'auxiliary_title';
-      reason = 'repeated_input_with_title_alias';
+    // Codex Desktop creates a separate low-effort thread for title generation.
+    // Its prompt is not the user's prompt, so text fingerprints cannot relate
+    // it to the visible turn. The strict title+description output contract is
+    // the stable purpose signal observed on the wire.
+    if (titleModels.has(model) && isStructuredTitleRequest(body)) {
+      return {
+        kind: 'auxiliary_title',
+        reason: 'structured_title_schema',
+        fingerprint,
+        model,
+        leaseId: null,
+      };
     }
 
-    let leaseId = null;
-    if (fingerprint && kind === 'main') {
-      if (!recent.has(fingerprint) && recent.size >= maxRecentEntries) {
-        const oldestFingerprint = recent.keys().next().value;
-        if (oldestFingerprint) recent.delete(oldestFingerprint);
-      }
-      leaseId = nextLeaseId++;
-      recent.delete(fingerprint);
-      recent.set(fingerprint, { at: now, model, active: true, leaseId });
-    }
-    return { kind, reason, fingerprint, model, leaseId };
+    return { kind: 'main', reason: 'default', fingerprint, model, leaseId: null };
   }
 
-  function complete(classification) {
-    if (!classification?.fingerprint || !classification.leaseId) return false;
-    const current = recent.get(classification.fingerprint);
-    if (!current || current.leaseId !== classification.leaseId) return false;
-    recent.delete(classification.fingerprint);
-    return true;
-  }
-
-  function stats() {
-    return { recentEntries: recent.size, maxRecentEntries };
-  }
-
-  function reset() {
-    recent.clear();
-  }
-
-  return { classify, complete, reset, stats, titleModels, duplicateWindowMs, maxRecentEntries };
+  return { classify, titleModels };
 }
 
-module.exports = { createRequestClassifier, requestFingerprint, userTextForFingerprint };
+module.exports = {
+  createRequestClassifier,
+  isStructuredTitleRequest,
+  requestFingerprint,
+  structuredTitleSchema,
+  userTextForFingerprint,
+};

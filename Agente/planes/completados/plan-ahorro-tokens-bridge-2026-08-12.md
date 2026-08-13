@@ -84,6 +84,13 @@ auxiliares. No se marcará como título una solicitud explícita del modelo solo
 por su alias. Si la firma no es inequívoca, la solicitud seguirá al upstream,
 pero no recibirá nudge y quedará registrada para ajustar el clasificador.
 
+La evidencia posterior de Codex Desktop 26.803 mostró que el título corre en
+un thread interno separado y su prompt no coincide con el mensaje visible. La
+firma canónica es el formato estricto `codex_output_schema`, con propiedades
+obligatorias `title` y `description`; esa firma se resuelve localmente y el
+alias del modelo sigue siendo configurable. El texto deja de ser el contrato
+primario de detección.
+
 ### 6. La telemetría separa consumo enviado de caché
 
 Se conservarán los tokens de entrada enviados, pero se propagarán los campos de

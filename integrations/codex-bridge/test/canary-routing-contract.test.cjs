@@ -49,6 +49,26 @@ test('nudge retries preserve the provider directive on non-enumerable request me
   assert.equal(Object.prototype.propertyIsEnumerable.call(seen[0], '__gloryRequestId'), false);
 });
 
+test('adaptive audit uses the real final user message instead of merged injected context', () => {
+  const adapter = createContextAdapter({
+    config: canaryConfig(),
+    log: () => {},
+    logRequest: () => {},
+    formatRemoteFailure: () => {},
+    normalizeReasoningText: value => value,
+    visibleReasoning: value => value,
+    fallbackReasoning: 'internal fallback',
+    fetchUpstreamCompletion: async () => ({ choices: [{ message: { content: 'COMPLETE' } }] }),
+  });
+  const chat = {
+    messages: [{ role: 'user', content: 'Contexto inyectado: corrige, ejecuta y revisa todo.\nhola, esto es un test' }],
+    tools: [{ type: 'function', function: { name: 'shell_command' } }],
+  };
+  Object.defineProperty(chat, '__userTools', { value: true, enumerable: false });
+  Object.defineProperty(chat, '__latestUserText', { value: 'hola, esto es un test', enumerable: false });
+  assert.equal(adapter.shouldAuditCompletion(chat, 'Hola, ¿en qué puedo ayudarte?'), false);
+});
+
 test('upstream adapter emits authenticated canary routing headers', async t => {
   const originalFetch = global.fetch;
   const seen = [];

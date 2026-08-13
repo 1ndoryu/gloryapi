@@ -18,7 +18,6 @@ function createBridgeHttpServer({
   validateResponsesRequest,
   metrics,
   classifyRequest,
-  completeClassifiedRequest,
   writeLocalTitleResponse,
 }) {
   const { identity, contract, upstream, limits, logging, vision, auth } = config;
@@ -173,13 +172,9 @@ function createBridgeHttpServer({
     state.activeRequests += 1;
     const requestStartedAt = performance.now();
     let requestReleased = false;
-    let requestClassification = null;
     const releaseRequest = () => {
       if (requestReleased) return;
       requestReleased = true;
-      if (requestClassification && typeof completeClassifiedRequest === 'function') {
-        completeClassifiedRequest(requestClassification);
-      }
       state.activeRequests = Math.max(0, state.activeRequests - 1);
       metrics?.observe('http.request_ms', performance.now() - requestStartedAt);
     };
@@ -368,7 +363,6 @@ function createBridgeHttpServer({
       const classification = typeof classifyRequest === 'function'
         ? classifyRequest(body)
         : { kind: 'main', reason: 'classifier_unavailable', fingerprint: null };
-      requestClassification = classification;
       if (classification.kind === 'auxiliary_title' && typeof writeLocalTitleResponse === 'function') {
         logRequest({
           ts: new Date().toISOString(),

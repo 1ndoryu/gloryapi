@@ -60,6 +60,21 @@ test('generic profile forwards only client-advertised tools', async () => {
   assert.equal(result.toolMap.has('collaborationspawn_agent'), false);
 });
 
+test('translator preserves the last real user message separately from injected context', async () => {
+  const translator = makeTranslator('codex-desktop');
+  const result = await translator.translateRequest({
+    model: 'gpt-5.6-sol',
+    stream: false,
+    tools: [{ type: 'function', name: 'shell_command', parameters: { type: 'object' } }],
+    input: [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Contexto: corrige, ejecuta y revisa todo.' }] },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hola, esto es un test' }] },
+    ],
+  });
+  assert.equal(result.chat.__latestUserText, 'hola, esto es un test');
+  assert.equal(Object.prototype.propertyIsEnumerable.call(result.chat, '__latestUserText'), false);
+});
+
 test('codex-desktop preserves a multi-agent call, agent message, and tool result in order', async () => {
   const translator = makeTranslator('codex-desktop');
   const result = await translator.translateRequest({

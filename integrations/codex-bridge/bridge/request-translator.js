@@ -573,6 +573,7 @@ function extractReasoningText(item) {
 
 async function translateRequest(body) {
   const messages = [];
+  let latestVisibleUserText = '';
   const userToolCount = Array.isArray(body.tools) ? body.tools.length : 0;
   const { tools, toolMap, customTools } = translateTools(body.tools);
   let pendingReasoning = null; // reasoning item from Codex, attached to the next assistant tool_calls message
@@ -598,6 +599,9 @@ async function translateRequest(body) {
         if (role === 'developer' || role === 'system') role = 'system';
         const parts = await chatContentParts(item.content, focusHint, channelNote, nativeVision);
         if (parts.length) {
+          if (role === 'user') {
+            latestVisibleUserText = parts.map((part) => part?.text || '').filter(Boolean).join('\n');
+          }
           // Supervisor reminders (injected by the codex-supervisor PostToolUse
           // hook as `additionalContext`, which Codex relays as a developer
           // message) must carry maximum weight for DeepSeek. Mid-conversation
@@ -772,6 +776,10 @@ async function translateRequest(body) {
   // JSON.stringify no la envíe a upstream.
   Object.defineProperty(chat, '__userTools', {
     value: userToolCount > 0,
+    enumerable: false,
+  });
+  Object.defineProperty(chat, '__latestUserText', {
+    value: latestVisibleUserText,
     enumerable: false,
   });
   if (typeof body.tool_choice === 'string' && body.tool_choice) chat.tool_choice = body.tool_choice;

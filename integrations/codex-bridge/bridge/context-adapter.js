@@ -248,7 +248,8 @@ function messageText(message) {
   return message.content.map((part) => part && typeof part.text === 'string' ? part.text : '').filter(Boolean).join('\n');
 }
 
-function latestUserText(messages) {
+function latestUserText(messages, preferredText = '') {
+  if (typeof preferredText === 'string' && preferredText.trim()) return preferredText;
   for (let i = (messages || []).length - 1; i >= 0; i -= 1) {
     if (messages[i] && messages[i].role === 'user') return messageText(messages[i]);
   }
@@ -258,14 +259,16 @@ function latestUserText(messages) {
 // This is intentionally based on the user's request, not on a phrase chosen by
 // the model. It avoids paying for an audit on greetings while still auditing
 // action-shaped turns that could close after a narration without a tool call.
-function isActionOrientedRequest(messages) {
-  const text = latestUserText(messages).trim();
+function isActionOrientedRequest(messages, preferredText = '') {
+  const text = latestUserText(messages, preferredText).trim();
   if (!text) return false;
-  return /\b(abr(e|ir)|actualiza|añade|analiza|arregla|busca|cambia|comprueba|configura|corrige|crea|diagnostica|ejecuta|escribe|inspecciona|instala|lee|lista|muestra|obten|ordena|prueba|revisa|repite|resuelve|reinicia|usa|verifica|abre|add|analy[sz]e|build|check|configure|create|diagnose|edit|execute|fix|inspect|install|list|open|read|review|run|search|sort|test|update|verify)\b/i.test(text);
+  const unambiguousAction = /\b(abr(e|ir)|actualiza|añade|analiza|arregla|busca|cambia|comprueba|configura|corrige|crea|diagnostica|ejecuta|escribe|inspecciona|instala|lee|lista|muestra|obten|ordena|revisa|repite|resuelve|reinicia|usa|verifica|abre|add|analy[sz]e|build|check|configure|create|diagnose|edit|execute|fix|inspect|install|list|open|read|review|run|search|sort|update|verify)\b/i;
+  const directTestCommand = /^(?:(?:hola|buenas|hello|hi)[, ]+)?(?:por favor[, ]+|please\s+)?(?:prueba|test)\b/i;
+  return unambiguousAction.test(text) || directTestCommand.test(text);
 }
 
-function isUserConfirmationRequest(messages) {
-  const text = latestUserText(messages).trim().toLowerCase().replace(/[.!?,;:]+$/g, '');
+function isUserConfirmationRequest(messages, preferredText = '') {
+  const text = latestUserText(messages, preferredText).trim().toLowerCase().replace(/[.!?,;:]+$/g, '');
   return /^(ok|okay|vale|listo|ya está|ya esta|terminaste|terminó|termino|eso es todo|nada más|nada mas)$/.test(text);
 }
 
@@ -275,9 +278,9 @@ function shouldAuditCompletion(chat, text) {
   if (!chat || chat.__userTools !== true || !Array.isArray(chat.tools) || !chat.tools.length) return false;
   if (AUDIT_MODE === 'strict') return true;
   const hasCurrentTools = currentTurnHasToolMessages(chat.messages || []);
-  if (!hasCurrentTools && isUserConfirmationRequest(chat.messages || [])) return false;
+  if (!hasCurrentTools && isUserConfirmationRequest(chat.messages || [], chat.__latestUserText)) return false;
   return hasCurrentTools
-    || isActionOrientedRequest(chat.messages || [])
+    || isActionOrientedRequest(chat.messages || [], chat.__latestUserText)
     || isFutureIntentNarration(text);
 }
 
@@ -298,7 +301,7 @@ function buildAuditChat(chat, finalText) {
       {
         role: 'user',
         content: JSON.stringify({
-          pedido: boundedAuditText(latestUserText(chat.messages || [])),
+          pedido: boundedAuditText(latestUserText(chat.messages || [], chat.__latestUserText)),
           respuesta: boundedAuditText(finalText),
           herramientasDisponibles: Array.isArray(chat.tools) ? chat.tools.length : 0,
           herramientasEjecutadasEnEsteTurno: currentTurnHasToolMessages(chat.messages || []),
@@ -351,7 +354,7 @@ async function auditCompletion(chat, authorization, finalText, options = {}) {
       status: 200,
       decision: result.status,
       routedVia: result.routedVia,
-      inputChars: boundedAuditText(latestUserText(chat.messages || [])).length,
+      inputChars: boundedAuditText(latestUserText(chat.messages || [], chat.__latestUserText)).length,
       candidateChars: boundedAuditText(finalText).length,
       latencyMs: result.latencyMs,
     });

@@ -167,6 +167,9 @@ que GloryAPI enruta.
   respuesta textual elegible y `off` desactiva esta capa. `BRIDGE_AUDIT_ENABLED=0`
   conserva compatibilidad y también la desactiva. La auditoría envía únicamente
   un pedido y una respuesta acotados, sin historial ni schemas de herramientas.
+  La decisión usa el último mensaje real del usuario conservado antes de
+  fusionar mensajes consecutivos; el contexto inyectado por Desktop no puede
+  convertir un saludo o una prueba simple en una acción pendiente.
   Solo si responde `COMPLETE`/`ok` se evita el reenvío completo; cualquier otra
   decisión intenta una continuación real con el contexto necesario.
 - Auditoría y continuación comparten el presupuesto de
@@ -181,6 +184,13 @@ que GloryAPI enruta.
   `recovery` o `auxiliary_title`) y una relación con el request principal. La
   página Analytics muestra esa separación y los tokens cacheados que entregue
   el proveedor, sin guardar prompts ni claves.
+- La generación automática de título de Desktop se reconoce por su contrato
+  estructurado estricto (`codex_output_schema` con `title` y `description`) y
+  por el alias configurable de título (`BRIDGE_TITLE_MODEL_ALIASES`, por
+  defecto `gpt-5.6-luna`). Se responde localmente respetando ese JSON schema y
+  con cero tokens; no se compara su prompt con el turno visible
+  porque Desktop ejecuta el título en un thread interno distinto. Los demás
+  modelos del selector no se consideran auxiliares por defecto.
 - Una respuesta vacía o solo de razonamiento no cierra el turno. El bridge hace
   como máximo una recuperación acotada (`BRIDGE_EMPTY_RECOVERY_RETRIES`, por defecto
   1; timeout `BRIDGE_EMPTY_RECOVERY_TIMEOUT_MS`, 90 s) con una directiva explícita;

@@ -110,11 +110,7 @@ const requestLogger = createRequestLogger({
   },
 });
 
-const requestClassifier = createRequestClassifier({
-  defaultTitleModels: config.catalog.entries
-    .map((entry) => entry.pickerId)
-    .filter((pickerId) => typeof pickerId === 'string' && pickerId),
-});
+const requestClassifier = createRequestClassifier();
 
 const rand = (p) => `${p}_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
 
@@ -295,7 +291,6 @@ const bridgeHttp = createBridgeHttpServer({
   validateResponsesRequest,
   metrics: bridgeMetrics,
   classifyRequest: requestClassifier.classify,
-  completeClassifiedRequest: requestClassifier.complete,
   writeLocalTitleResponse,
 });
 
