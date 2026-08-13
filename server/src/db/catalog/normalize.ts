@@ -78,8 +78,25 @@ export function normalizeGloryCatalog(db: Database.Database): void {
     },
   ] as const;
 
-  const deleteFallback = db.prepare('DELETE FROM fallback_config');
   const keepModelClauses = targetModels.map(() => '(platform = ? AND model_id = ?)').join(' OR ');
+  const explicitOnlyModels = targetModels.filter(model => 'explicitOnly' in model && model.explicitOnly);
+  const explicitOnlyClauses = explicitOnlyModels.map(() => '(platform = ? AND model_id = ?)').join(' OR ');
+  const deleteStaleFallback = db.prepare(`
+    DELETE FROM fallback_config
+    WHERE model_db_id IN (
+      SELECT id FROM models
+      WHERE NOT (${keepModelClauses})
+    )
+  `);
+  const deleteExplicitOnlyFallback = explicitOnlyClauses
+    ? db.prepare(`
+        DELETE FROM fallback_config
+        WHERE model_db_id IN (
+          SELECT id FROM models
+          WHERE ${explicitOnlyClauses}
+        )
+      `)
+    : undefined;
   const deleteOtherModels = db.prepare(`
     DELETE FROM models
     WHERE NOT (${keepModelClauses})
@@ -92,16 +109,23 @@ export function normalizeGloryCatalog(db: Database.Database): void {
   `);
   const updateModel = db.prepare(`
     UPDATE models SET display_name = ?, intelligence_rank = ?, speed_rank = ?,
-      size_label = ?, context_window = ?, enabled = 1
+      size_label = ?, context_window = ?
     WHERE platform = ? AND model_id = ?
   `);
   const findModel = db.prepare('SELECT id FROM models WHERE platform = ? AND model_id = ?');
+  const findFallback = db.prepare('SELECT id FROM fallback_config WHERE model_db_id = ?');
+  const maxFallbackPriority = db.prepare('SELECT COALESCE(MAX(priority), 0) AS priority FROM fallback_config');
   const insertFallback = db.prepare(
     'INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, 1)',
   );
 
   db.transaction(() => {
-    deleteFallback.run();
+    /*
+     * Catalog normalization is a schema/reconciliation step, not a user
+     * preference reset. Remove only obsolete rows; existing model and
+     * fallback state is intentionally preserved across every server start.
+     */
+    deleteStaleFallback.run(...targetModels.flatMap(model => [model.platform, model.modelId]));
     deleteOtherModels.run(...targetModels.flatMap(model => [model.platform, model.modelId]));
     for (const model of targetModels) {
       insertModel.run(
@@ -124,9 +148,21 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       );
       const row = findModel.get(model.platform, model.modelId) as { id: number } | undefined;
       if (!row) throw new Error(`Catalog normalization failed for ${model.platform}/${model.modelId}`);
-      // Explicit-only models (CommandCode) stay out of the automatic `auto`
-      // fallback chain; they are reachable by their exact `model` id only.
-      if (!('explicitOnly' in model && model.explicitOnly)) insertFallback.run(row.id, model.intelligenceRank);
+    }
+    // Explicit-only models (CommandCode) stay out of the automatic `auto`
+    // fallback chain; remove any stale rows if an older catalog inserted them.
+    if (deleteExplicitOnlyFallback) {
+      deleteExplicitOnlyFallback.run(...explicitOnlyModels.flatMap(model => [model.platform, model.modelId]));
+    }
+    // Add only missing fallback rows. Existing priority and enabled values are
+    // routing policy, so they must survive catalog normalization unchanged.
+    const maxPriorityRow = maxFallbackPriority.get() as { priority: number };
+    let nextPriority = maxPriorityRow.priority;
+    for (const model of targetModels) {
+      if ('explicitOnly' in model && model.explicitOnly) continue;
+      const row = findModel.get(model.platform, model.modelId) as { id: number } | undefined;
+      if (!row) throw new Error(`Catalog normalization failed for ${model.platform}/${model.modelId}`);
+      if (!findFallback.get(row.id)) insertFallback.run(row.id, ++nextPriority);
     }
     const columns = new Set(
       (db.prepare('PRAGMA table_info(models)').all() as Array<{ name: string }>).map(column => column.name),

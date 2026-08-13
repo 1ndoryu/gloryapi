@@ -1,10 +1,13 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { getDb, initDb } from '../../db/index.js'
 import { normalizeGloryCatalog } from '../../db/catalog/normalize.js'
 
 describe('clean GloryAPI catalog', () => {
   it('keeps exactly the operational target models in persisted order', () => {
-    initDb(':memory:')
+    initDb(':memory:', { catalogMode: 'operational' })
     const db = getDb()
     normalizeGloryCatalog(db)
 
@@ -41,8 +44,57 @@ describe('clean GloryAPI catalog', () => {
     ])
   })
 
-  it('keeps CommandCode models explicit-only (never in the auto fallback chain)', () => {
+  it('preserves disabled routing preferences when the catalog is normalized again', () => {
     initDb(':memory:')
+    const db = getDb()
+    normalizeGloryCatalog(db)
+
+    const tokenHarbor = db.prepare(`
+      SELECT id FROM models
+       WHERE platform = 'tokenharbor' AND model_id = 'deepseek-v4-flash:free'
+    `).get() as { id: number }
+    db.prepare('UPDATE models SET enabled = 0 WHERE id = ?').run(tokenHarbor.id)
+    db.prepare('UPDATE fallback_config SET enabled = 0, priority = 9 WHERE model_db_id = ?').run(tokenHarbor.id)
+
+    normalizeGloryCatalog(db)
+
+    expect(db.prepare('SELECT enabled FROM models WHERE id = ?').get(tokenHarbor.id)).toEqual({ enabled: 0 })
+    expect(db.prepare('SELECT enabled, priority FROM fallback_config WHERE model_db_id = ?').get(tokenHarbor.id)).toEqual({
+      enabled: 0,
+      priority: 9,
+    })
+  })
+
+  it('does not rerun historical catalog migrations on an operational database restart', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'gloryapi-catalog-restart-'))
+    const dbPath = join(tempDir, 'catalog.db')
+    try {
+      initDb(dbPath, { catalogMode: 'operational' })
+      let db = getDb()
+      const tokenHarbor = db.prepare(`
+        SELECT id FROM models
+         WHERE platform = 'tokenharbor' AND model_id = 'deepseek-v4-flash:free'
+      `).get() as { id: number }
+      db.prepare('UPDATE models SET enabled = 0 WHERE id = ?').run(tokenHarbor.id)
+      db.prepare('UPDATE fallback_config SET enabled = 0, priority = 9 WHERE model_db_id = ?').run(tokenHarbor.id)
+      db.close()
+
+      initDb(dbPath)
+      db = getDb()
+
+      expect(db.prepare('SELECT enabled FROM models WHERE id = ?').get(tokenHarbor.id)).toEqual({ enabled: 0 })
+      expect(db.prepare('SELECT enabled, priority FROM fallback_config WHERE model_db_id = ?').get(tokenHarbor.id)).toEqual({
+        enabled: 0,
+        priority: 9,
+      })
+    } finally {
+      getDb().close()
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps CommandCode models explicit-only (never in the auto fallback chain)', () => {
+    initDb(':memory:', { catalogMode: 'operational' })
     const db = getDb()
     normalizeGloryCatalog(db)
 

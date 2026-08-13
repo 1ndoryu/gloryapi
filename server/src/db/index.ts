@@ -52,9 +52,14 @@ export function initDb(dbPath?: string, options: InitDbOptions = {}): Database.D
   const hasExistingCatalog = Boolean(
     (db.prepare('SELECT 1 AS present FROM models LIMIT 1').get() as { present: number } | undefined),
   );
+  const hasOperationalCatalog = Boolean(
+    (db.prepare("SELECT 1 AS present FROM settings WHERE key = 'catalog_schema_version' AND value = 'glory-v1'").get() as { present: number } | undefined),
+  );
   const useLegacyCatalogMigrations = options.catalogMode === 'legacy'
-    || hasExistingCatalog
-    || (options.catalogMode !== 'operational' && (isMemory || process.env.NODE_ENV === 'test'));
+    || (!hasOperationalCatalog && (
+      hasExistingCatalog
+      || (options.catalogMode !== 'operational' && (isMemory || process.env.NODE_ENV === 'test'))
+    ));
 
   if (useLegacyCatalogMigrations) {
     ensureLegacyCatalogColumns(db);
