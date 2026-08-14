@@ -5,16 +5,10 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Siguiente bloque ejecutable
 
-1. Revisar y commitear el bloque de configuración V2, routing coherente,
-   selector dinámico, telemetría y la checklist de cierre en
-   `Agente/planes/plan-coherencia-configuracion-modelos-routing-bridge-2026-08-13.md`.
-2. Reiniciar únicamente el bridge cuando se quiera hacer la validación live del
-   catálogo aislado; ChatGPT normal y `C:\Users\Owner\.codex` permanecen fuera
-   del alcance.
-3. Si se requiere el gate completo, corregir el reporter público de Sentinel
-   0.7.4 para que serialice `policyIdentity`; el source fijado ya está presente
-   y alineado, pero no se declara PASS mientras el informe no tenga identidad
-   `enforce`.
+El plan de coherencia está cerrado localmente. Para la operación normal solo
+queda abrir el acceso directo del bridge cuando se necesite; el reinicio es
+seguro y conserva el historial aislado. ChatGPT normal y
+`C:\Users\Owner\.codex` permanecen fuera del alcance.
 
 ## Decisiones y bloqueos explícitos
 
@@ -55,7 +49,7 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 - Selector de modelos del bridge: el picker de Codex Desktop consume el catálogo local y la caché
   aislada regenerados por `prepare-isolated-home.ps1`, y expone Auto, OpenCode Zen, TokenHarbor y
   los dos modelos CommandCode restantes; `body.model` se resuelve contra el catálogo versionado
-  `glory-bridge-model-catalog-v1`.
+  `glory-bridge-model-catalog-v2`.
 - Muse Spark 1.2 usa visión nativa (bloques `image_url`); el resto conserva la adaptación a texto.
 - El web loop interno tiene un presupuesto configurable (`BRIDGE_WEB_TOOL_ROUNDS`) y, al agotarlo,
   elimina la herramienta web y solicita una síntesis final con los resultados ya obtenidos; una nueva
@@ -72,8 +66,9 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 - Configuración V2 y routing coherente: `npm run build:server` PASS; suite
   server 54 archivos / 307 tests PASS; snapshot real con 4 miembros activos en
   Auto, 6 modelos y cero DeepSeek V4 Pro.
-- Bridge: suite secuencial 172 tests PASS; E2E aislado de configuración 1/1 PASS.
-  `_e2e_apply_patch.cjs` permanece opt-in y fuera de la suite automática.
+- Bridge: suite secuencial 173 tests PASS; E2E aislado de configuración 1/1 PASS
+  y regresión del sincronizador PASS. `_e2e_apply_patch.cjs` permanece opt-in y
+  fuera de la suite automática.
 - CLI: `snapshot`, `bridge sync` y `bridge diagnose` PASS sobre la base
   operativa; el diagnóstico confirma que DB, ruta Auto, proyección y hash son
   coherentes.
@@ -81,9 +76,12 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
   concurrencia 32 frente a un presupuesto de 100 ms.
 - Telemetría: cada request nuevo conserva modelo solicitado, ruta, revisión,
   motivo y confianza de selección en Analytics.
-- Limitación: `quality:doctor` pasa con Sentinel 0.7.4 alineado; `task:check`
-  queda bloqueado por el bug del reporter que omite `policyIdentity`, no por
-  `tool-source-missing`; no se presenta como gate PASS.
+- Calidad: `quality:doctor` PASS con Sentinel 0.7.5 alineado; `task:check`
+  `GLORY-COHERENCIA-FULL-20260814F` PASS con identidad `enforce`, 0 errores,
+  15 warnings y 1 info.
+- Desktop Bridge live: proceso aislado, `CODEX_HOME`, selector de 7 entradas,
+  `/v1/models`, health `published` y ausencia de Pro verificados; no se hizo
+  una llamada externa de proveedor durante la prueba.
 
 - FreeLLMAPI sigue en `:3001`; ChatGPT normal y `C:\Users\Owner\.codex\config.toml` permanecen
   sin cambios. El bridge responde en `http://127.0.0.1:4100/health` y se opera desde el acceso

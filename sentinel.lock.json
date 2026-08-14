@@ -10,10 +10,10 @@
   },
   "analyzers": {
     "sentinel": {
-      "version": "0.7.4",
+      "version": "0.7.5",
       "protocolVersion": 1,
-      "commit": "0349485c121784513c7ecef8a8de1535e841a5ae",
-      "sha256": "38273e7f56c9cc56adc81c4e4e4cbcafa28d74e0d027edf38b6a057e015147f5",
+      "commit": "643353d7e9683aabe7dc6ce67d025981b4d90b29",
+      "sha256": "b204e946ccd72ab6ce28c6153912b83f71cee17b95f06418b7edbc57f1272302",
       "patchSha256": null,
       "capabilities": ["analyze", "check", "guard", "doctor", "status", "task", "recover"]
     }
