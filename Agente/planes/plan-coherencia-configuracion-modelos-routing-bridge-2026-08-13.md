@@ -29,6 +29,13 @@ Cambios relevantes:
   `model-set` y `route-set` sin editar frontend/backend.
 - Analytics registra modelo solicitado, ruta, revisión, motivo y confianza de
   selección para distinguir Auto, pinned y compatibilidad legacy.
+
+Corrección posterior de visibilidad (2026-08-14):
+
+- [x] La página Enrutamiento separa visualmente la cadena `route:auto` de las
+  rutas `pinned` del mismo catálogo canónico.
+- [x] Flash y Muse de CommandCode aparecen en Rutas fijadas con sus controles
+  de modelo y ruta; no se agregan a Auto por mostrarse en el panel.
 - `integrations/codex-bridge/test/_e2e_apply_patch.cjs` se conserva opt-in, sin
   secretos en disco fijo, con directorio temporal acotado y fuera de la suite
   automática; su ejecución sigue requiriendo `BRIDGE_CLIENT_TOKEN`.

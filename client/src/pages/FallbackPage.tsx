@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { DndContext, closestCenter } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { PageHeader } from '@/components/page-header'
+import { ConfiguredRouteList } from '@/components/routing/ConfiguredRouteList'
 import { SortableModelRow } from '@/components/routing/SortableModelRow'
 import { ModelConfigDialog } from '@/components/routing/ModelConfigDialog'
 import { RouteConfigDialog } from '@/components/routing/RouteConfigDialog'
@@ -70,6 +71,14 @@ export default function FallbackPage() {
             </div>
             {unconfiguredPlatforms.length > 0 && (
               <p className="text-xs text-muted-foreground">Ocultos (sin claves): {unconfiguredPlatforms.join(', ')}</p>
+            )}
+            {configuration && (
+              <ConfiguredRouteList
+                routes={configuration.routes}
+                models={configuration.models}
+                onConfigureModel={setConfiguredModelDbId}
+                onConfigureRoute={setConfiguredRouteId}
+              />
             )}
           </>
         )}
