@@ -26,10 +26,10 @@
 
 const MODEL_CATALOG_SCHEMA = 'glory-bridge-model-catalog-v2';
 const AUTO_MODEL_ID = 'auto';
-// `auto` is reserved by some Desktop builds and `codex-auto-review` is an
-// internal hidden slug. Use a visible bridge-owned picker id while accepting
-// both historical ids at the wire boundary for backwards compatibility.
-const AUTO_PICKER_ID = 'gpt-5.6-auto';
+// Desktop's native "Reset to default" action selects gpt-5.6-sol. Reserve
+// that picker id for the canonical Auto route; assigning it to a physical
+// provider makes the native reset silently pin that provider instead.
+const AUTO_PICKER_ID = 'gpt-5.6-sol';
 const LEGACY_AUTO_PICKER_IDS = new Set(['codex-auto-review']);
 // Desktop must see one conservative threshold for every provider/model. The
 // upstreams may advertise larger windows, but the bridge needs Codex to

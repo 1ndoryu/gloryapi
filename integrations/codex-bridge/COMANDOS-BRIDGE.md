@@ -42,7 +42,8 @@ abierto pero GloryAPI fue cerrado, vuelve a iniciar automáticamente el runtime 
 `-RefreshConfig` regenera solo la configuración aislada del bridge. No copia `auth.json`, conversaciones
 ni bases SQLite del home normal.
 
-El perfil aislado arranca con `model = "gpt-5.6-auto"`, que Desktop trata como el modelo predeterminado.
+El perfil aislado arranca con `model = "gpt-5.6-sol"`, que Desktop usa como destino de su acción nativa
+`Restablecer a predeterminado` y que el bridge reserva exclusivamente para Auto.
 Por diseño del selector, los seis modelos explícitos aparecen en la lista y Auto se recupera mediante
 `Avanzado → Restablecer a predeterminado`; ambos caminos terminan en `Auto (router de GloryAPI)` y
 GloryAPI recibe `auto` para decidir la ruta. `auto` y `codex-auto-review` siguen aceptándose como alias de

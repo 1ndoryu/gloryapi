@@ -139,7 +139,9 @@ export const DESKTOP_PICKER_ALIASES: Array<{ value: string; label: string }> = [
   { value: 'gpt-5.4-mini', label: 'Ranura compatible 2 (gpt-5.4-mini)' },
   { value: 'gpt-5.6-luna', label: 'Ranura compatible 3 (gpt-5.6-luna)' },
   { value: 'gpt-5.5', label: 'Ranura compatible 4 (gpt-5.5)' },
-  { value: 'gpt-5.6-sol', label: 'Ranura compatible 5 (gpt-5.6-sol)' },
+  /* gpt-5.6-sol queda reservado para la ruta Auto porque Desktop lo usa como
+   * destino de "Restablecer a predeterminado". */
+  { value: 'gpt-5.6-auto', label: 'Ranura compatible 5 (gpt-5.6-auto)' },
   { value: 'gpt-5.6-terra', label: 'Ranura compatible 6 (gpt-5.6-terra)' },
 ];
 export const DESKTOP_PICKER_ALIAS_VALUES = DESKTOP_PICKER_ALIASES.map(alias => alias.value);

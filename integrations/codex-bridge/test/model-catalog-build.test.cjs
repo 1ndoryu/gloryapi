@@ -47,7 +47,7 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
       models: [{ slug: 'official-model' }],
     }), 'utf8');
     fs.writeFileSync(catalogPath, JSON.stringify({ entries: [
-      { id: 'deepseek/deepseek-v4-flash', pickerId: 'gpt-5.6-sol', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
+      { id: 'deepseek/deepseek-v4-flash', pickerId: 'gpt-5.6-auto', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
       { id: 'deepseek-v4-flash:free', pickerId: 'gpt-5.5', provider: 'tokenharbor', displayName: 'DeepSeek Flash Free', supportsReasoning: false },
       { id: 'meta/muse-spark-1.2-contributor', pickerId: 'gpt-5.6-terra', provider: 'commandcode', displayName: 'Muse Spark', nativeVision: true, supportsReasoning: true },
     ] }), 'utf8');
@@ -62,8 +62,8 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
     assert.equal(cache.client_version, '0.147.0-test');
     assert.match(cache.fetched_at, /^20\d\d-/);
     assert.deepEqual(catalog.models.map((entry) => entry.slug), [
-      'gpt-5.6-auto',
       'gpt-5.6-sol',
+      'gpt-5.6-auto',
       'gpt-5.5',
       'gpt-5.6-terra',
     ]);
@@ -72,7 +72,7 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
     assert.deepEqual(muse.input_modalities, ['text', 'image']);
     assert.equal(muse.supports_image_detail_original, true);
     assert.equal(muse.base_instructions, 'Codex system prompt');
-    const flash = catalog.models.find((entry) => entry.slug === 'gpt-5.6-sol');
+    const flash = catalog.models.find((entry) => entry.slug === 'gpt-5.6-auto');
     assert.deepEqual(flash.input_modalities, ['text']);
     assert.equal(flash.base_instructions, 'Codex system prompt');
     assert.equal(muse.supports_reasoning, true);
@@ -96,7 +96,7 @@ test('build-model-catalog falls back to a minimal catalog without a source templ
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const catalog = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
     assert.equal(catalog.models.length, 1);
-    assert.equal(catalog.models[0].slug, 'gpt-5.6-auto');
+    assert.equal(catalog.models[0].slug, 'gpt-5.6-sol');
     assert.equal(catalog.models[0].visibility, 'list');
     assert.equal(catalog.models[0].supported_in_api, true);
     assert.equal(catalog.models[0].supports_reasoning, true);

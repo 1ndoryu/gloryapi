@@ -90,7 +90,8 @@ sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
   `GLORY-COHERENCIA-FULL-20260814F` PASS con identidad `enforce`, 0 errores,
   15 warnings y 1 info.
 - Desktop Bridge live: proceso aislado, `CODEX_HOME`, Auto como predeterminado
-  recuperable desde `Avanzado → Restablecer a predeterminado`, seis modelos
+  recuperable desde `Avanzado → Restablecer a predeterminado` mediante el slug
+  reservado `gpt-5.6-sol`, seis modelos
   explícitos visibles (incluido Zen mediante `gpt-5.4-mini`),
   `/v1/models`, health `published` y ausencia de Pro verificados; no se hizo
   una llamada externa de proveedor durante la prueba.

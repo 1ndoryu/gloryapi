@@ -7,8 +7,8 @@ const { createRequestTranslator, normalizeReasoningEffort } = require('../bridge
 const { parseModelCatalog } = require('../bridge/model-catalog');
 
 const TEST_CATALOG = parseModelCatalog(JSON.stringify([
-  { id: 'auto', pickerId: 'gpt-5.6-auto', provider: 'auto', displayName: 'Auto (router de GloryAPI)', supportsReasoning: true },
-  { id: 'deepseek/deepseek-v4-flash', pickerId: 'gpt-5.6-sol', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
+  { id: 'auto', pickerId: 'gpt-5.6-sol', provider: 'auto', displayName: 'Auto (router de GloryAPI)', supportsReasoning: true },
+  { id: 'deepseek/deepseek-v4-flash', pickerId: 'gpt-5.6-auto', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
   { id: 'deepseek-v4-flash:free', provider: 'tokenharbor', displayName: 'DeepSeek Flash Free', supportsReasoning: false },
   { id: 'meta/muse-spark-1.2-contributor', pickerId: 'gpt-5.6-terra', provider: 'commandcode', displayName: 'Muse Spark', nativeVision: true, supportsReasoning: true },
 ]));
@@ -101,7 +101,7 @@ test('Responses effort reaches Muse as canonical reasoning_effort', async () => 
 test('Responses effort reaches DeepSeek Flash through its Desktop picker alias', async () => {
   const { translateRequest } = createTranslator();
   const { chat } = await translateRequest({
-    model: 'gpt-5.6-sol',
+    model: 'gpt-5.6-auto',
     reasoning: { effort: 'high' },
     stream: true,
     input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'razona' }] }],
@@ -147,7 +147,7 @@ test('auto and missing model use the canonical Auto route and lossy vision', asy
   const { translateRequest, calls } = createTranslator();
   const { chat } = await translateRequest(imageBody('auto'));
   assert.equal(chat.model, 'auto');
-  assert.equal(chat.__bridgePresentationModel, 'gpt-5.6-auto');
+  assert.equal(chat.__bridgePresentationModel, 'gpt-5.6-sol');
   const userMessage = chat.messages.find((message) => message.role === 'user');
   assert.equal(userMessage.content.some((part) => part.type === 'image_url'), false);
   assert.equal(calls.describeImage, 1);

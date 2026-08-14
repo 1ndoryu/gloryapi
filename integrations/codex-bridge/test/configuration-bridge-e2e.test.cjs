@@ -51,7 +51,7 @@ function catalogEnvelope() {
     {
       id: 'fixture/pinned',
       wireModel: 'fixture/pinned',
-      pickerId: 'gpt-5.6-sol',
+      pickerId: 'gpt-5.6-auto',
       provider: 'fixture',
       displayName: 'Fixture fijado',
       nativeVision: false,

@@ -51,7 +51,7 @@ test('isolated Codex home copies only config and preserves an independent state 
     const bridgeConfig = fs.readFileSync(path.join(bridgeHome, 'config.toml'), 'utf8');
     const normalConfig = fs.readFileSync(path.join(sourceHome, 'config.toml'), 'utf8');
     assert.notEqual(bridgeConfig, normalConfig);
-    assert.match(bridgeConfig, /model = "gpt-5\.6-auto"/);
+    assert.match(bridgeConfig, /model = "gpt-5\.6-sol"/);
     assert.match(bridgeConfig, /model_provider = "gloryapi-bridge"/);
     assert.match(bridgeConfig, /base_url = "http:\/\/127\.0\.0\.1:4100\/v1/);
     assert.match(bridgeConfig, /CODEX_HOME = ".*bridge/);
@@ -62,7 +62,7 @@ test('isolated Codex home copies only config and preserves an independent state 
     assert.doesNotMatch(bridgeConfig, new RegExp(path.join(sourceHome, 'node_modules').replaceAll('\\', '\\\\')));
     assert.equal(fs.readFileSync(path.join(bridgeHome, 'normal-base.config.toml'), 'utf8'), normalConfig);
     const profile = fs.readFileSync(path.join(bridgeHome, 'gloryapi-bridge.config.toml'), 'utf8');
-    assert.match(profile, /model = "gpt-5\.6-auto"/);
+    assert.match(profile, /model = "gpt-5\.6-sol"/);
     assert.match(profile, /model_provider = "gloryapi-bridge"/);
     assert.match(profile, /CODEX_HOME = "/);
     assert.ok(profile.includes(bridgeHome.replaceAll('\\', '\\\\')));
