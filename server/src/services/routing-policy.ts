@@ -1,5 +1,6 @@
 import { getDb } from '../db/index.js';
 import { ROUTING_SCHEMA_VERSION, type RoutingPolicyEntry, type RoutingPolicySnapshot } from '@gloryapi/shared/types.js';
+import crypto from 'node:crypto';
 
 const ROUTING_REVISION_KEY = 'routing_revision';
 
@@ -72,23 +73,58 @@ function validateEntries(entries: unknown): RoutingPolicyEntry[] {
 export function updateRoutingPolicy(entries: unknown, expectedRevision?: number): RoutingPolicySnapshot {
   const validated = validateEntries(entries);
   const db = getDb();
-  const currentRevision = getRoutingRevision();
-  if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
-    throw new RoutingRevisionConflictError(currentRevision);
-  }
-
-  const nextRevision = currentRevision + 1;
-  const transaction = db.transaction(() => {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // The compare-and-swap belongs inside the write transaction. Reading the
+    // revision before BEGIN allowed two dashboard writers to both pass the
+    // check and overwrite one another's route.
+    const currentRevision = getRoutingRevision();
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new RoutingRevisionConflictError(currentRevision);
+    }
+    const nextRevision = currentRevision + 1;
+    const configurationRow = db.prepare("SELECT value FROM settings WHERE key = 'configuration_revision'").get() as { value: string } | undefined;
+    const currentConfigurationRevision = Number.parseInt(configurationRow?.value ?? '0', 10);
+    const nextConfigurationRevision = Number.isSafeInteger(currentConfigurationRevision) && currentConfigurationRevision >= 0
+      ? currentConfigurationRevision + 1
+      : 1;
+    const diff = { type: 'routing_policy', entries: validated, routingRevision: nextRevision };
+    const hash = crypto.createHash('sha256').update(JSON.stringify(diff)).digest('hex');
     const update = db.prepare('UPDATE fallback_config SET priority = ?, enabled = ? WHERE model_db_id = ?');
+    const updateV2 = db.prepare(`
+      UPDATE routing_route_members SET priority = ?, enabled = ?
+      WHERE route_id = 'route:auto' AND model_db_id = ?
+    `);
+    const insertV2 = db.prepare(`
+      INSERT OR IGNORE INTO routing_route_members (route_id, model_db_id, priority, enabled)
+      VALUES ('route:auto', ?, ?, ?)
+    `);
     for (const entry of validated) {
       const result = update.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
       if (result.changes !== 1) throw new RoutingValidationError(`Model ${entry.modelDbId} is not persisted in routing`);
+      const v2Result = updateV2.run(entry.priority, entry.enabled ? 1 : 0, entry.modelDbId);
+      if (v2Result.changes === 0) insertV2.run(entry.modelDbId, entry.priority, entry.enabled ? 1 : 0);
     }
     db.prepare(`
       INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(ROUTING_REVISION_KEY, String(nextRevision));
-  });
-  transaction();
+    db.prepare(`
+      INSERT INTO settings (key, value) VALUES ('configuration_revision', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(String(nextConfigurationRevision));
+    db.prepare(`
+      INSERT INTO configuration_revisions (revision, hash, actor, source, summary)
+      VALUES (?, ?, 'dashboard', 'routing', 'Actualización de la ruta Auto')
+    `).run(nextConfigurationRevision, hash);
+    db.prepare(`
+      INSERT INTO configuration_audit (revision, actor, source, diff_json)
+      VALUES (?, 'dashboard', 'routing', ?)
+    `).run(nextConfigurationRevision, JSON.stringify(diff));
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
   return getRoutingSnapshot(validated);
 }

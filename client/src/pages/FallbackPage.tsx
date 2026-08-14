@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { DndContext, closestCenter } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { PageHeader } from '@/components/page-header'
 import { SortableModelRow } from '@/components/routing/SortableModelRow'
+import { ModelConfigDialog } from '@/components/routing/ModelConfigDialog'
 import { useFallbackPage } from '@/hooks/useFallbackPage'
 
 export default function FallbackPage() {
@@ -16,7 +18,11 @@ export default function FallbackPage() {
     eventError,
     saveMutation,
     saveError,
+    configuration,
+    modelMutation,
   } = useFallbackPage()
+  const [configuredModelDbId, setConfiguredModelDbId] = useState<number | null>(null)
+  const configuredModel = configuration?.models.find(model => model.modelDbId === configuredModelDbId) ?? null
 
   return (
     <div>
@@ -36,7 +42,7 @@ export default function FallbackPage() {
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={displayEntries.map(entry => entry.modelDbId)} strategy={verticalListSortingStrategy}>
                   {displayEntries.map((entry, index) => (
-                    <SortableModelRow key={entry.modelDbId} entry={entry} index={index} onToggle={handleToggle} />
+                    <SortableModelRow key={entry.modelDbId} entry={entry} index={index} onToggle={handleToggle} onConfigure={setConfiguredModelDbId} />
                   ))}
                 </SortableContext>
               </DndContext>
@@ -63,6 +69,7 @@ export default function FallbackPage() {
           </>
         )}
       </div>
+      {configuredModel && <ModelConfigDialog model={configuredModel} onClose={() => setConfiguredModelDbId(null)} onSave={patch => modelMutation.mutate({ modelDbId: configuredModel.modelDbId, patch }, { onSuccess: () => setConfiguredModelDbId(null) })} isSaving={modelMutation.isPending} error={modelMutation.error instanceof Error ? modelMutation.error.message : null} />}
     </div>
   )
 }

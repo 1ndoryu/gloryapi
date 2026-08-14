@@ -30,6 +30,22 @@ describe('Migration idempotency', () => {
     expect(repeated.orphanFallbacks).toBe(0)
   })
 
+  it('preserves a user-added model across an operational restart', () => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64)
+    const tmpPath = `/tmp/freeapi-user-model-${Date.now()}.db`
+    const db1 = initDb(tmpPath, { catalogMode: 'operational' })
+    db1.prepare(`
+      INSERT INTO models (platform, model_id, display_name, intelligence_rank, speed_rank, context_window, enabled)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+    `).run('custom-provider', 'custom/model', 'Modelo añadido por el usuario', 50, 50, 150000)
+    db1.close()
+
+    const db2 = initDb(tmpPath, { catalogMode: 'operational' })
+    expect(db2.prepare('SELECT display_name FROM models WHERE platform = ? AND model_id = ?').get('custom-provider', 'custom/model'))
+      .toEqual({ display_name: 'Modelo añadido por el usuario' })
+    db2.close()
+  })
+
   it('adds request telemetry columns to an existing operational requests table', () => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64)
     const tmpPath = `/tmp/freeapi-request-telemetry-${Date.now()}.db`

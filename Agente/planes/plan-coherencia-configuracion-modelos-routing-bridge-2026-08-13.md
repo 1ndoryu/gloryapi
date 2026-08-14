@@ -1,11 +1,48 @@
 # Plan de coherencia: configuración, modelos, routing y Codex Bridge
 
-Estado: auditoría completada; implementación no iniciada
+Estado: implementación V2 completada localmente; validación de gate Sentinel bloqueada por `tool-source-missing`; E2E Desktop live pendiente
 
 Fecha: 2026-08-13
 
-Alcance: GloryAPI local, panel web, API de control, CLI local y proyección del selector de Codex Desktop
-No alcance de este bloque: cambios de código, cambios directos en la base operativa, reinicios, llamadas a proveedores, deploy o push
+Alcance: GloryAPI local, panel web, API de control, CLI local, telemetría y proyección del selector de Codex Desktop
+No alcance de este bloque: deploy, push, cambios en ChatGPT normal o llamadas externas de producción
+
+## Resultado de la ejecución
+
+La arquitectura propuesta ya está implementada en el checkout local. La SQLite
+operativa conserva la configuración V2 y es la fuente de verdad para Auto, las
+rutas pinned y el catálogo que consume el bridge. La UI, la API administrativa
+y `npm run config -w server -- ...` usan el mismo servicio transaccional con
+revisión CAS y auditoría.
+
+Cambios relevantes:
+
+- `route:auto` es la única fuente de Auto; se eliminaron las cadenas de modelo
+  hardcodeadas del camino de selección.
+- El bridge recibe una proyección versionada/hashada de GloryAPI y conserva
+  `auto` como identidad canónica. DeepSeek V4 Pro no aparece en DB V2, routing,
+  selector ni proyección activa.
+- El catálogo inicial dejó de reconciliarse destructivamente en cada reinicio:
+  el bootstrap normaliza una base nueva una vez y después conserva modelos y
+  prioridades gestionados por el usuario.
+- El panel tiene modal por modelo; el CLI permite `snapshot`, `model-add`,
+  `model-set` y `route-set` sin editar frontend/backend.
+- Analytics registra modelo solicitado, ruta, revisión, motivo y confianza de
+  selección para distinguir Auto, pinned y compatibilidad legacy.
+- `integrations/codex-bridge/test/_e2e_apply_patch.cjs` quedó opt-in, sin
+  secretos en disco fijo, con directorio temporal acotado y fuera de la suite
+  automática; está listo para commit y ejecución solo con `BRIDGE_CLIENT_TOKEN`.
+
+Validación local actual:
+
+- `npm run build:server`: PASS.
+- `npm test -w server -- --reporter=dot`: 54 archivos / 301 tests PASS.
+- Suite bridge secuencial: 171 tests PASS.
+- `npm run config -w server -- snapshot`: 4 miembros activos en Auto, 6
+  modelos operativos, cero DeepSeek V4 Pro y todas las ventanas anunciadas al
+  bridge dentro de 150000.
+- El gate Sentinel no se declara PASS: el source fijado sigue bloqueado por
+  `tool-source-missing`.
 
 ## Respuesta directa
 
@@ -874,7 +911,8 @@ Módulos que se conservan y se conectan al nuevo contrato:
 
 ## Siguiente acción
 
-Ejecutar únicamente la Fase 0 en el próximo bloque: contratos, telemetría de
-intención/ruta/revisión y diagnóstico de divergencia, sin cambiar todavía qué
-modelo responde. Esa evidencia reduce el riesgo de migrar una suposición sobre
-los requests internos de Codex Desktop.
+Revisar el diff y hacer el commit local del bloque. Después, al reiniciar el
+bridge, validar en Desktop el catálogo aislado y una llamada Auto/pinned; esa
+prueba live queda separada del PASS local porque requiere el runtime de
+ChatGPT Bridge activo. Si se necesita cerrar el gate Sentinel, primero hay que
+restaurar el `sourcePath` fijado; no se sustituye por otra instalación.

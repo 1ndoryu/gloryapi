@@ -68,17 +68,7 @@ if (-not (Test-Path -LiteralPath $prepareScript -PathType Leaf)) {
     throw "Falta el preparador de CODEX_HOME aislado: $prepareScript"
 }
 
-$prepareArgs = @{
-    BridgeHome = $BridgeHome
-    SourceCodexHome = $SourceCodexHome
-    ProfileName = $ProfileName
-    BridgePort = $BridgePort
-}
-if ($RefreshConfig) { $prepareArgs.RefreshConfig = $true }
-& $prepareScript @prepareArgs
-if ($PrepareOnly) { exit 0 }
-
-if (-not $NoStartBridge) {
+if (-not $NoStartBridge -and -not $PrepareOnly) {
     if (-not (Test-Path -LiteralPath $startBridgeScript -PathType Leaf)) {
         throw "Falta el launcher del bridge: $startBridgeScript"
     }
@@ -91,6 +81,21 @@ if (-not $NoStartBridge) {
     if ($VisionAllowAnonymous) { $bridgeArgs.VisionAllowAnonymous = $true }
     & $startBridgeScript @bridgeArgs
 }
+
+$prepareArgs = @{
+    BridgeHome = $BridgeHome
+    SourceCodexHome = $SourceCodexHome
+    ProfileName = $ProfileName
+    BridgePort = $BridgePort
+    CatalogSourcePath = if (-not [string]::IsNullOrWhiteSpace($RuntimeDataDir)) {
+        Join-Path ([IO.Path]::GetFullPath($RuntimeDataDir)) 'bridge-model-catalog.json'
+    } else {
+        Join-Path $env:USERPROFILE '.gloryapi\runtime\bridge-runtime\bridge-model-catalog.json'
+    }
+}
+if ($RefreshConfig) { $prepareArgs.RefreshConfig = $true }
+& $prepareScript @prepareArgs
+if ($PrepareOnly) { exit 0 }
 
 $codexCommand = Get-Command codex -ErrorAction Stop
 $previousHome = [Environment]::GetEnvironmentVariable('CODEX_HOME', 'Process')

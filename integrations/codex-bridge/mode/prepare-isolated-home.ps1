@@ -8,7 +8,8 @@ param(
     [string]$ProfileName = 'gloryapi-bridge',
     [ValidateRange(1024, 65535)]
     [int]$BridgePort = 4100,
-    [switch]$RefreshConfig
+    [switch]$RefreshConfig,
+    [string]$CatalogSourcePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -100,7 +101,8 @@ $catalogBuilder = Resolve-FullPath (Join-Path $PSScriptRoot 'build-model-catalog
 $nodeExe = (Get-Command node -ErrorAction Stop).Source
 $sourceModelsArg = if (Test-Path -LiteralPath $modelsPath -PathType Leaf) { $modelsPath } else { '-' }
 $sourceCacheMetadataArg = if (Test-Path -LiteralPath $sourceModelsCachePath -PathType Leaf) { $sourceModelsCachePath } else { '-' }
-& $nodeExe $catalogBuilder $sourceModelsArg $bridgeModelsPath $bridgeModelsCachePath $sourceCacheMetadataArg
+$catalogOverrideArg = if (-not [string]::IsNullOrWhiteSpace($CatalogSourcePath) -and (Test-Path -LiteralPath $CatalogSourcePath -PathType Leaf)) { Resolve-FullPath $CatalogSourcePath } else { '-' }
+& $nodeExe $catalogBuilder $sourceModelsArg $bridgeModelsPath $bridgeModelsCachePath $sourceCacheMetadataArg $catalogOverrideArg
 if ($LASTEXITCODE -ne 0) {
     throw 'No se pudo generar el catálogo de modelos del bridge (build-model-catalog.cjs).'
 }

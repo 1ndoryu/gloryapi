@@ -43,11 +43,11 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     insertCatalogModels();
   });
 
-  it('resuelve la cadena deepseek-v4-flash sin sticky (preferredModel undefined)', () => {
+  it('resuelve el alias legacy como la ruta Auto sin sticky', () => {
     const selection = resolveProxyModelSelection('deepseek-v4-flash', buildMessages(true));
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
-    expect(selection.restrictedChain).toHaveLength(4);
+    expect(selection.restrictedChain?.length).toBeGreaterThan(1);
   });
 
   it('prefiere el modelo sticky de la sesión aunque el cliente pida modelo explícito', () => {
@@ -61,7 +61,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBe(goId);
     expect(selection.restrictedChain).toContain(goId);
-    expect(selection.restrictedChain).toHaveLength(4);
+    expect(selection.restrictedChain?.length).toBeGreaterThan(1);
   });
 
   it('ignora el sticky si el modelo sticky no pertenece a la cadena', () => {
@@ -73,7 +73,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     const selection = resolveProxyModelSelection('deepseek-v4-flash', messages);
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
-    expect(selection.restrictedChain).toHaveLength(4);
+    expect(selection.restrictedChain?.length).toBeGreaterThan(1);
   });
 
   it('no aplica sticky a requests sin mensaje assistant previo', () => {

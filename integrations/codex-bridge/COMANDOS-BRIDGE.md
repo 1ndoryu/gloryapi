@@ -88,7 +88,7 @@ sin descripción” de “imagen ausente”; no se inventa que una carpeta o vis
 El selector es el picker de modelos de la ventana ChatGPT del bridge. Desktop lee el archivo
 `model_catalog_json` de `C:\Users\Owner\.codex-gloryapi\config.toml`; el endpoint `/v1/models`
 expone el mismo catálogo para clientes compatibles. El catálogo está versionado como
-`glory-bridge-model-catalog-v1` (`bridge/model-catalog.js`). Algunas versiones de Desktop filtran los
+`glory-bridge-model-catalog-v2` (`bridge/model-catalog.js`). Algunas versiones de Desktop filtran los
 IDs de proveedores personalizados; por eso el archivo local usa alias `pickerId` reconocibles por
 Desktop, pero el bridge los traduce al ID real antes de llamar a GloryAPI. Opciones visibles por defecto:
 

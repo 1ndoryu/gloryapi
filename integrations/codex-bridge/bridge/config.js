@@ -1,4 +1,5 @@
 const path = require('node:path');
+const fs = require('node:fs');
 const { MODEL_CATALOG_SCHEMA, parseModelCatalog } = require('./model-catalog');
 
 function boundedEnvInt(name, fallback, minimum, maximum, env = process.env) {
@@ -89,7 +90,14 @@ function capabilityMatrix(env) {
 
 const env = process.env;
 const runtimeRoot = env.BRIDGE_RUNTIME_DIR || __dirname;
-const modelCatalog = parseModelCatalog(firstEnv(env, ['BRIDGE_MODEL_CATALOG_JSON']));
+function catalogOverride(env) {
+  const inline = firstEnv(env, ['BRIDGE_MODEL_CATALOG_JSON']);
+  if (inline) return inline;
+  const file = firstEnv(env, ['BRIDGE_MODEL_CATALOG_FILE']);
+  if (!file) return '';
+  try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
+}
+const modelCatalog = parseModelCatalog(catalogOverride(env));
 
 // One flat, serialisable configuration object keeps deployment-specific values
 // out of the adapters. A different provider can now override these variables
@@ -112,6 +120,9 @@ const config = Object.freeze({
   upstream: {
     baseUrl: firstEnv(env, ['BRIDGE_UPSTREAM_BASE_URL', 'GLORY_API_BASE_URL', 'FREEL_API_BASE_URL'], 'http://localhost:3101/v1'),
     completionsPath: normalizedPath(env.BRIDGE_UPSTREAM_COMPLETIONS_PATH, '/chat/completions'),
+    // Kept as a legacy health/compaction default. Request translation maps a
+    // missing selector or explicit Auto to the canonical `auto` route instead
+    // of using this value as a routing decision.
     model: firstEnv(env, ['BRIDGE_MODEL', 'GLORY_MODEL', 'FREEL_MODEL'], 'deepseek-v4-flash'),
     authScheme: firstEnv(env, ['BRIDGE_UPSTREAM_AUTH_SCHEME'], 'Bearer'),
     host: loopbackHost(env.BRIDGE_HOST),

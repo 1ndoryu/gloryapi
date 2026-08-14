@@ -84,7 +84,7 @@ test('mode controller rejects an invalid profile before starting or mutating the
   fs.mkdirSync(codexHome, { recursive: true });
   const config = path.join(codexHome, 'config.toml');
   const deepseek = path.join(codexHome, 'config.deepseek.toml');
-  fs.writeFileSync(config, 'model = "gpt-5.6-luna"\n', 'utf8');
+  fs.writeFileSync(config, 'model = "gpt-bridge-auto"\n', 'utf8');
   fs.writeFileSync(deepseek, 'model = "deepseek-v4-flash"\nmodel_provider = "freellm"\n', 'utf8');
   const before = fs.readFileSync(config);
   try {

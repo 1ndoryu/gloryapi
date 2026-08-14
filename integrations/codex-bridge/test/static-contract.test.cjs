@@ -187,7 +187,7 @@ test('the versioned Responses fixture covers lifecycle and tool invariants', () 
 });
 
 test('the model selector is a versioned catalog and Muse keeps native vision', () => {
-  assert.match(server, /glory-bridge-model-catalog-v1/);
+  assert.match(server, /glory-bridge-model-catalog-v2/);
   assert.match(server, /BRIDGE_MODEL_CATALOG_JSON/);
   assert.match(server, /meta\/muse-spark-1\.2-contributor/);
   assert.match(server, /nativeVision/);

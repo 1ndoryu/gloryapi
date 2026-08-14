@@ -12,6 +12,7 @@ import { migrateModelsV29, migrateModelsV30, migrateModelsV31, migrateModelsV33,
 import { normalizeGloryCatalog } from './catalog/normalize.js';
 import { seedLegacyModels } from './catalog/legacy-seed.js';
 import { resolveDatabasePath } from '../config/database-path.js'
+import { ensureConfigurationV2 } from '../services/configuration-v2.js';
 
 const DB_PATH = resolveDatabasePath()
 
@@ -61,50 +62,65 @@ export function initDb(dbPath?: string, options: InitDbOptions = {}): Database.D
       || (options.catalogMode !== 'operational' && (isMemory || process.env.NODE_ENV === 'test'))
     ));
 
-  if (useLegacyCatalogMigrations) {
-    ensureLegacyCatalogColumns(db);
-    seedLegacyModels(db);
-    migrateModels(db);
-    migrateModelsV2(db);
-    migrateModelsV3Ranks(db);
-    migrateModelsV4(db);
-    migrateModelsV5(db);
-    migrateModelsV6(db);
-    migrateModelsV7(db);
-    migrateModelsV8(db);
-    migrateModelsV9(db);
-    migrateModelsV10(db);
-    migrateModelsV11(db);
-    migrateModelsV12(db);
-    migrateModelsV13(db);
-    migrateModelsV14(db);
-    migrateModelsV15(db);
-    migrateModelsV16(db);
-    migrateModelsV17(db);
-    migrateModelsV18(db);
-    migrateModelsV19(db);
-    migrateModelsV20(db);
-    migrateModelsV21(db);
-    migrateModelsV22(db);
-    migrateModelsV23(db);
-    migrateModelsV24(db);
-    migrateModelsV25(db);
-    migrateModelsV26(db);
-    migrateModelsV27(db);
-    migrateModelsV28(db);
-    migrateModelsV29(db);
-    migrateModelsV30(db);
-    migrateModelsV31(db);
-    migrateModelsV32(db);
-    migrateModelsV33(db);
-    migrateModelsV34(db);
-    migrateModelsV35(db);
-    if (!isMemory && process.env.NODE_ENV !== 'test') normalizeGloryCatalog(db);
-  } else {
-    // A new operational database uses the compact GloryAPI schema directly;
-    // historical catalog migrations are reserved for upgrades of old stores.
-    normalizeGloryCatalog(db);
+  // V2 route tables intentionally reference models. Legacy catalog migrations
+  // reconcile/delete model rows, so an upgrade must suspend enforcement during
+  // that bounded migration window and let the V2 reconciliation below remove
+  // stale members before enforcement resumes.
+  const hadConfigurationTables = Boolean(
+    (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'routing_route_members'").get()),
+  );
+  if (hadConfigurationTables) db.pragma('foreign_keys = OFF');
+  try {
+    if (useLegacyCatalogMigrations) {
+      ensureLegacyCatalogColumns(db);
+      seedLegacyModels(db);
+      migrateModels(db);
+      migrateModelsV2(db);
+      migrateModelsV3Ranks(db);
+      migrateModelsV4(db);
+      migrateModelsV5(db);
+      migrateModelsV6(db);
+      migrateModelsV7(db);
+      migrateModelsV8(db);
+      migrateModelsV9(db);
+      migrateModelsV10(db);
+      migrateModelsV11(db);
+      migrateModelsV12(db);
+      migrateModelsV13(db);
+      migrateModelsV14(db);
+      migrateModelsV15(db);
+      migrateModelsV16(db);
+      migrateModelsV17(db);
+      migrateModelsV18(db);
+      migrateModelsV19(db);
+      migrateModelsV20(db);
+      migrateModelsV21(db);
+      migrateModelsV22(db);
+      migrateModelsV23(db);
+      migrateModelsV24(db);
+      migrateModelsV25(db);
+      migrateModelsV26(db);
+      migrateModelsV27(db);
+      migrateModelsV28(db);
+      migrateModelsV29(db);
+      migrateModelsV30(db);
+      migrateModelsV31(db);
+      migrateModelsV32(db);
+      migrateModelsV33(db);
+      migrateModelsV34(db);
+      migrateModelsV35(db);
+      if (!isMemory && process.env.NODE_ENV !== 'test') normalizeGloryCatalog(db);
+    } else if (!hasOperationalCatalog) {
+      // A new operational database uses the compact GloryAPI schema directly;
+      // historical catalog reconciliation is only a one-time bootstrap. Once
+      // the operational marker exists, user-managed model rows are preserved
+      // and the configuration V2 service becomes the source of truth.
+      normalizeGloryCatalog(db);
+    }
+  } finally {
+    if (hadConfigurationTables) db.pragma('foreign_keys = ON');
   }
+  ensureConfigurationV2(db);
   ensureUnifiedKey(db);
 
   console.log(`Database initialized at ${resolvedPath}`);
@@ -288,6 +304,11 @@ function ensureRequestTelemetryColumns(database: Database.Database): void {
     ['reasoning_effort', 'TEXT'],
     ['reasoning_tokens', 'INTEGER NOT NULL DEFAULT 0'],
     ['reasoning_tokens_source', "TEXT NOT NULL DEFAULT 'none'"],
+    ['requested_model', 'TEXT'],
+    ['route_id', 'TEXT'],
+    ['configuration_revision', 'INTEGER NOT NULL DEFAULT 0'],
+    ['selection_reason', 'TEXT'],
+    ['selection_confidence', 'TEXT'],
   ];
   for (const [name, definition] of additions) {
     if (!columns.has(name)) database.exec(`ALTER TABLE requests ADD COLUMN ${name} ${definition}`);

@@ -122,10 +122,10 @@ test('text-only models keep the lossy vision-to-text adaptation', async () => {
   assert.equal(calls.describeImage, 1);
 });
 
-test('auto and missing model keep the current default and lossy vision', async () => {
+test('auto and missing model use the canonical Auto route and lossy vision', async () => {
   const { translateRequest, calls } = createTranslator();
   const { chat } = await translateRequest(imageBody('auto'));
-  assert.equal(chat.model, 'deepseek-v4-flash');
+  assert.equal(chat.model, 'auto');
   const userMessage = chat.messages.find((message) => message.role === 'user');
   assert.equal(userMessage.content.some((part) => part.type === 'image_url'), false);
   assert.equal(calls.describeImage, 1);

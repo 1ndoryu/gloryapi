@@ -59,7 +59,6 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
       'gpt-5.5',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
-      'gpt-5.6-luna',
     ]);
     assert.equal(catalog.models[0].display_name, 'Auto (router de GloryAPI)');
     const muse = catalog.models.find((entry) => entry.slug === 'gpt-5.6-terra');
@@ -89,7 +88,7 @@ test('build-model-catalog falls back to a minimal catalog without a source templ
     const result = runBuilder('-', outputPath);
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const catalog = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
-    assert.equal(catalog.models.length, 7);
+    assert.equal(catalog.models.length, 6);
     assert.equal(catalog.models[0].slug, 'codex-auto-review');
     assert.equal(catalog.models[0].visibility, 'list');
     assert.equal(catalog.models[0].supported_in_api, true);
@@ -111,7 +110,7 @@ test('build-model-catalog creates a first-launch cache with Codex metadata', () 
     const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
     assert.equal(cache.client_version, '0.147.0-empty-test');
     assert.equal(cache.etag, null);
-    assert.equal(cache.models.length, 7);
+    assert.equal(cache.models.length, 6);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }

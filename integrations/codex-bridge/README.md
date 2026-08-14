@@ -37,7 +37,7 @@ el código; los estados de soporte siguen siendo calculados por el bridge y nunc
 Cada entrada es `{ id, pickerId?, provider, displayName, nativeVision, contextWindow }`; `pickerId` es
 opcional y solo sirve como alias compatible con el filtro del renderer de Desktop. El bridge siempre lo
 traduce al `id` real antes de enviar la solicitud. El esquema versionado es
-`glory-bridge-model-catalog-v1` (ver `model-catalog.js`). El bridge siempre conserva la entrada `auto`.
+`glory-bridge-model-catalog-v2` (ver `model-catalog.js`). El bridge siempre conserva la entrada `auto`.
 
 El contrato de entrada se identifica como `BRIDGE_REQUEST_SCHEMA=glory-responses-request-v1`. Los campos
 de extensión desconocidos se toleran, pero tipos conocidos inválidos fallan cerrado con una ruta estructural
@@ -94,7 +94,7 @@ El selector es el picker de modelos de la aplicación Codex Desktop, que consume
 Responses. En versiones de Desktop que filtran los IDs de proveedores personalizados, el catálogo local
 usa `pickerId` con IDs reconocidos por ese renderer; el nombre visible sigue indicando el proveedor real.
 El bridge no crea una UI paralela: resuelve `body.model` contra el
-catálogo versionado `glory-bridge-model-catalog-v1` y lo traduce al modelo wire
+catálogo versionado `glory-bridge-model-catalog-v2` y lo traduce al modelo wire
 que GloryAPI enruta.
 
 - `auto` (o modelo ausente) conserva el comportamiento anterior: envía
@@ -196,7 +196,7 @@ que GloryAPI enruta.
 - La generación automática de título de Desktop se reconoce por su contrato
   estructurado estricto (`codex_output_schema` con `title` y `description`) y
   por el alias configurable de título (`BRIDGE_TITLE_MODEL_ALIASES`, por
-  defecto `gpt-5.6-luna`). Se responde localmente respetando ese JSON schema y
+  defecto `gpt-bridge-auto`). Se responde localmente respetando ese JSON schema y
   con cero tokens; no se compara su prompt con el turno visible
   porque Desktop ejecuta el título en un thread interno distinto. Los demás
   modelos del selector no se consideran auxiliares por defecto.

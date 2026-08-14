@@ -5,18 +5,13 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Siguiente bloque ejecutable
 
-1. Ejecutar la Fase 0 del
-   `Agente/planes/plan-coherencia-configuracion-modelos-routing-bridge-2026-08-13.md`:
-   instrumentar intención, ruta y revisión; añadir el diagnóstico de divergencia sin cambiar todavía
-   la selección efectiva. La auditoría confirmó que la ruta hardcodeada de
-   `deepseek-v4-flash` ignora `fallback_config.enabled` y que aliases internos de Codex pueden
-   convertirse en modelos pinned antes del router.
-2. Mantener y verificar el runtime externo: `%USERPROFILE%\.gloryapi\gloryapi.db`, snapshot
-   `freellmapi-live-20260811.db` y 23 credenciales DPAPI; no tocar `freellmapi`.
-3. Completar schemas de respuesta/unions, timeouts por fase, idempotency de tools, propagación
-   de métricas por salto, SSRF de socket y smoke de scripts Windows sin activar ChatGPT.
-4. Ejecutar preflight de cada bloque: `npm run task:check:local -- <ID>`; al cerrar:
-   `npm run task:check -- GLORY-BASELINE`, build, suite server/client y suite bridge.
+1. Revisar y commitear el bloque de configuración V2, routing coherente,
+   selector dinámico, telemetría y `_e2e_apply_patch.cjs`.
+2. Reiniciar únicamente el bridge cuando se quiera hacer la validación live del
+   catálogo aislado; ChatGPT normal y `C:\Users\Owner\.codex` permanecen fuera
+   del alcance.
+3. Si se requiere el gate completo, reparar primero el `sourcePath` fijado de
+   Sentinel (`tool-source-missing`); no declarar PASS con otro binario.
 
 ## Decisiones y bloqueos explícitos
 
@@ -70,6 +65,16 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
   por defecto para que Codex compacte igual al cambiar de modelo.
 
 ## Evidencia del bloque actual
+
+- Configuración V2 y routing coherente: `npm run build:server` PASS; suite
+  server 54 archivos / 301 tests PASS; snapshot real con 4 miembros activos en
+  Auto, 6 modelos y cero DeepSeek V4 Pro.
+- Bridge y `_e2e_apply_patch.cjs`: suite secuencial 171/171 PASS; el E2E es
+  opt-in, no guarda tokens en `C:\temp` y usa un directorio temporal aislado.
+- Telemetría: cada request nuevo conserva modelo solicitado, ruta, revisión,
+  motivo y confianza de selección en Analytics.
+- Limitación: Sentinel continúa bloqueado por `tool-source-missing`; no se
+  presenta como gate PASS.
 
 - `npm test`: 50 archivos / 281 tests PASS.
 - Suite bridge: 168/168 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,

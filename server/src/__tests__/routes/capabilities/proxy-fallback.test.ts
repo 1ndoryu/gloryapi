@@ -30,7 +30,7 @@ describe('capability-aware proxy fallback', () => {
 
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64)
-    initDb(':memory:')
+    initDb(':memory:', { catalogMode: 'operational' })
     app = createApp()
   })
 

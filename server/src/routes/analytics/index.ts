@@ -270,6 +270,11 @@ analyticsRouter.get('/history', (req: Request, res: Response) => {
       r.parent_request_id,
       r.cached_input_tokens,
       r.cache_write_tokens,
+      r.requested_model,
+      r.route_id,
+      r.configuration_revision,
+      r.selection_reason,
+      r.selection_confidence,
       CASE
         WHEN r.status = 'success' THEN 'Success'
         ELSE ${ERROR_CATEGORY_SQL.replaceAll('error', 'r.error')}
@@ -304,6 +309,11 @@ analyticsRouter.get('/history', (req: Request, res: Response) => {
     parentRequestId: r.parent_request_id,
     cachedInputTokens: r.cached_input_tokens ?? 0,
     cacheWriteTokens: r.cache_write_tokens ?? 0,
+    requestedModel: r.requested_model,
+    routeId: r.route_id,
+    configurationRevision: r.configuration_revision ?? 0,
+    selectionReason: r.selection_reason,
+    selectionConfidence: r.selection_confidence,
   })));
 });
 

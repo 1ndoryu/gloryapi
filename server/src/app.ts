@@ -13,6 +13,8 @@ import { settingsRouter } from './routes/settings.js';
 import { registryRouter } from './routes/control/registry.js';
 import { controlStatusRouter } from './routes/control/status.js';
 import { sessionRouter } from './routes/control/session.js';
+import { bridgeCatalogRouter } from './routes/bridge-catalog.js';
+import { configurationRouter } from './routes/configuration.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +65,8 @@ export function createApp() {
   app.use('/api/analytics', analyticsRouter);
   app.use('/api/health', healthRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/integrations/codex-bridge/catalog', bridgeCatalogRouter);
+  app.use('/api/configuration', configurationRouter);
 
   // OpenAI-compatible proxy
   app.use('/v1', proxyRouter);

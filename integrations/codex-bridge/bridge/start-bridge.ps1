@@ -144,6 +144,22 @@ if ([string]::IsNullOrWhiteSpace($upstreamToken)) {
     $upstreamToken = ([string]$upstreamOutput[0]).Trim()
 }
 
+# The picker and request translator consume the same revisioned projection.
+# If the runtime is temporarily unavailable, keep the last-known-good file and
+# let the bridge start with its validated bootstrap catalog.
+$catalogSyncScript = Join-Path $BridgeDir '..\mode\sync-model-catalog.cjs'
+$catalogFile = Join-Path $RuntimeDir 'bridge-model-catalog.json'
+if (Test-Path -LiteralPath $catalogSyncScript -PathType Leaf) {
+    $previousGloryApiKey = $env:GLORY_API_KEY
+    try {
+        $env:GLORY_API_KEY = $upstreamToken
+        & $node $catalogSyncScript $catalogFile
+        if ($LASTEXITCODE -ne 0) { Write-Warning 'No se pudo sincronizar el catálogo; se conserva el último catálogo válido.' }
+    }
+    catch { Write-Warning "No se pudo sincronizar el catálogo: $($_.Exception.Message)" }
+    finally { $env:GLORY_API_KEY = $previousGloryApiKey }
+}
+
 $bridgeServer = Join-Path $BridgeDir 'server.js'
 
 # Vision se configura desde el launcher o desde el entorno del proceso que lo
@@ -214,6 +230,7 @@ function Start-IsolatedBridge {
         $env:BRIDGE_RUNTIME_DIR = $RuntimeDir
         $env:BRIDGE_CLIENT_TOKEN = $bridgeClientToken
         $env:GLORY_API_KEY = $upstreamToken
+        $env:BRIDGE_MODEL_CATALOG_FILE = $catalogFile
         $env:BRIDGE_PORT = [string]$Port
         $env:GLORY_API_CONTRACT = 'chat-completions-v1'
         $env:VISION_BASE_URL = $ConfiguredVisionBaseUrl

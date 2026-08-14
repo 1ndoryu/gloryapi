@@ -91,6 +91,21 @@ export function normalizeGloryCatalog(db: Database.Database): void {
     DELETE FROM models
     WHERE NOT (${keepModelClauses})
   `);
+  // The V2 configuration tables are the durable routing/catalog source. When
+  // an older database is normalized again, remove their references before
+  // deleting stale model rows so SQLite foreign keys cannot abort the
+  // migration halfway through.
+  const hasV2RouteTables = Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'routing_route_members'").get(),
+  );
+  const deleteV2RouteMembers = hasV2RouteTables ? db.prepare(`
+    DELETE FROM routing_route_members
+    WHERE model_db_id IN (SELECT id FROM models WHERE NOT (${keepModelClauses}))
+  `) : null;
+  const deleteV2CatalogEntries = hasV2RouteTables ? db.prepare(`
+    DELETE FROM client_catalog_entries
+    WHERE model_db_id IN (SELECT id FROM models WHERE NOT (${keepModelClauses}))
+  `) : null;
   const insertModel = db.prepare(`
     INSERT OR IGNORE INTO models (
       platform, model_id, display_name, intelligence_rank, speed_rank,
@@ -114,8 +129,13 @@ export function normalizeGloryCatalog(db: Database.Database): void {
      * Catalog normalization is a schema/reconciliation step, not a user
      * preference reset. Remove only obsolete rows; existing model and
      * fallback state is intentionally preserved across every server start.
-     */
+    */
     deleteStaleFallback.run(...targetModels.flatMap(model => [model.platform, model.modelId]));
+    if (deleteV2CatalogEntries && deleteV2RouteMembers) {
+      const targetArgs = targetModels.flatMap(model => [model.platform, model.modelId]);
+      deleteV2CatalogEntries.run(...targetArgs);
+      deleteV2RouteMembers.run(...targetArgs);
+    }
     deleteOtherModels.run(...targetModels.flatMap(model => [model.platform, model.modelId]));
     for (const model of targetModels) {
       insertModel.run(

@@ -24,7 +24,7 @@ test('isolated Codex home copies only config and preserves an independent state 
     const bridgeHome = path.join(temporaryRoot, 'bridge');
     fs.mkdirSync(sourceHome, { recursive: true });
     fs.writeFileSync(path.join(sourceHome, 'config.toml'), [
-      'model = "gpt-5.6-luna"',
+      'model = "gpt-bridge-auto"',
       `model_catalog_json = '${path.join(sourceHome, 'models.json')}'`,
       `NODE_REPL_NODE_MODULE_DIRS = '${path.join(sourceHome, 'node_modules')}'`,
       '[features]',
@@ -91,7 +91,7 @@ test('bridge launcher passes the isolated CODEX_HOME and profile to CLI and Desk
     const desktopStub = path.join(stubDir, 'desktop-stub.ps1');
     fs.mkdirSync(sourceHome, { recursive: true });
     fs.mkdirSync(stubDir, { recursive: true });
-    fs.writeFileSync(path.join(sourceHome, 'config.toml'), 'model = "gpt-5.6-luna"\n', 'utf8');
+    fs.writeFileSync(path.join(sourceHome, 'config.toml'), 'model = "gpt-bridge-auto"\n', 'utf8');
     fs.writeFileSync(path.join(stubDir, 'codex.ps1'), [
       '$lines = @(',
       '  "CODEX_HOME=$env:CODEX_HOME",',
@@ -145,7 +145,7 @@ test('safe mode switches leave the normal Codex home byte-for-byte unchanged', (
     const normalHome = path.join(userProfile, '.codex');
     const configPath = path.join(normalHome, 'config.toml');
     fs.mkdirSync(normalHome, { recursive: true });
-    fs.writeFileSync(configPath, 'model = "gpt-5.6-luna"\n', 'utf8');
+    fs.writeFileSync(configPath, 'model = "gpt-bridge-auto"\n', 'utf8');
     fs.writeFileSync(path.join(normalHome, 'auth.json'), 'normal-auth-sentinel', 'utf8');
     fs.writeFileSync(path.join(normalHome, 'state_1.sqlite'), 'normal-state-sentinel', 'utf8');
     const before = fs.readFileSync(configPath);

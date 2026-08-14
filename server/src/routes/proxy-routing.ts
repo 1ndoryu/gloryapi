@@ -3,33 +3,36 @@ import { Router } from 'express'
 import type { ChatMessage } from '@gloryapi/shared/types.js'
 import { getDb, getUnifiedApiKey } from '../db/index.js'
 import { getSettingNumber } from '../settings/registry.js'
+import { getRouteModelIds, resolveClientCatalogEntry } from '../services/configuration-v2.js';
 
 export const AUTO_MODEL_ID = 'auto'
 
-export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; modelId: string }>> = {
-  'deepseek-v4-flash': [
-    { platform: 'andoryyu', modelId: 'deepseek-v4-flash' },
-    { platform: 'opencode-zen', modelId: 'deepseek-v4-flash-free' },
-    { platform: 'tokenharbor', modelId: 'deepseek-v4-flash:free' },
-    { platform: 'opencode-go', modelId: 'deepseek-v4-flash' },
-  ],
-  // A provider-qualified :free ID must remain pinned to its provider. A
-  // request for the generic deepseek-v4-flash ID may use the broader chain
-  // above; this explicit ID must not silently become another model.
-  'deepseek-v4-flash:free': [
-    { platform: 'tokenharbor', modelId: 'deepseek-v4-flash:free' },
-  ],
-  // CommandCode es un proveedor de pago con selección explícita: cada uno de
-  // sus dos modelos queda fijado a su propio proveedor. Un fallo del modelo
-  // (sin clave, cuota agotada, timeout) debe devolver un error estructurado y
-  // visible, nunca un salto silencioso a un proveedor gratuito distinto.
-  'deepseek/deepseek-v4-flash': [
-    { platform: 'commandcode', modelId: 'deepseek/deepseek-v4-flash' },
-  ],
-  'meta/muse-spark-1.2-contributor': [
-    { platform: 'commandcode', modelId: 'meta/muse-spark-1.2-contributor' },
-  ],
-}
+/**
+ * Compatibility read-view for older integrations and tests.
+ *
+ * Routing no longer reads this object. It is resolved from the persisted
+ * route tables so a disabled member cannot be resurrected by a source-level
+ * list. Keeping this read-view for one migration cycle avoids breaking old
+ * diagnostics that import the symbol directly.
+ */
+export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; modelId: string }>> = new Proxy({}, {
+  get(_target, property: string | symbol) {
+    if (typeof property !== 'string') return undefined;
+    try {
+      const catalog = resolveClientCatalogEntry(property);
+      if (!catalog) return undefined;
+      const ids = getRouteModelIds(catalog.routeId);
+      if (!ids.length) return [];
+      return getDb().prepare(`
+        SELECT platform, model_id FROM models
+        WHERE id IN (${ids.map(() => '?').join(',')})
+        ORDER BY CASE id ${ids.map((id, index) => `WHEN ${id} THEN ${index}`).join(' ')} ELSE 999999 END
+      `).all(...ids) as Array<{ platform: string; modelId: string }>;
+    } catch {
+      return undefined;
+    }
+  },
+})
 
 export const PROVIDER_FAILURE_POLICY: Record<string, {
   cooldownMs: number

@@ -8,6 +8,11 @@ export type ProxyRequestTelemetry = {
   reasoningEffort?: 'low' | 'medium' | 'high' | 'max' | null
   reasoningTokens?: number
   reasoningTokensSource?: 'provider' | 'estimated' | 'none'
+  requestedModel?: string | null
+  routeId?: string | null
+  configurationRevision?: number
+  selectionReason?: string | null
+  selectionConfidence?: 'persisted' | 'legacy' | 'unknown' | null
 }
 
 export function logProxyRequest(
@@ -27,9 +32,10 @@ export function logProxyRequest(
       INSERT INTO requests (
         platform, model_id, status, input_tokens, output_tokens, latency_ms, error,
         api_key_id, request_kind, parent_request_id, cached_input_tokens, cache_write_tokens,
-        reasoning_effort, reasoning_tokens, reasoning_tokens_source
+        reasoning_effort, reasoning_tokens, reasoning_tokens_source,
+        requested_model, route_id, configuration_revision, selection_reason, selection_confidence
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       platform,
       modelId,
@@ -46,6 +52,11 @@ export function logProxyRequest(
       telemetry.reasoningEffort || null,
       Math.max(0, telemetry.reasoningTokens || 0),
       telemetry.reasoningTokensSource || 'none',
+      telemetry.requestedModel || null,
+      telemetry.routeId || null,
+      Math.max(0, telemetry.configurationRevision || 0),
+      telemetry.selectionReason || null,
+      telemetry.selectionConfidence || null,
     )
   } catch (err) {
     console.error('Failed to log request:', err)

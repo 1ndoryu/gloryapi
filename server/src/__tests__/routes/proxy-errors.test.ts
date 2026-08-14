@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { classifyProxyError } from '../../routes/proxy-errors.js';
 import { MODEL_FALLBACK_OVERRIDES } from '../../routes/proxy-routing.js';
 import { chatCompletionSchema } from '../../routes/proxy-contract.js';
 import { ANDORYYU_REGRESSION_FIXTURE } from '../fixtures/andoryyu-regression.js';
+import { initDb } from '../../db/index.js';
+
+beforeAll(() => {
+  initDb(':memory:', { catalogMode: 'operational' });
+});
 
 describe('proxy error taxonomy', () => {
   it.each([

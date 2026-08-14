@@ -35,7 +35,7 @@ function structuredTitleRequest(model, text) {
 
 test('el contrato estructurado de título se resuelve aunque el prompt no coincida', () => {
   const classifier = createRequestClassifier();
-  const title = classifier.classify(structuredTitleRequest('gpt-5.6-luna', 'hola, esto es un test'), 1000);
+  const title = classifier.classify(structuredTitleRequest('gpt-bridge-auto', 'hola, esto es un test'), 1000);
   assert.equal(title.kind, 'auxiliary_title');
   assert.equal(title.reason, 'structured_title_schema');
 });
@@ -47,7 +47,7 @@ test('el contrato estructurado no convierte otros modelos del selector en títul
 });
 
 test('la respuesta local respeta el JSON estructurado y el máximo de título', () => {
-  const body = structuredTitleRequest('gpt-5.6-luna', 'corrige las solicitudes duplicadas del bridge');
+  const body = structuredTitleRequest('gpt-bridge-auto', 'corrige las solicitudes duplicadas del bridge');
   const title = localTitle(body, titleMaxLength(body));
   const output = JSON.parse(localTitleOutput(body, title));
   assert.equal(output.title.length <= 36, true);
@@ -55,16 +55,16 @@ test('la respuesta local respeta el JSON estructurado y el máximo de título', 
   assert.match(output.title, /^corrige las solicitudes/i);
 });
 
-test('un primer request explícito a Pro no se convierte en título', () => {
+test('un primer request explícito a Auto no se convierte en título', () => {
   const classifier = createRequestClassifier();
-  const result = classifier.classify(request('gpt-5.6-luna', 'revisa el bridge'), 1000);
+  const result = classifier.classify(request('gpt-bridge-auto', 'revisa el bridge'), 1000);
   assert.equal(result.kind, 'main');
 });
 
 test('un primer request explícito a Muse no se convierte en título', () => {
   const classifier = createRequestClassifier({
     duplicateWindowMs: 15000,
-    defaultTitleModels: ['gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.6-terra'],
+    defaultTitleModels: ['gpt-5.6-sol', 'gpt-bridge-auto', 'gpt-5.6-terra'],
   });
   const result = classifier.classify(request('gpt-5.6-terra', 'revisa una imagen'), 1000);
   assert.equal(result.kind, 'main');
@@ -73,8 +73,8 @@ test('un primer request explícito a Muse no se convierte en título', () => {
 test('repetir texto entre modelos no basta para clasificar una solicitud como título', () => {
   const classifier = createRequestClassifier();
   classifier.classify(request('gpt-5.6-sol', 'misma petición'));
-  const explicitPro = classifier.classify(request('gpt-5.6-luna', 'misma petición'));
-  assert.equal(explicitPro.kind, 'main');
+  const explicitAuto = classifier.classify(request('gpt-bridge-auto', 'misma petición'));
+  assert.equal(explicitAuto.kind, 'main');
 });
 
 test('la huella no contiene el texto y el título local queda acotado', () => {

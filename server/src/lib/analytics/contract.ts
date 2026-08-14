@@ -61,6 +61,11 @@ export type HistoryRow = {
   parent_request_id: string | null;
   cached_input_tokens: number | null;
   cache_write_tokens: number | null;
+  requested_model: string | null;
+  route_id: string | null;
+  configuration_revision: number | null;
+  selection_reason: string | null;
+  selection_confidence: string | null;
   result_brief: string;
 };
 

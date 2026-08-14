@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 
-const DEFAULT_TITLE_MODELS = Object.freeze(['gpt-5.6-luna']);
+const DEFAULT_TITLE_MODELS = Object.freeze(['gpt-bridge-auto']);
 
 function textFromContent(content) {
   if (typeof content === 'string') return content;

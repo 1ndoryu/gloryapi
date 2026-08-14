@@ -23,11 +23,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DEFAULT_MODEL_CATALOG } = require('../bridge/model-catalog.js');
 
-// El picker debe reflejar el mismo contrato que /v1/models. Mantener una
-// segunda lista manual aquí provocó que los modelos existentes de OpenCode y
-// TokenHarbor no aparecieran aunque GloryAPI sí pudiera resolverlos.
-const PICKER_IDS = DEFAULT_MODEL_CATALOG.map((entry) => entry.id);
-
 const DESCRIPTIONS = {
   auto: 'Selección automática: GloryAPI elige el proveedor disponible.',
   'deepseek-v4-flash': 'Enrutamiento automático de GloryAPI con fallback entre proveedores.',
@@ -107,6 +102,27 @@ function loadTemplate(sourcePath) {
   return minimalTemplate();
 }
 
+function loadCatalogOverride(catalogPath) {
+  if (!catalogPath || !fs.existsSync(catalogPath)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+    const rows = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.entries) ? parsed.entries : null;
+    if (!rows || rows.length === 0) return null;
+    const entries = rows.map((row) => ({
+      id: String(row.id || '').trim(),
+      pickerId: row.pickerId ? String(row.pickerId).trim() : null,
+      provider: String(row.provider || 'auto').trim(),
+      displayName: String(row.displayName || row.id || '').trim(),
+      nativeVision: row.nativeVision === true,
+      supportsReasoning: row.supportsReasoning === true,
+      contextWindow: Number.isSafeInteger(row.contextWindow) ? row.contextWindow : 150000,
+    })).filter((row) => row.id && row.displayName);
+    return entries.length > 0 ? entries : null;
+  } catch {
+    return null;
+  }
+}
+
 function cloneEntry(template, catalogEntry, index) {
   const entry = JSON.parse(JSON.stringify(template));
   const contextWindow = Number.isSafeInteger(catalogEntry.contextWindow) && catalogEntry.contextWindow > 0
@@ -181,7 +197,7 @@ function resolveCacheMetadata(cachePath, metadataSourcePath) {
 }
 
 function main() {
-  const [, , sourcePathArg, outputPathArg, cachePathArg, cacheMetadataSourceArg] = process.argv;
+  const [, , sourcePathArg, outputPathArg, cachePathArg, cacheMetadataSourceArg, catalogOverridePathArg] = process.argv;
   if (!outputPathArg) {
     process.stderr.write('Usage: node build-model-catalog.cjs <models.json-origen> <models.json-destino> [models_cache.json-destino] [cache-meta-origen]\n');
     process.exitCode = 2;
@@ -191,8 +207,10 @@ function main() {
   const outputPath = path.resolve(outputPathArg);
   const template = loadTemplate(sourcePath);
 
-  const byId = new Map(DEFAULT_MODEL_CATALOG.map((entry) => [entry.id, entry]));
-  const models = PICKER_IDS.map((id, index) => {
+  const effectiveCatalog = loadCatalogOverride(catalogOverridePathArg) || DEFAULT_MODEL_CATALOG;
+  const byId = new Map(effectiveCatalog.map((entry) => [entry.id, entry]));
+  const models = effectiveCatalog.map((entry, index) => {
+    const id = entry.id;
     const catalogEntry = byId.get(id);
     if (!catalogEntry) throw new Error(`bridge catalog is missing picker model: ${id}`);
     return cloneEntry(template, catalogEntry, index);

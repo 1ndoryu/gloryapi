@@ -13,7 +13,7 @@ const {
 } = require('../bridge/model-catalog');
 
 test('the default catalog is versioned, keeps auto first and exposes the remaining CommandCode models', () => {
-  assert.equal(MODEL_CATALOG_SCHEMA, 'glory-bridge-model-catalog-v1');
+  assert.equal(MODEL_CATALOG_SCHEMA, 'glory-bridge-model-catalog-v2');
   assert.equal(DEFAULT_MODEL_CATALOG[0].id, 'auto');
   const ids = DEFAULT_MODEL_CATALOG.map((entry) => entry.id);
   assert.ok(ids.includes('deepseek/deepseek-v4-flash'));
@@ -28,17 +28,17 @@ test('the default catalog is versioned, keeps auto first and exposes the remaini
   assert.ok(DEFAULT_MODEL_CATALOG.every((entry) => entry.contextWindow === BRIDGE_CONTEXT_WINDOW));
 });
 
-test('resolveModelSelection maps missing and auto to the configured default', () => {
+test('resolveModelSelection maps missing and auto to the canonical Auto route', () => {
   const defaultModel = 'deepseek-v4-flash';
   assert.deepEqual(resolveModelSelection(DEFAULT_MODEL_CATALOG, undefined, defaultModel), {
-    id: defaultModel,
+    id: 'auto',
     provider: 'auto',
     nativeVision: false,
     supportsReasoning: true,
     explicit: false,
   });
   assert.deepEqual(resolveModelSelection(DEFAULT_MODEL_CATALOG, 'auto', defaultModel), {
-    id: defaultModel,
+    id: 'auto',
     provider: 'auto',
     nativeVision: false,
     supportsReasoning: true,
@@ -96,6 +96,16 @@ test('BRIDGE_MODEL_CATALOG_JSON overrides entries but always keeps auto', () => 
   assert.equal(catalog[0].id, 'auto');
   assert.ok(catalog.some((entry) => entry.id === 'custom/vision-model' && entry.nativeVision === true));
   assert.equal(hasNativeVision(catalog, 'custom/vision-model'), true);
+});
+
+test('the synchronized revision envelope is accepted by the same parser', () => {
+  const catalog = parseModelCatalog(JSON.stringify({
+    schemaVersion: 'glory-bridge-model-catalog-v2',
+    revision: 7,
+    entries: [{ id: 'command/model', provider: 'commandcode', displayName: 'Command model' }],
+  }));
+  assert.equal(catalog[0].id, 'auto');
+  assert.ok(catalog.some(entry => entry.id === 'command/model'));
 });
 
 test('malformed override JSON falls back to the default catalog', () => {

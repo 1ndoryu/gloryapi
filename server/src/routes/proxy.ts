@@ -30,6 +30,7 @@ import {
 } from '../services/routing-trace.js';
 import { classifyProxyError, type ProxyErrorClassification } from './proxy-errors.js';
 import { resolveProxyModelSelection } from './routing/proxy-selection.js';
+import { currentConfigurationRevision } from '../services/configuration-v2.js';
 import { validateCanaryRoutingDirective } from './routing/canary-routing.js';
 import {
   reasoningTelemetryFromUsage,
@@ -99,6 +100,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = safeRequestId(req);
   const telemetry = requestTelemetry(req);
+  let selectionTelemetry: Pick<ProxyRequestTelemetry, 'requestedModel' | 'routeId' | 'configurationRevision' | 'selectionReason' | 'selectionConfidence'> = {};
   let requestedReasoningEffort: ProxyRequestTelemetry['reasoningEffort'] = null;
   const logRequest = (
     platform: string,
@@ -113,6 +115,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     reasoning?: ReasoningTelemetry,
   ) => logProxyRequest(platform, modelId, status, inputTokens, outputTokens, latencyMs, error, keyId, {
     ...telemetry,
+    ...selectionTelemetry,
     reasoningEffort: requestedReasoningEffort,
     ...cacheTelemetry(usage),
     ...(reasoning ?? reasoningTelemetryFromUsage(usage)),
@@ -198,6 +201,13 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     });
     return;
   }
+  selectionTelemetry = {
+    requestedModel: requestedModel ?? null,
+    routeId: selection.routeId ?? null,
+    configurationRevision: currentConfigurationRevision(),
+    selectionReason: selection.selectionReason ?? null,
+    selectionConfidence: selection.selectionConfidence ?? 'unknown',
+  };
   const { preferredModel, restrictedChain } = selection;
 
   // Retry loop: on 429/rate limit, skip that model+key and try the next one

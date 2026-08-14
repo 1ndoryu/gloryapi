@@ -53,6 +53,24 @@ export interface FallbackSnapshot {
   runtime?: FallbackRuntime
 }
 
+export interface ConfiguredModel {
+  modelDbId: number
+  platform: string
+  modelId: string
+  displayName: string
+  enabled: boolean
+  contextWindow: number | null
+  nativeVision: boolean
+  supportsReasoning: boolean
+  routeIds: string[]
+}
+
+export interface ConfigurationSnapshot {
+  schemaVersion: 'glory-configuration-v2'
+  revision: number
+  models: ConfiguredModel[]
+}
+
 async function listenForRoutingChanges(
   signal: AbortSignal,
   onChange: () => void,
@@ -91,6 +109,10 @@ export function useFallbackPage() {
   const { data: snapshot, isLoading } = useQuery<FallbackSnapshot>({
     queryKey: ['fallback'],
     queryFn: () => apiFetch('/api/fallback'),
+  })
+  const { data: configuration } = useQuery<ConfigurationSnapshot>({
+    queryKey: ['configuration'],
+    queryFn: () => apiFetch('/api/configuration'),
   })
   const entries = snapshot?.entries ?? []
 
@@ -131,6 +153,17 @@ export function useFallbackPage() {
       setSaveError((error as Error).message)
       queryClient.invalidateQueries({ queryKey: ['fallback'] })
     },
+  })
+
+  const modelMutation = useMutation({
+    mutationFn: (input: { modelDbId: number; patch: Partial<Omit<ConfiguredModel, 'modelDbId' | 'platform' | 'modelId' | 'routeIds'>> }) => {
+      const { modelDbId, patch } = input
+      return apiFetch<ConfigurationSnapshot>(`/api/configuration/models/${modelDbId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...patch, expectedRevision: configuration?.revision }),
+      })
+    },
+    onSuccess: next => queryClient.setQueryData(['configuration'], next),
   })
 
   const allEntries = localEntries ?? entries
@@ -187,5 +220,7 @@ export function useFallbackPage() {
     eventError,
     saveMutation,
     saveError,
+    configuration,
+    modelMutation,
   }
 }

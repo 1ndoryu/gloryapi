@@ -11,6 +11,8 @@
  *
  * Each entry:
  *   - id:          wire model id sent to the upstream chat/completions API.
+ *   - wireModel:   canonical route/model sent upstream (presentation aliases
+ *                  such as DeepSeek Flash (Auto) use `auto`).
  *   - pickerId:     optional Desktop-safe id used only by the model picker.
  *   - provider:    owning provider slug (or 'auto' for the router default).
  *   - displayName: human-readable Spanish label for the model picker.
@@ -22,7 +24,7 @@
  *   - contextWindow: informational token window for the picker (nullable).
  */
 
-const MODEL_CATALOG_SCHEMA = 'glory-bridge-model-catalog-v1';
+const MODEL_CATALOG_SCHEMA = 'glory-bridge-model-catalog-v2';
 const AUTO_MODEL_ID = 'auto';
 // Desktop must see one conservative threshold for every provider/model. The
 // upstreams may advertise larger windows, but the bridge needs Codex to
@@ -32,15 +34,16 @@ const MAX_CATALOG_ENTRIES = 64;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
 const PROVIDER_PATTERN = /^(auto|[a-z][a-z0-9-]{0,63})$/;
 
-// `auto` resolves to `config.upstream.model` (the current default) and keeps
-// the existing GloryAPI routing/fallback chain. The explicit rows below mirror
-// the catalog GloryAPI already exposes plus the two remaining CommandCode models the
-// user can pin. Muse Spark 1.2 is the only native-vision model in this set.
+// `auto` remains the canonical wire id and is resolved only by GloryAPI's
+// persisted route:auto. The bridge never substitutes a provider/model here.
+// The explicit rows below are a compatibility bootstrap; the launcher will
+// replace them with the versioned GloryAPI projection once available.
 const DEFAULT_MODEL_CATALOG = [
   {
     id: 'auto',
     pickerId: 'codex-auto-review',
     provider: 'auto',
+    wireModel: 'auto',
     displayName: 'Auto (router de GloryAPI)',
     nativeVision: false,
     supportsReasoning: true,
@@ -50,6 +53,7 @@ const DEFAULT_MODEL_CATALOG = [
     id: 'deepseek-v4-flash',
     pickerId: 'gpt-5.4',
     provider: 'auto',
+    wireModel: 'auto',
     displayName: 'DeepSeek V4 Flash (Auto)',
     nativeVision: false,
     supportsReasoning: true,
@@ -96,16 +100,18 @@ const DEFAULT_MODEL_CATALOG = [
 function normalizeEntry(raw, index) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const id = typeof raw.id === 'string' ? raw.id.trim() : '';
+  const wireModel = typeof raw.wireModel === 'string' && raw.wireModel.trim() ? raw.wireModel.trim() : id;
   const provider = typeof raw.provider === 'string' ? raw.provider.trim().toLowerCase() : '';
   const displayName = typeof raw.displayName === 'string' ? raw.displayName.trim().slice(0, 128) : '';
   const pickerId = raw.pickerId == null ? null : (typeof raw.pickerId === 'string' ? raw.pickerId.trim() : '');
-  if (!MODEL_ID_PATTERN.test(id) || !PROVIDER_PATTERN.test(provider) || !displayName) return null;
+  if (!MODEL_ID_PATTERN.test(id) || !MODEL_ID_PATTERN.test(wireModel) || !PROVIDER_PATTERN.test(provider) || !displayName) return null;
   if (pickerId !== null && !MODEL_ID_PATTERN.test(pickerId)) return null;
   const contextWindow = raw.contextWindow == null || Number.isSafeInteger(raw.contextWindow)
     ? (Number.isSafeInteger(raw.contextWindow) ? raw.contextWindow : null)
     : null;
   return {
     id,
+    wireModel,
     pickerId,
     provider,
     displayName,
@@ -123,6 +129,10 @@ function parseModelCatalog(raw) {
   } catch {
     return DEFAULT_MODEL_CATALOG;
   }
+  // GloryAPI persists the catalog as a signed revision envelope. Keep the
+  // array form for local tests and hand-written overrides, but consume the
+  // same envelope that the launcher syncs from the database.
+  if (!Array.isArray(rows) && rows && typeof rows === 'object' && Array.isArray(rows.entries)) rows = rows.entries;
   if (!Array.isArray(rows)) return DEFAULT_MODEL_CATALOG;
   const entries = [];
   const seen = new Set();
@@ -138,6 +148,7 @@ function parseModelCatalog(raw) {
   if (!entries.some((entry) => entry.id === AUTO_MODEL_ID)) {
     entries.unshift({
       id: AUTO_MODEL_ID,
+      wireModel: AUTO_MODEL_ID,
       provider: 'auto',
       displayName: 'Auto (router de GloryAPI)',
       nativeVision: false,
@@ -152,7 +163,7 @@ function parseModelCatalog(raw) {
  * Map the client's requested model (body.model in the Responses request) to
  * the wire model id and its native-vision capability.
  *
- * - missing / 'auto' -> the configured default model (current behavior).
+ * - missing / 'auto' -> the canonical `auto` route.
  * - known catalog id -> that exact wire id + its nativeVision flag.
  * - unknown id        -> pass through unchanged (GloryAPI returns the
  *   structured model_not_found error) with fail-closed lossy vision: never
@@ -163,20 +174,19 @@ function resolveModelSelection(catalog, requestedModel, defaultModel) {
     ? requestedModel.trim()
     : '';
   if (!requested || requested === AUTO_MODEL_ID) {
-    const defaultEntry = catalog.find((candidate) => candidate.id === defaultModel);
     const autoEntry = catalog.find((candidate) => candidate.id === AUTO_MODEL_ID);
     return {
-      id: defaultModel,
+      id: AUTO_MODEL_ID,
       provider: 'auto',
       nativeVision: false,
-      supportsReasoning: defaultEntry?.supportsReasoning === true || autoEntry?.supportsReasoning === true,
+      supportsReasoning: autoEntry?.supportsReasoning === true,
       explicit: false,
     };
   }
   const entry = catalog.find((candidate) => candidate.id === requested || candidate.pickerId === requested);
   if (entry) {
     return {
-      id: entry.id,
+      id: entry.wireModel || entry.id,
       provider: entry.provider,
       nativeVision: entry.nativeVision === true,
       supportsReasoning: entry.supportsReasoning === true,

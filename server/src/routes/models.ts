@@ -29,6 +29,8 @@ type ModelRow = {
   enabled: number;
   priority: number | null;
   fallback_enabled: number | null;
+  native_vision: number;
+  supports_reasoning: number;
 };
 
 function compareModelsForCatalog(a: { enabled: boolean; intelligenceRank: number; speedRank: number; displayName: string }, b: { enabled: boolean; intelligenceRank: number; speedRank: number; displayName: string }) {
@@ -81,6 +83,8 @@ modelsRouter.get('/', (_req: Request, res: Response) => {
     enabled: m.enabled === 1,
     priority: m.priority,
     fallbackEnabled: m.fallback_enabled === 1,
+    nativeVision: m.native_vision === 1,
+    supportsReasoning: m.supports_reasoning === 1,
     hasProvider: hasProvider(m.platform),
     keyCount: keyCountMap.get(m.platform) ?? 0,
   })).sort(compareModelsForCatalog);
