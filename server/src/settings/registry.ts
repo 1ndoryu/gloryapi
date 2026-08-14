@@ -14,6 +14,7 @@ import type {
   SettingValue,
 } from '@gloryapi/shared/types.js';
 import { getRegistrySnapshot, KNOWN_PROVIDER_PLATFORMS } from '../providers/registry.js';
+import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 
 export { SETTINGS_SCHEMA_VERSION };
 import { commitRawValues, getRevision } from './persistence.js';
@@ -184,7 +185,8 @@ function readOverride<T>(key: string): T {
 }
 
 function assertKnownPlatform(platform: string): void {
-  if (!(KNOWN_PROVIDER_PLATFORMS as readonly string[]).includes(platform)) {
+  const configured = getConfiguredProviderFromDb(getDb(), platform);
+  if (!(KNOWN_PROVIDER_PLATFORMS as readonly string[]).includes(platform) && !configured) {
     throw new SettingsValidationError(`Unknown provider: ${platform}`);
   }
 }

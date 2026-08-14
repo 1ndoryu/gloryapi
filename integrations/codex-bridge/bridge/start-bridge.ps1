@@ -49,7 +49,7 @@ $RuntimeScript = Join-Path $BridgeDir 'start-gloryapi.ps1'
 function Test-ExpectedBridge {
     try {
         $result = Invoke-RestMethod -Uri $Health -TimeoutSec 2
-        return $result.ok -and $result.service -eq 'gloryapi-codex-bridge' -and $result.model -eq 'deepseek-v4-flash'
+        return $result.ok -and $result.service -eq 'gloryapi-codex-bridge'
     }
     catch { return $false }
 }
@@ -145,18 +145,36 @@ if ([string]::IsNullOrWhiteSpace($upstreamToken)) {
 }
 
 # The picker and request translator consume the same revisioned projection.
-# If the runtime is temporarily unavailable, keep the last-known-good file and
-# let the bridge start with its validated bootstrap catalog.
+# There is no compiled provider catalog fallback: if the first synchronization
+# fails, startup is rejected; an existing valid projection may be reused.
 $catalogSyncScript = Join-Path $BridgeDir '..\mode\sync-model-catalog.cjs'
 $catalogFile = Join-Path $RuntimeDir 'bridge-model-catalog.json'
+function Test-ValidCatalogFile([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    try {
+        $catalog = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        return $catalog.schemaVersion -eq 'glory-bridge-model-catalog-v2' -and
+            [int]$catalog.revision -ge 0 -and
+            -not [string]::IsNullOrWhiteSpace([string]$catalog.hash) -and
+            @($catalog.entries).Count -gt 0 -and
+            @($catalog.entries | Where-Object { $_.id -eq 'auto' }).Count -eq 1
+    }
+    catch { return $false }
+}
 if (Test-Path -LiteralPath $catalogSyncScript -PathType Leaf) {
     $previousGloryApiKey = $env:GLORY_API_KEY
     try {
         $env:GLORY_API_KEY = $upstreamToken
         & $node $catalogSyncScript $catalogFile
-        if ($LASTEXITCODE -ne 0) { Write-Warning 'No se pudo sincronizar el catálogo; se conserva el último catálogo válido.' }
+        if ($LASTEXITCODE -ne 0) {
+            if (-not (Test-ValidCatalogFile $catalogFile)) { throw 'No se pudo sincronizar el catálogo y no existe una proyección válida previa.' }
+            Write-Warning 'No se pudo sincronizar el catálogo; se conserva la última proyección válida.'
+        }
     }
-    catch { Write-Warning "No se pudo sincronizar el catálogo: $($_.Exception.Message)" }
+    catch {
+        if (-not (Test-ValidCatalogFile $catalogFile)) { throw "No se pudo sincronizar el catálogo: $($_.Exception.Message)" }
+        Write-Warning "No se pudo sincronizar el catálogo; se conserva la última proyección válida: $($_.Exception.Message)"
+    }
     finally { $env:GLORY_API_KEY = $previousGloryApiKey }
 }
 

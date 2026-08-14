@@ -48,7 +48,7 @@ function contractStatus(result) {
 }
 
 const expectedAuthScript = path.resolve(__dirname, '..', 'mode', 'get-codex-auth.ps1').replaceAll('\\', '\\\\');
-const validDeepseekProfile = `model = "deepseek-v4-flash"
+const validDeepseekProfile = `model = "auto"
 model_provider = "gloryapi-canary"
 
 [model_providers.gloryapi-canary]
@@ -72,7 +72,7 @@ test('activation preflight rejects unsafe or incomplete DeepSeek profiles', () =
   const authOnlyInComment = validDeepseekProfile
     .replace(`args = ["-File", "${expectedAuthScript}"]`, 'args = ["-File", "other-auth.ps1"]\n# get-codex-auth.ps1');
   assert.equal(contractStatus(runPreflight(authOnlyInComment)), 'fail');
-  assert.equal(contractStatus(runPreflight(validDeepseekProfile.replace('deepseek-v4-flash', 'other-model'))), 'fail');
+  assert.equal(contractStatus(runPreflight(validDeepseekProfile.replace('model = "auto"', 'model = "other-model"'))), 'fail');
   assert.equal(contractStatus(runPreflight(validDeepseekProfile.replace(expectedAuthScript, `${expectedAuthScript}-evil`))), 'fail');
   assert.equal(contractStatus(runPreflight(validDeepseekProfile.replace('"-File", "', '"--script", "'))), 'fail');
   assert.equal(contractStatus(runPreflight(validDeepseekProfile.replace(expectedAuthScript, 'C:\\\\temp\\\\get-codex-auth.ps1'))), 'fail');
@@ -85,7 +85,7 @@ test('mode controller rejects an invalid profile before starting or mutating the
   const config = path.join(codexHome, 'config.toml');
   const deepseek = path.join(codexHome, 'config.deepseek.toml');
   fs.writeFileSync(config, 'model = "gpt-bridge-auto"\n', 'utf8');
-  fs.writeFileSync(deepseek, 'model = "deepseek-v4-flash"\nmodel_provider = "freellm"\n', 'utf8');
+  fs.writeFileSync(deepseek, 'model = "auto"\nmodel_provider = "freellm"\n', 'utf8');
   const before = fs.readFileSync(config);
   try {
     const result = spawnSync('powershell.exe', [

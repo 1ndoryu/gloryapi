@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { ROUTING_SCHEMA_VERSION, type RoutingPolicyEntry, type RoutingPolicySnapshot } from '@gloryapi/shared/types.js';
 import crypto from 'node:crypto';
+import { invalidateRoutingSnapshot } from './configuration-v2.js';
 
 const ROUTING_REVISION_KEY = 'routing_revision';
 
@@ -126,5 +127,6 @@ export function updateRoutingPolicy(entries: unknown, expectedRevision?: number)
     db.exec('ROLLBACK');
     throw error;
   }
+  invalidateRoutingSnapshot();
   return getRoutingSnapshot(validated);
 }

@@ -4,14 +4,20 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { createRequestTranslator, normalizeReasoningEffort } = require('../bridge/request-translator');
-const { DEFAULT_MODEL_CATALOG } = require('../bridge/model-catalog');
+const { parseModelCatalog } = require('../bridge/model-catalog');
+
+const TEST_CATALOG = parseModelCatalog(JSON.stringify([
+  { id: 'deepseek/deepseek-v4-flash', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
+  { id: 'deepseek-v4-flash:free', provider: 'tokenharbor', displayName: 'DeepSeek Flash Free', supportsReasoning: false },
+  { id: 'meta/muse-spark-1.2-contributor', pickerId: 'gpt-5.6-terra', provider: 'commandcode', displayName: 'Muse Spark', nativeVision: true, supportsReasoning: true },
+]));
 
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
 function buildConfig() {
   return {
-    upstream: { model: 'deepseek-v4-flash' },
-    catalog: { entries: DEFAULT_MODEL_CATALOG },
+    upstream: { model: 'auto' },
+    catalog: { entries: TEST_CATALOG },
     vision: {
       channelNote: '[visión] Las imágenes se te entregan como texto.',
       failureNote: '[visión] La imagen sí fue recibida por el bridge.',
@@ -93,7 +99,7 @@ test('Responses effort reaches Muse as canonical reasoning_effort', async () => 
 test('unsupported models do not receive a reasoning control', async () => {
   const { translateRequest } = createTranslator();
   const { chat } = await translateRequest({
-    model: 'gpt-5.5',
+    model: 'deepseek-v4-flash:free',
     reasoning: { effort: 'high' },
     stream: true,
     input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'respuesta breve' }] }],

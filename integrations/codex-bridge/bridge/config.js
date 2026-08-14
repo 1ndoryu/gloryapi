@@ -1,6 +1,6 @@
 const path = require('node:path');
 const fs = require('node:fs');
-const { MODEL_CATALOG_SCHEMA, parseModelCatalog } = require('./model-catalog');
+const { MODEL_CATALOG_SCHEMA, parseModelCatalogDetailed } = require('./model-catalog');
 
 function boundedEnvInt(name, fallback, minimum, maximum, env = process.env) {
   const parsed = Number.parseInt(env[name] || '', 10);
@@ -97,7 +97,7 @@ function catalogOverride(env) {
   if (!file) return '';
   try { return fs.readFileSync(file, 'utf8'); } catch { return ''; }
 }
-const modelCatalog = parseModelCatalog(catalogOverride(env));
+const modelCatalog = parseModelCatalogDetailed(catalogOverride(env));
 
 // One flat, serialisable configuration object keeps deployment-specific values
 // out of the adapters. A different provider can now override these variables
@@ -123,7 +123,7 @@ const config = Object.freeze({
     // Kept as a legacy health/compaction default. Request translation maps a
     // missing selector or explicit Auto to the canonical `auto` route instead
     // of using this value as a routing decision.
-    model: firstEnv(env, ['BRIDGE_MODEL', 'GLORY_MODEL', 'FREEL_MODEL'], 'deepseek-v4-flash'),
+    model: firstEnv(env, ['BRIDGE_MODEL', 'GLORY_MODEL', 'FREEL_MODEL'], 'auto'),
     authScheme: firstEnv(env, ['BRIDGE_UPSTREAM_AUTH_SCHEME'], 'Bearer'),
     host: loopbackHost(env.BRIDGE_HOST),
     port: boundedEnvInt('BRIDGE_PORT', 4100, 1, 65535),
@@ -158,7 +158,10 @@ const config = Object.freeze({
   },
   catalog: {
     schema: MODEL_CATALOG_SCHEMA,
-    entries: modelCatalog,
+    entries: modelCatalog.entries,
+    state: modelCatalog.state,
+    revision: modelCatalog.revision,
+    hash: modelCatalog.hash,
   },
   limits: {
     maxBodyBytes: boundedEnvInt('BRIDGE_MAX_BODY_BYTES', 8 * 1024 * 1024, 1024, 16 * 1024 * 1024),
@@ -275,7 +278,7 @@ const config = Object.freeze({
     keepTokens: boundedEnvInt('COMPACT_KEEP_TOKENS', 30000, 100, 500000),
     summaryMaxTokens: boundedEnvInt('COMPACT_MAX_TOKENS', 16000, 256, 100000),
     safetyFactor: boundedEnvFloat('BRIDGE_COMPACTION_SAFETY_FACTOR', 1.25, 0, 4),
-    summaryModel: firstEnv(env, ['BRIDGE_COMPACTION_MODEL', 'BRIDGE_MODEL', 'GLORY_MODEL', 'FREEL_MODEL'], 'deepseek-v4-flash'),
+    summaryModel: firstEnv(env, ['BRIDGE_COMPACTION_MODEL', 'BRIDGE_MODEL', 'GLORY_MODEL', 'FREEL_MODEL'], 'auto'),
   },
   search: {
     timeoutMs: boundedEnvInt('BRIDGE_SEARCH_TIMEOUT_MS', 8000, 100, 60000),

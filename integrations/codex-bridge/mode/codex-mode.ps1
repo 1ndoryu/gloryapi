@@ -92,7 +92,7 @@ function Get-CurrentMode {
 function Get-BridgeHealth {
     try {
         $health = Invoke-RestMethod -Uri 'http://127.0.0.1:4100/health' -TimeoutSec 2
-        if ($health.ok -and $health.service -eq 'gloryapi-codex-bridge' -and $health.model -eq 'deepseek-v4-flash') {
+        if ($health.ok -and $health.service -eq 'gloryapi-codex-bridge' -and $health.catalog -and $health.catalog.entries -ge 1) {
             return $health
         }
     }

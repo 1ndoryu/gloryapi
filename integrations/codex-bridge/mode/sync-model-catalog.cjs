@@ -4,12 +4,23 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
 function writeAtomic(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temp = `${filePath}.tmp.${process.pid}`;
+  const backup = `${filePath}.bak.${process.pid}`;
   fs.writeFileSync(temp, value, 'utf8');
-  fs.renameSync(temp, filePath);
+  const hadTarget = fs.existsSync(filePath);
+  try {
+    if (hadTarget) fs.renameSync(filePath, backup);
+    fs.renameSync(temp, filePath);
+    if (hadTarget) fs.rmSync(backup, { force: true });
+  } catch (error) {
+    if (!fs.existsSync(filePath) && fs.existsSync(backup)) fs.renameSync(backup, filePath);
+    if (fs.existsSync(temp)) fs.rmSync(temp, { force: true });
+    throw error;
+  }
 }
 
 function requestJson(url, token) {
@@ -55,6 +66,8 @@ async function main() {
     contextWindow: Number.isSafeInteger(entry.contextWindow) ? entry.contextWindow : 150000,
   }));
   if (!entries.some(entry => entry.id === 'auto')) throw new Error('catalog projection omitted auto');
+  const hash = crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');
+  if (projection.hash !== hash) throw new Error('catalog projection hash mismatch');
   writeAtomic(outputPath, JSON.stringify({ schemaVersion: projection.schemaVersion, revision: projection.revision, hash: projection.hash, entries }, null, 2));
   process.stdout.write(`bridge catalog synchronized revision=${projection.revision} entries=${entries.length}\n`);
 }

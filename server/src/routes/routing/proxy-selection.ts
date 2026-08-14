@@ -24,7 +24,7 @@ export function resolveProxyModelSelection(
     }
     const route = getRouteModelIds(AUTO_ROUTE_ID);
     return route.length > 0
-      ? { preferredModel: undefined, restrictedChain: route, routeId: AUTO_ROUTE_ID, selectionReason: 'auto_route', selectionConfidence: 'persisted' }
+      ? { preferredModel: (() => { const sticky = getStickyModel(messages); return sticky !== undefined && route.includes(sticky) ? sticky : undefined })(), restrictedChain: route, routeId: AUTO_ROUTE_ID, selectionReason: 'auto_route', selectionConfidence: 'persisted' }
       : { error: { code: 'model_not_found', message: 'The auto route has no enabled members.' } };
   }
 

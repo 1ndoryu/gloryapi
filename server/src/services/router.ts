@@ -3,20 +3,12 @@ import { getProvider } from '../providers/index.js';
 import { resolveStoredCredential } from '../lib/dpapi-vault.js';
 import { canMakeRequest, canUseTokens, isOnCooldown, isNearLimit } from './ratelimit.js';
 import { isProviderOnCooldown } from './health.js';
+import { getConfiguredProviderFromDb } from './provider-configuration.js';
+import { AUTO_ROUTE_ID, getRouteModelIds, getRoutingModel, type RoutingModelSnapshot } from './configuration-v2.js';
 import type { BaseProvider } from '../providers/base.js';
 import type { Platform } from '@gloryapi/shared/types.js';
 
-interface ModelRow {
-  id: number;
-  platform: Platform;
-  model_id: string;
-  display_name: string;
-  rpm_limit: number | null;
-  rpd_limit: number | null;
-  tpm_limit: number | null;
-  tpd_limit: number | null;
-  cold_start_retry_ms: number | null;
-}
+type ModelRow = RoutingModelSnapshot & { platform: Platform };
 
 interface KeyRow {
   id: number;
@@ -56,6 +48,8 @@ function tryRouteSpecificModel(
   excludedModels?: Set<string>,
 ): RouteResult | undefined {
   if (excludedModels?.has(`${model.platform}:${model.model_id}`)) return undefined;
+  const configuredProvider = getConfiguredProviderFromDb(getDb(), model.platform);
+  if (configuredProvider && (!configuredProvider.enabled || configuredProvider.lifecycle !== 'active')) return undefined;
   /* [2076-15] Skip entire provider if on cooldown (3+ consecutive failures). */
   if (isProviderOnCooldown(model.platform)) return undefined;
 
@@ -220,10 +214,8 @@ export function routeRequest(
   restrictedFallbackChain?: number[],
   excludedModels?: Set<string>,
 ): RouteResult {
-  const db = getDb();
-
   if (preferredModelDbId) {
-    const preferredModel = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(preferredModelDbId) as ModelRow | undefined;
+    const preferredModel = getRoutingModel(preferredModelDbId) as ModelRow | undefined;
     /* [255A-1] Explicitly requested models may be intentionally excluded from
      * the automatic fallback chain. Try the preferred model directly first so
      * explicit-only catalog rows still work without contaminating `auto`. */
@@ -246,7 +238,7 @@ export function routeRequest(
       // Apply dynamic penalty to the restricted chain too
       const effectivePriority = getPenalty(modelDbId);
 
-      const model = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(modelDbId) as ModelRow | undefined;
+      const model = getRoutingModel(modelDbId) as ModelRow | undefined;
       if (!model) continue;
 
       // Penalized models sink to the end within the restricted chain
@@ -261,7 +253,7 @@ export function routeRequest(
 
     // Second pass: try penalized models (all have exhausted non-penalized)
     for (const modelDbId of restrictedFallbackChain) {
-      const model = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(modelDbId) as ModelRow | undefined;
+      const model = getRoutingModel(modelDbId) as ModelRow | undefined;
       if (!model) continue;
       const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys, excludedModels);
       if (route) return route;
@@ -273,11 +265,11 @@ export function routeRequest(
   }
 
   // Get fallback chain ordered by priority
-  const fallbackChain = db.prepare(`
-    SELECT fc.model_db_id, fc.priority, fc.enabled
-    FROM fallback_config fc
-    ORDER BY fc.priority ASC
-  `).all() as FallbackRow[];
+  const fallbackChain: FallbackRow[] = getRouteModelIds(AUTO_ROUTE_ID).map((modelDbId, index) => ({
+    model_db_id: modelDbId,
+    priority: index + 1,
+    enabled: 1,
+  }));
 
   // Apply dynamic penalties: sort by (base priority + penalty)
   const sortedChain = fallbackChain.map(entry => ({
@@ -298,7 +290,7 @@ export function routeRequest(
     if (!entry.enabled) continue;
 
     // Get model details
-    const model = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(entry.model_db_id) as ModelRow | undefined;
+    const model = getRoutingModel(entry.model_db_id) as ModelRow | undefined;
     if (!model) continue;
     const route = tryRouteSpecificModel(model, estimatedTokens, skipKeys, excludedModels);
     if (route) return route;
@@ -311,7 +303,7 @@ export function routeRequest(
    * (already embedded in fallback_config priority). */
   for (const entry of sortedChain) {
     if (!entry.enabled) continue;
-    const model = db.prepare('SELECT * FROM models WHERE id = ? AND enabled = 1').get(entry.model_db_id) as ModelRow | undefined;
+    const model = getRoutingModel(entry.model_db_id) as ModelRow | undefined;
     if (!model) continue;
     const route = tryRouteSpecificModelRelaxed(model, estimatedTokens, skipKeys, excludedModels);
     if (route) return route;

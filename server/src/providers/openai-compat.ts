@@ -16,6 +16,8 @@ import {
 import { getProviderErrorMessage } from './error-response.js';
 import { assertEffectiveModel, createModelIdentityError, extractEffectiveModel } from './compat/model-identity.js';
 import { getEffectiveProviderModelSettings } from '../settings/registry.js';
+import { getDb } from '../db/index.js';
+import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 import { streamOpenAICompatStream } from './compat/openai-stream.js';
 
 export function replaceNullAssistantContent(messages: ChatMessage[]): ChatMessage[] {
@@ -142,6 +144,19 @@ export class OpenAICompatProvider extends BaseProvider {
         timeoutMs: this.timeoutMs,
         modelAlias: null,
       };
+    }
+
+    try {
+      const configured = getConfiguredProviderFromDb(getDb(), this.platform);
+      if (configured && configured.enabled && configured.lifecycle === 'active') {
+        return {
+          baseUrl: configured.endpoint,
+          timeoutMs: configured.timeoutMs,
+          modelAlias: modelId ? configured.transport.modelAliases[modelId] ?? null : null,
+        };
+      }
+    } catch {
+      // Isolated provider tests may call an adapter before DB initialization.
     }
 
     try {

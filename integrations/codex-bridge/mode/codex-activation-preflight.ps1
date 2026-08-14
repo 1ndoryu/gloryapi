@@ -79,7 +79,7 @@ $deepseekConfigPath = Join-Path $CodexHome 'config.deepseek.toml'
 $deepseekConfig = if (Test-Path -LiteralPath $deepseekConfigPath) { Get-Content -LiteralPath $deepseekConfigPath -Raw } else { '' }
 $providerDeclaration = [regex]::Match($deepseekConfig, '(?m)^\s*model_provider\s*=\s*["'']([^"'']+)["'']\s*$')
 $expectedAuthScript = Normalize-Path (Join-Path $expectedMode 'get-codex-auth.ps1')
-$modelContract = ($deepseekConfig -match '(?m)^\s*model\s*=\s*["'']deepseek-v4-flash["'']\s*$')
+$modelContract = ($deepseekConfig -match '(?m)^\s*model\s*=\s*["'']auto["'']\s*$')
 $deepseekContract = $false
 if ($providerDeclaration.Success) {
     $providerName = $providerDeclaration.Groups[1].Value
@@ -117,7 +117,7 @@ if ($SkipHealth) {
     try {
         $healthResponse = Invoke-WebRequest -UseBasicParsing -Uri $expectedHealthUrl -TimeoutSec 2
         $health = $healthResponse.Content | ConvertFrom-Json
-        $healthPassed = ($health.service -eq 'gloryapi-codex-bridge') -and ($health.model -eq 'deepseek-v4-flash')
+        $healthPassed = ($health.service -eq 'gloryapi-codex-bridge') -and ($health.catalog.entries -ge 1)
     } catch {
         $healthPassed = $false
     }

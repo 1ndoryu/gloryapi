@@ -6,6 +6,7 @@ import { maskKey } from '../lib/crypto.js';
 import { credentialVault, DPAPI_ENCRYPTION_SCHEME, resolveStoredCredential } from '../lib/dpapi-vault.js';
 import { ACTIVE_PROVIDER_PLATFORMS, ARCHIVED_PROVIDER_PLATFORMS } from '../providers/registry.js';
 import { requireAdmin } from '../lib/admin-auth.js';
+import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 
 export const keysRouter = Router();
 keysRouter.use((req, res, next) => {
@@ -39,7 +40,7 @@ function canStoreCredential(platform: string): boolean {
   const draft = getDb().prepare(
     "SELECT 1 FROM provider_registry WHERE platform = ? AND lifecycle = 'draft'",
   ).get(platform);
-  return Boolean(draft);
+  return Boolean(draft) || Boolean(getConfiguredProviderFromDb(getDb(), platform));
 }
 
 // List all keys (masked)

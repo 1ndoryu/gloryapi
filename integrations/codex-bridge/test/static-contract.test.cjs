@@ -186,10 +186,11 @@ test('the versioned Responses fixture covers lifecycle and tool invariants', () 
   assert.match(server, /VISION_DISABLE/);
 });
 
-test('the model selector is a versioned catalog and Muse keeps native vision', () => {
+test('the model selector is a versioned persisted catalog with an Auto-only fallback', () => {
   assert.match(server, /glory-bridge-model-catalog-v2/);
   assert.match(server, /BRIDGE_MODEL_CATALOG_JSON/);
-  assert.match(server, /meta\/muse-spark-1\.2-contributor/);
+  assert.match(server, /DEFAULT_MODEL_CATALOG/);
+  assert.doesNotMatch(server, /deepseek-v4-pro/);
   assert.match(server, /nativeVision/);
   assert.match(server, /type: 'image_url', image_url: \{ url: image\.image_url \}/);
   assert.match(server, /resolveModelSelection\(MODEL_CATALOG, body\.model, DEFAULT_MODEL\)/);
@@ -368,7 +369,7 @@ test('activation preflight is read-only and detects the real Codex consumer cont
   assert.match(activationPreflight, /SkipHealth/);
   assert.match(activationPreflight, /healthChecked/);
   assert.match(activationPreflight, /gloryapi-codex-bridge/);
-  assert.match(activationPreflight, /deepseek-v4-flash/);
+  assert.match(activationPreflight, /modelContract/);
   assert.doesNotMatch(activationPreflight, /Move-Item|Set-Content|Remove-Item|New-Item|Start-Process|Stop-Process/);
   assert.match(upstreamAuth, /readonly: true/);
   assert.match(upstreamAuth, /unified_api_key/);

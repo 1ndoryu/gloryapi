@@ -4,6 +4,7 @@ import type { ChatMessage } from '@gloryapi/shared/types.js'
 import { getDb, getUnifiedApiKey } from '../db/index.js'
 import { getSettingNumber } from '../settings/registry.js'
 import { getRouteModelIds, resolveClientCatalogEntry } from '../services/configuration-v2.js';
+import { getConfiguredProviderFromDb, type ProviderFailurePolicy } from '../services/provider-configuration.js';
 
 export const AUTO_MODEL_ID = 'auto'
 
@@ -34,43 +35,20 @@ export const MODEL_FALLBACK_OVERRIDES: Record<string, Array<{ platform: string; 
   },
 })
 
-export const PROVIDER_FAILURE_POLICY: Record<string, {
-  cooldownMs: number
-  /** Cooldown escalado cuando el fallo es rate_limited (429) en vez de
-   * transitorio. Pools con cuota diaria (opencode-zen ~4M tokens/día) agotan
-   * la cuota: reintentarlos a los 5 min martillea un pool seco. */
-  rateLimitCooldownMs?: number
-  recordPenalty: boolean
-  recordProviderFailure: boolean
-}> = {
-  // Proveedores gratuitos (andoryyu, opencode-zen): vale la pena reintentarlos
-  // cada ~5 min. No acumulan penalty dinámico (recordPenalty:false) para que el
-  // reintento sea determinista en primera pasada; la cadencia de 5 min la dan el
-  // cooldown de key (cooldownMs) y el cooldown de proveedor (recordProviderFailure).
-  // Mientras están en cooldown, opencode-go sirve sin interrumpir la ejecución.
-  // andoryyu es un worker con pool de cuentas (cuota por sesión, límite exacto
-  // desconocido): 5 min de cadencia es suficiente porque el worker rota cuentas
-  // internamente y sus fallos son sobre todo 503 transitorios.
-  andoryyu: { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
-  // opencode-zen: un 429 casi siempre es cuota diaria agotada (4M tokens/día).
-  // Escalar a 4h evita martillar el pool y deja que opencode-go sirva mientras.
-  'opencode-zen': { cooldownMs: 300_000, rateLimitCooldownMs: 4 * 60 * 60 * 1000, recordPenalty: false, recordProviderFailure: true },
-  // TokenHarbor is a free gateway route; treat failures as transient and
-  // avoid hammering the same key while the public pool recovers.
-  tokenharbor: { cooldownMs: 300_000, recordPenalty: false, recordProviderFailure: true },
-  // Proveedor de pago (opencode-go): último recurso casi nunca falla. Nunca se
-  // penaliza (no se hunde en la cola), no entra en cooldown de proveedor y su
-  // cooldown de key es 0: tras un fallo puntual se vuelve a intentar de inmediato
-  // en el mismo request (la purga de skipKeys en el catch de routeRequest lo
-  // rehabilita) para que la ejecución nunca se interrumpa por un fallo ajeno.
-  'opencode-go': { cooldownMs: 0, recordPenalty: false, recordProviderFailure: false },
-  // CommandCode es de pago y solo se usa por selección explícita. Un fallo
-  // transitorio puede reintentarse con cadencia corta, pero un 429 (cuota del
-  // plan) no debe martillearse: cooldown escalado. No acumula penalty dinámico
-  // porque no compite en la cadena `auto`; el cooldown de proveedor sí registra
-  // fallos para devolver un error visible en vez de reintentar en caliente.
-  commandcode: { cooldownMs: 30_000, rateLimitCooldownMs: 120_000, recordPenalty: false, recordProviderFailure: true },
+export function getProviderFailurePolicy(platform: string): ProviderFailurePolicy {
+  return getConfiguredProviderFromDb(getDb(), platform)?.failurePolicy ?? {
+    cooldownMs: 120000,
+    recordPenalty: false,
+    recordProviderFailure: true,
+  };
 }
+
+/** Read-only compatibility view for old diagnostics; runtime routing uses the service. */
+export const PROVIDER_FAILURE_POLICY: Record<string, ProviderFailurePolicy> = new Proxy({}, {
+  get(_target, property: string | symbol) {
+    return typeof property === 'string' ? getProviderFailurePolicy(property) : undefined;
+  },
+});
 
 type VisibleModel = {
   display_name: string

@@ -117,7 +117,9 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   const base = `http://127.0.0.1:${bridgePort}`;
   const health = await waitForHealth(`${base}/health`, child);
   assert.equal(health.service, 'gloryapi-codex-bridge');
-  assert.equal(health.model, 'deepseek-v4-flash');
+  assert.equal(health.model, 'auto');
+  assert.equal(health.catalog.state, 'stale');
+  assert.equal(health.catalog.entries, 1);
   assert.equal(health.upstream, undefined);
 
   const models = await fetch(`${base}/v1/models`);

@@ -43,8 +43,8 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     insertCatalogModels();
   });
 
-  it('resuelve el alias legacy como la ruta Auto sin sticky', () => {
-    const selection = resolveProxyModelSelection('deepseek-v4-flash', buildMessages(true));
+  it('resuelve Auto únicamente desde la ruta persistida y sin alias legacy', () => {
+    const selection = resolveProxyModelSelection('auto', buildMessages(true));
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
     expect(selection.restrictedChain?.length).toBeGreaterThan(1);
@@ -57,7 +57,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     setStickyModel(messages, goId);
     expect(getStickyModel(messages)).toBe(goId);
 
-    const selection = resolveProxyModelSelection('deepseek-v4-flash', messages);
+    const selection = resolveProxyModelSelection('auto', messages);
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBe(goId);
     expect(selection.restrictedChain).toContain(goId);
@@ -70,7 +70,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     setStickyModel(messages, otherId);
     expect(getStickyModel(messages)).toBe(otherId);
 
-    const selection = resolveProxyModelSelection('deepseek-v4-flash', messages);
+    const selection = resolveProxyModelSelection('auto', messages);
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
     expect(selection.restrictedChain?.length).toBeGreaterThan(1);
@@ -81,7 +81,7 @@ describe('resolveProxyModelSelection — sticky en cadenas explícitas', () => {
     const withAssistant = buildMessages(true);
     setStickyModel(withAssistant, goId);
 
-    const selection = resolveProxyModelSelection('deepseek-v4-flash', buildMessages(false));
+    const selection = resolveProxyModelSelection('auto', buildMessages(false));
     if ('error' in selection) throw new Error(selection.error.message);
     expect(selection.preferredModel).toBeUndefined();
   });

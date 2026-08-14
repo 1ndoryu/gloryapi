@@ -285,6 +285,7 @@ test('vision failure reaches the text model as an honest diagnostic', async () =
       text: null,
       failure: { kind: 'http', status: 429, bytes: 143 },
     }),
+    validateImageReference: () => {},
     extractFocusHint: () => '',
     boundSystemContent: value => value,
     log: () => {},
@@ -295,7 +296,7 @@ test('vision failure reaches the text model as an honest diagnostic', async () =
     input: [{
       type: 'message',
       role: 'user',
-      content: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=' }],
+      content: [{ type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' }],
     }],
     tools: [],
     stream: false,

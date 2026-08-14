@@ -51,7 +51,7 @@ test('isolated Codex home copies only config and preserves an independent state 
     const bridgeConfig = fs.readFileSync(path.join(bridgeHome, 'config.toml'), 'utf8');
     const normalConfig = fs.readFileSync(path.join(sourceHome, 'config.toml'), 'utf8');
     assert.notEqual(bridgeConfig, normalConfig);
-    assert.match(bridgeConfig, /model = "deepseek-v4-flash"/);
+    assert.match(bridgeConfig, /model = "auto"/);
     assert.match(bridgeConfig, /model_provider = "gloryapi-bridge"/);
     assert.match(bridgeConfig, /base_url = "http:\/\/127\.0\.0\.1:4100\/v1/);
     assert.match(bridgeConfig, /CODEX_HOME = ".*bridge/);

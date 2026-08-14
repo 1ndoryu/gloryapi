@@ -4,6 +4,8 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { PageHeader } from '@/components/page-header'
 import { SortableModelRow } from '@/components/routing/SortableModelRow'
 import { ModelConfigDialog } from '@/components/routing/ModelConfigDialog'
+import { RouteConfigDialog } from '@/components/routing/RouteConfigDialog'
+import { Button } from '@/components/ui/button'
 import { useFallbackPage } from '@/hooks/useFallbackPage'
 
 export default function FallbackPage() {
@@ -20,13 +22,16 @@ export default function FallbackPage() {
     saveError,
     configuration,
     modelMutation,
+    routeMutation,
   } = useFallbackPage()
   const [configuredModelDbId, setConfiguredModelDbId] = useState<number | null>(null)
+  const [configuredRouteId, setConfiguredRouteId] = useState<string | null>(null)
   const configuredModel = configuration?.models.find(model => model.modelDbId === configuredModelDbId) ?? null
+  const configuredRoute = configuration?.routes.find(route => route.routeId === configuredRouteId) ?? null
 
   return (
     <div>
-      <PageHeader title="Enrutamiento" description="Arrastra para reordenar. Las solicitudes prueban los modelos de arriba abajo hasta que uno responde." />
+      <PageHeader title="Enrutamiento" description="Arrastra para reordenar. Las solicitudes prueban los modelos de arriba abajo hasta que uno responde." actions={<div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => setConfiguredRouteId('route:auto')} disabled={!configuration}>Configurar Auto</Button></div>} />
       <div className="space-y-6">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
@@ -69,7 +74,8 @@ export default function FallbackPage() {
           </>
         )}
       </div>
-      {configuredModel && <ModelConfigDialog model={configuredModel} onClose={() => setConfiguredModelDbId(null)} onSave={patch => modelMutation.mutate({ modelDbId: configuredModel.modelDbId, patch }, { onSuccess: () => setConfiguredModelDbId(null) })} isSaving={modelMutation.isPending} error={modelMutation.error instanceof Error ? modelMutation.error.message : null} />}
+      {configuredModel && <ModelConfigDialog model={configuredModel} fields={configuration?.schema.fields ?? []} onClose={() => setConfiguredModelDbId(null)} onSave={patch => modelMutation.mutate({ modelDbId: configuredModel.modelDbId, patch }, { onSuccess: () => setConfiguredModelDbId(null) })} isSaving={modelMutation.isPending} error={modelMutation.error instanceof Error ? modelMutation.error.message : null} />}
+      {configuredRoute && <RouteConfigDialog route={configuredRoute} models={configuration?.models ?? []} fields={configuration?.schema.fields ?? []} onClose={() => setConfiguredRouteId(null)} onSave={patch => routeMutation.mutate({ routeId: configuredRoute.routeId, patch }, { onSuccess: () => setConfiguredRouteId(null) })} isSaving={routeMutation.isPending} error={routeMutation.error instanceof Error ? routeMutation.error.message : null} />}
     </div>
   )
 }

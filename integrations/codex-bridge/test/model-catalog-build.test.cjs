@@ -10,10 +10,11 @@ const test = require('node:test');
 const root = path.resolve(__dirname, '..');
 const builder = path.join(root, 'mode', 'build-model-catalog.cjs');
 
-function runBuilder(sourcePath, outputPath, cachePath, metadataSourcePath) {
+function runBuilder(sourcePath, outputPath, cachePath, metadataSourcePath, catalogPath) {
   const args = [builder, sourcePath, outputPath];
   if (cachePath) args.push(cachePath);
   if (metadataSourcePath) args.push(metadataSourcePath);
+  if (catalogPath) args.push(catalogPath);
   return spawnSync(process.execPath, args, {
     cwd: root,
     encoding: 'utf8',
@@ -27,6 +28,7 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
     const outputPath = path.join(temporaryRoot, 'bridge-models.json');
     const cachePath = path.join(temporaryRoot, 'models_cache.json');
     const metadataSourcePath = path.join(temporaryRoot, 'source-cache.json');
+    const catalogPath = path.join(temporaryRoot, 'catalog.json');
     const template = {
       slug: 'deepseek-v4-flash',
       input_modalities: ['text'],
@@ -42,8 +44,13 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
       client_version: '0.147.0-test',
       models: [{ slug: 'official-model' }],
     }), 'utf8');
+    fs.writeFileSync(catalogPath, JSON.stringify({ entries: [
+      { id: 'deepseek/deepseek-v4-flash', pickerId: 'gpt-5.6-sol', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
+      { id: 'deepseek-v4-flash:free', pickerId: 'gpt-5.5', provider: 'tokenharbor', displayName: 'DeepSeek Flash Free', supportsReasoning: false },
+      { id: 'meta/muse-spark-1.2-contributor', pickerId: 'gpt-5.6-terra', provider: 'commandcode', displayName: 'Muse Spark', nativeVision: true, supportsReasoning: true },
+    ] }), 'utf8');
 
-    const result = runBuilder(sourcePath, outputPath, cachePath, metadataSourcePath);
+    const result = runBuilder(sourcePath, outputPath, cachePath, metadataSourcePath, catalogPath);
     assert.equal(result.status, 0, result.stderr || result.stdout);
 
     const catalog = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
@@ -54,10 +61,8 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
     assert.match(cache.fetched_at, /^20\d\d-/);
     assert.deepEqual(catalog.models.map((entry) => entry.slug), [
       'codex-auto-review',
-      'gpt-5.4',
-      'gpt-5.6-sol-wm',
-      'gpt-5.5',
       'gpt-5.6-sol',
+      'gpt-5.5',
       'gpt-5.6-terra',
     ]);
     assert.equal(catalog.models[0].display_name, 'Auto (router de GloryAPI)');
@@ -88,7 +93,7 @@ test('build-model-catalog falls back to a minimal catalog without a source templ
     const result = runBuilder('-', outputPath);
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const catalog = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
-    assert.equal(catalog.models.length, 6);
+    assert.equal(catalog.models.length, 1);
     assert.equal(catalog.models[0].slug, 'codex-auto-review');
     assert.equal(catalog.models[0].visibility, 'list');
     assert.equal(catalog.models[0].supported_in_api, true);
@@ -110,7 +115,7 @@ test('build-model-catalog creates a first-launch cache with Codex metadata', () 
     const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
     assert.equal(cache.client_version, '0.147.0-empty-test');
     assert.equal(cache.etag, null);
-    assert.equal(cache.models.length, 6);
+    assert.equal(cache.models.length, 1);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }

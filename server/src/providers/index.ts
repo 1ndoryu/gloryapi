@@ -5,6 +5,8 @@ import { OpenAICompatProvider, replaceNullAssistantContent, ensureReasoningConte
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
 import { ACTIVE_PROVIDER_DEFINITIONS, isActiveProviderPlatform } from './registry.js';
+import { getDb } from '../db/index.js';
+import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 
 const providers = new Map<Platform, BaseProvider>();
 
@@ -332,8 +334,49 @@ register(new OpenAICompatProvider({
   bufferUntilDone: true,
 }));
 
-export function getProvider(platform: Platform): BaseProvider | undefined {
-  return providers.get(platform);
+export function getProvider(platform: Platform, options: { allowDraft?: boolean } = {}): BaseProvider | undefined {
+  // The database is the runtime authority. A compiled adapter is only a
+  // bootstrap implementation; it must not bypass a user-disabled or
+  // archived provider row after configuration has initialized.
+  let configured: ReturnType<typeof getConfiguredProviderFromDb>;
+  try {
+    configured = getConfiguredProviderFromDb(getDb(), platform);
+  } catch {
+    configured = undefined;
+  }
+  if (configured && configured.adapter !== 'openai-compatible') {
+    providers.delete(platform);
+    return undefined;
+  }
+  if (configured && (configured.lifecycle !== 'active' || !configured.enabled) && !options.allowDraft) {
+    providers.delete(platform);
+    return undefined;
+  }
+  if (!configured) return providers.get(platform);
+  if (configured.lifecycle !== 'active' && !(options.allowDraft && configured.lifecycle === 'draft')) return undefined;
+  const messageProfile = configured.transport.messageProfile;
+  const prepareMessages = messageProfile === 'deepseek-thinking'
+    ? (m: import('@gloryapi/shared/types.js').ChatMessage[]) => ensureReasoningContent(replaceNullAssistantContent(m))
+    : messageProfile === 'null-assistant' ? replaceNullAssistantContent : undefined;
+  const extraHeaders = configured.transport.extraHeadersProfile === 'openrouter'
+    ? { 'HTTP-Referer': 'http://localhost:3101', 'X-Title': 'GloryAPI' }
+    : undefined;
+  const dynamic = new OpenAICompatProvider({
+    platform,
+    name: configured.displayName,
+    baseUrl: configured.endpoint,
+    timeoutMs: configured.timeoutMs,
+    prepareMessages,
+    extraHeaders,
+    maxReasoningEffort: configured.transport.maxReasoningEffort,
+    modelReasoningLimits: configured.transport.modelReasoningLimits,
+    modelAliases: configured.transport.modelAliases,
+    bufferUntilContent: configured.transport.bufferUntilContent,
+    bufferUntilDone: configured.transport.bufferUntilDone,
+    includeStreamUsage: configured.transport.includeStreamUsage,
+  });
+  providers.set(platform, dynamic);
+  return dynamic;
 }
 
 export function getAllProviders(): BaseProvider[] {

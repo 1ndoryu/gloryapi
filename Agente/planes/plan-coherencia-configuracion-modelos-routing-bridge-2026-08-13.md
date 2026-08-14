@@ -1,6 +1,6 @@
 # Plan de coherencia: configuración, modelos, routing y Codex Bridge
 
-Estado: implementación V2 completada localmente; validación de gate Sentinel bloqueada por `tool-source-missing`; E2E Desktop live pendiente
+Estado: implementación V2 completada localmente; checklist funcional PASS; validación de gate Sentinel bloqueada por `tool-source-missing`; E2E Desktop live pendiente
 
 Fecha: 2026-08-13
 
@@ -33,16 +33,92 @@ Cambios relevantes:
   secretos en disco fijo, con directorio temporal acotado y fuera de la suite
   automática; está listo para commit y ejecución solo con `BRIDGE_CLIENT_TOKEN`.
 
-Validación local actual:
+Validación local actual (13-ago-2026):
 
 - `npm run build:server`: PASS.
-- `npm test -w server -- --reporter=dot`: 54 archivos / 301 tests PASS.
-- Suite bridge secuencial: 171 tests PASS.
+- `npm run build -w client`: PASS; Vite conserva únicamente el warning existente
+  del chunk grande.
+- `npm test -w server -- --reporter=dot`: 54 archivos / 305 tests PASS.
+- Suite bridge secuencial: 33 archivos / 168 tests PASS.
+- `npm run bench:routing`: 128/128, p95 37.8 ms con concurrencia 32,
+  presupuesto 100 ms PASS.
+- CLI temporal: `snapshot`, `bridge sync` y `bridge diagnose` PASS con
+  revisión/hash iguales; la prueba no expuso credenciales.
 - `npm run config -w server -- snapshot`: 4 miembros activos en Auto, 6
   modelos operativos, cero DeepSeek V4 Pro y todas las ventanas anunciadas al
   bridge dentro de 150000.
-- El gate Sentinel no se declara PASS: el source fijado sigue bloqueado por
-  `tool-source-missing`.
+- `npm run quality:doctor`, `npm run task:check` y `npm run task:check:local`:
+  BLOCKED por `tool-source-missing`; el gate Sentinel no se declara PASS.
+
+## Checklist de cierre
+
+Este checklist es la autoridad operativa del plan. Una casilla solo se marca
+cuando el comando, fixture o comportamiento indicado aporta evidencia directa.
+
+### Fuente de verdad y persistencia
+
+- [x] SQLite V2 conserva rutas Auto/pinned, membresías, catálogo del bridge,
+  revisión global y auditoría.
+- [x] UI, API y CLI llaman al mismo servicio transaccional de configuración.
+- [x] CAS rechaza revisiones obsoletas sin escritura parcial.
+- [x] Reiniciar una base operativa conserva un modelo añadido por el usuario.
+- [x] Existe rollback de configuración por revisión validada y probado.
+- [x] Existe export/import/diff/validate redactado y estable como contrato CLI.
+
+### Routing
+
+- [x] `model: auto` y ausencia de `model` usan solamente `route:auto`.
+- [x] Un miembro Auto desactivado queda fuera de todos los candidatos Auto.
+- [x] Muse y CommandCode son pinned y no entran en Auto por alias.
+- [x] DeepSeek V4 Pro no aparece en catálogo V2 ni bridge activo.
+- [x] El hot path de producción usa un snapshot inmutable en memoria y no
+  consulta SQLite por cada request/chunk; los fixtures de test fuerzan refresh.
+- [x] Cooldowns y política de fallo provienen de configuración persistida; la
+  vista `PROVIDER_FAILURE_POLICY` queda solo como compatibilidad de lectura.
+- [x] Proveedor activo, credencial utilizable, capacidades y lifecycle se
+  validan juntos antes de seleccionar un candidato.
+
+### Providers y modelos configurables
+
+- [x] Un proveedor OpenAI-compatible nuevo puede agregarse, activarse,
+  desactivarse y retirarse desde CLI sin editar código.
+- [x] Sus endpoint, timeout, adapter y capacidades declarativas se almacenan
+  con esquema tipado y consumidor runtime.
+- [x] Un modelo existente puede añadirse/configurarse desde el servicio y no
+  se borra al reiniciar.
+- [ ] El CLI ofrece `--dry-run`, salida JSON estable, códigos documentados y
+  claves de idempotencia.
+
+### Bridge y propósito
+
+- [x] La proyección del selector contiene revisión/hash y conserva `auto` como
+  identidad canónica.
+- [x] El launcher sincroniza el catálogo desde GloryAPI y escribe archivos de
+  forma atómica.
+- [x] Un catálogo stale se marca explícitamente y no cae silenciosamente a un
+  catálogo compilado distinto.
+- [ ] Auditoría, continuación, recuperación y síntesis heredan route/revisión
+  del request padre.
+- [x] El diagnóstico read-only compara DB, proyección, selector y router.
+- [x] `_e2e_apply_patch.cjs` es opt-in, acotado y no guarda secretos en rutas
+  fijas.
+
+### UI schema-driven
+
+- [x] El backend expone un esquema de campos tipados, etiquetas en español,
+  límites, origen, reinicio y consumidor.
+- [x] El modal se genera desde ese esquema y no contiene allowlists de dominio.
+- [x] La UI permite editar rutas y membresías, no solo metadatos de modelo.
+- [ ] El estado de sincronización del selector/stale se muestra en el panel.
+
+### Endurecimiento y validación
+
+- [x] Build completo, suite server y suite bridge pasan localmente.
+- [x] Benchmark de routing y límites de escala del plan están versionados y
+  pasan con evidencia reproducible.
+- [ ] Reinicios repetidos, rollback y E2E Desktop aislado cubren Auto, pinned,
+  auxiliares, tools, visión, auditoría, continuación y compactación.
+- [ ] `task:check` de Sentinel pasa con el source fijado disponible.
 
 ## Respuesta directa
 

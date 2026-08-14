@@ -34,10 +34,9 @@ const MAX_CATALOG_ENTRIES = 64;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
 const PROVIDER_PATTERN = /^(auto|[a-z][a-z0-9-]{0,63})$/;
 
-// `auto` remains the canonical wire id and is resolved only by GloryAPI's
-// persisted route:auto. The bridge never substitutes a provider/model here.
-// The explicit rows below are a compatibility bootstrap; the launcher will
-// replace them with the versioned GloryAPI projection once available.
+// `auto` is the only compiled fallback. Provider/model rows belong to
+// GloryAPI's persisted catalog projection. If that projection is unavailable,
+// the bridge stays safe and predictable with an Auto-only picker.
 const DEFAULT_MODEL_CATALOG = [
   {
     id: 'auto',
@@ -46,52 +45,6 @@ const DEFAULT_MODEL_CATALOG = [
     wireModel: 'auto',
     displayName: 'Auto (router de GloryAPI)',
     nativeVision: false,
-    supportsReasoning: true,
-    contextWindow: BRIDGE_CONTEXT_WINDOW,
-  },
-  {
-    id: 'deepseek-v4-flash',
-    pickerId: 'gpt-5.4',
-    provider: 'auto',
-    wireModel: 'auto',
-    displayName: 'DeepSeek V4 Flash (Auto)',
-    nativeVision: false,
-    supportsReasoning: true,
-    contextWindow: BRIDGE_CONTEXT_WINDOW,
-  },
-  {
-    id: 'deepseek-v4-flash-free',
-    pickerId: 'gpt-5.6-sol-wm',
-    provider: 'opencode-zen',
-    displayName: 'DeepSeek V4 Flash (OpenCode Zen)',
-    nativeVision: false,
-    supportsReasoning: true,
-    contextWindow: BRIDGE_CONTEXT_WINDOW,
-  },
-  {
-    id: 'deepseek-v4-flash:free',
-    pickerId: 'gpt-5.5',
-    provider: 'tokenharbor',
-    displayName: 'DeepSeek V4 Flash (TokenHarbor Free)',
-    nativeVision: false,
-    supportsReasoning: false,
-    contextWindow: BRIDGE_CONTEXT_WINDOW,
-  },
-  {
-    id: 'deepseek/deepseek-v4-flash',
-    pickerId: 'gpt-5.6-sol',
-    provider: 'commandcode',
-    displayName: 'DeepSeek V4 Flash (CommandCode)',
-    nativeVision: false,
-    supportsReasoning: true,
-    contextWindow: BRIDGE_CONTEXT_WINDOW,
-  },
-  {
-    id: 'meta/muse-spark-1.2-contributor',
-    pickerId: 'gpt-5.6-terra',
-    provider: 'commandcode',
-    displayName: 'Muse Spark 1.2 Contributor (CommandCode)',
-    nativeVision: true,
     supportsReasoning: true,
     contextWindow: BRIDGE_CONTEXT_WINDOW,
   },
@@ -121,19 +74,24 @@ function normalizeEntry(raw, index) {
   };
 }
 
-function parseModelCatalog(raw) {
-  if (!raw) return DEFAULT_MODEL_CATALOG;
+function parseModelCatalogDetailed(raw) {
+  const stale = () => ({ entries: DEFAULT_MODEL_CATALOG, state: 'stale', revision: null, hash: null });
+  if (!raw) return stale();
   let rows;
+  let envelope = null;
   try {
     rows = JSON.parse(raw);
   } catch {
-    return DEFAULT_MODEL_CATALOG;
+    return stale();
   }
   // GloryAPI persists the catalog as a signed revision envelope. Keep the
   // array form for local tests and hand-written overrides, but consume the
   // same envelope that the launcher syncs from the database.
-  if (!Array.isArray(rows) && rows && typeof rows === 'object' && Array.isArray(rows.entries)) rows = rows.entries;
-  if (!Array.isArray(rows)) return DEFAULT_MODEL_CATALOG;
+  if (!Array.isArray(rows) && rows && typeof rows === 'object' && Array.isArray(rows.entries)) {
+    envelope = rows;
+    rows = rows.entries;
+  }
+  if (!Array.isArray(rows)) return stale();
   const entries = [];
   const seen = new Set();
   for (let index = 0; index < rows.length && entries.length < MAX_CATALOG_ENTRIES; index++) {
@@ -142,7 +100,7 @@ function parseModelCatalog(raw) {
     seen.add(entry.id);
     entries.push(entry);
   }
-  if (entries.length === 0) return DEFAULT_MODEL_CATALOG;
+  if (entries.length === 0) return stale();
   // `auto` must always be present so the picker keeps a safe default. If the
   // override omits it, prepend it so selection can never become undefined.
   if (!entries.some((entry) => entry.id === AUTO_MODEL_ID)) {
@@ -156,7 +114,16 @@ function parseModelCatalog(raw) {
       contextWindow: BRIDGE_CONTEXT_WINDOW,
     });
   }
-  return entries;
+  return {
+    entries,
+    state: envelope?.state === 'published' ? 'published' : (envelope ? 'stale' : 'override'),
+    revision: Number.isSafeInteger(envelope?.revision) ? envelope.revision : null,
+    hash: typeof envelope?.hash === 'string' ? envelope.hash : null,
+  };
+}
+
+function parseModelCatalog(raw) {
+  return parseModelCatalogDetailed(raw).entries;
 }
 
 /**
@@ -207,6 +174,7 @@ module.exports = {
   BRIDGE_CONTEXT_WINDOW,
   DEFAULT_MODEL_CATALOG,
   parseModelCatalog,
+  parseModelCatalogDetailed,
   resolveModelSelection,
   hasNativeVision,
 };

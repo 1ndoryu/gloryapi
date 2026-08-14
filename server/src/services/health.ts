@@ -3,6 +3,7 @@ import { getProvider } from '../providers/index.js';
 import { resolveStoredCredential } from '../lib/dpapi-vault.js';
 import type { Platform, KeyStatus } from '@gloryapi/shared/types.js';
 import { getSettingNumber } from '../settings/registry.js';
+import { getConfiguredProviderFromDb } from './provider-configuration.js';
 
 const CONSECUTIVE_FAILURES_TO_DISABLE = 3;
 
@@ -114,7 +115,8 @@ export function recordProviderFailure(platform: string): void {
   const row = db.prepare('SELECT consecutive_failures FROM provider_health WHERE platform = ?').get(platform) as { consecutive_failures: number } | undefined;
   const failureThreshold = getSettingNumber('health.providerFailureThreshold');
   if (row && row.consecutive_failures >= failureThreshold) {
-    const cooldownMs = getSettingNumber('health.providerCooldownMs');
+    const cooldownMs = getConfiguredProviderFromDb(db, platform)?.failurePolicy.cooldownMs
+      ?? getSettingNumber('health.providerCooldownMs');
     const cooldownUntil = new Date(Date.now() + cooldownMs).toISOString();
     db.prepare('UPDATE provider_health SET cooldown_until = ? WHERE platform = ?').run(cooldownUntil, platform);
     console.log(`[Health] Provider ${platform} on cooldown for ${cooldownMs / 1000}s after ${row.consecutive_failures} consecutive failures`);

@@ -1,9 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { classifyProxyError } from '../../routes/proxy-errors.js';
-import { MODEL_FALLBACK_OVERRIDES } from '../../routes/proxy-routing.js';
 import { chatCompletionSchema } from '../../routes/proxy-contract.js';
 import { ANDORYYU_REGRESSION_FIXTURE } from '../fixtures/andoryyu-regression.js';
-import { initDb } from '../../db/index.js';
+import { getDb, initDb } from '../../db/index.js';
+import { getRouteModelIds } from '../../services/configuration-v2.js';
 
 beforeAll(() => {
   initDb(':memory:', { catalogMode: 'operational' });
@@ -51,7 +51,9 @@ describe('Andoryyu ChatGPT/VS Code regression fixture', () => {
     const classification = classifyProxyError(failure);
     expect(classification.code).toBe(chatgpt.expectedErrorCode);
     expect(classification.retryable).toBe(chatgpt.expectedFallback);
-    expect(MODEL_FALLBACK_OVERRIDES[ANDORYYU_REGRESSION_FIXTURE.model][1].platform)
+    const autoRoute = getRouteModelIds('route:auto');
+    const nextAutoModel = getDb().prepare(`SELECT platform FROM models WHERE id = ?`).get(autoRoute[1]) as { platform: string } | undefined;
+    expect(nextAutoModel?.platform)
       .toBe(chatgpt.expectedNextPlatform);
 
     expect(vscode.expectedFallback).toBe(false);

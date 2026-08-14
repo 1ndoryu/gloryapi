@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/page-header'
 import { scopeLabels, settingDescription, settingLabel, useSettingsPage } from '@/hooks/useSettingsPage'
+import { CanonicalProviderPanel } from '@/components/settings/CanonicalProviderPanel'
 
 export default function SettingsPage() {
   const {
@@ -130,6 +131,7 @@ export default function SettingsPage() {
 
       {providerSettings && activeScope === 'provider' && (
         <section className="mt-10">
+          <CanonicalProviderPanel />
           <div className="mb-3">
             <h2 className="text-sm font-medium">Sobrescrituras de proveedores y modelos</h2>
             <p className="text-xs text-muted-foreground mt-1">Los valores marcados como heredados vienen del registro canónico. Las sobrescrituras se validan antes de guardarse.</p>

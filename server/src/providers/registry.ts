@@ -1,4 +1,6 @@
 import { getDb } from '../db/index.js';
+import { getConfiguredProviderFromDb, getConfiguredProviders } from '../services/provider-configuration.js';
+import { createConfigurationProvider, updateConfigurationProvider } from '../services/configuration-v2.js';
 import {
   REGISTRY_SCHEMA_VERSION,
   type CapabilityProfile,
@@ -168,6 +170,12 @@ export function getProviderModelDrafts(platform: string): Array<Omit<ProviderMod
 }
 
 export function isActiveProviderPlatform(platform: string): boolean {
+  try {
+    const configured = getConfiguredProviderFromDb(getDb(), platform);
+    if (configured) return configured.lifecycle === 'active';
+  } catch {
+    // Continue with the compiled bootstrap registry for isolated legacy tests.
+  }
   return (ACTIVE_PROVIDER_PLATFORMS as readonly string[]).includes(platform);
 }
 
@@ -187,6 +195,28 @@ export function getRegistrySnapshot(): RegistrySnapshot {
     enabled: runtimeMap.get(provider.platform) ?? true,
     credentialCount: keyCountMap.get(provider.platform) ?? 0,
   }));
+  // The compiled definitions are bootstrap compatibility only. Operational
+  // values come from configuration_providers so a new OpenAI-compatible
+  // provider can be added without changing this registry.
+  let configuredProviders: ReturnType<typeof getConfiguredProviders> = [];
+  try { configuredProviders = getConfiguredProviders(db); } catch { configuredProviders = []; }
+  for (const configured of configuredProviders) {
+    const provider = {
+      platform: configured.platform as Platform,
+      displayName: configured.displayName,
+      lifecycle: configured.lifecycle,
+      enabled: configured.enabled,
+      adapter: configured.adapter,
+      endpoint: configured.endpoint,
+      authScheme: configured.authScheme,
+      capabilities: configured.capabilities,
+      timeoutMs: configured.timeoutMs,
+      credentialCount: keyCountMap.get(configured.platform) ?? 0,
+    } satisfies ProviderDefinition;
+    const existingIndex = providers.findIndex(candidate => candidate.platform === configured.platform);
+    if (existingIndex >= 0) providers[existingIndex] = provider;
+    else providers.push(provider);
+  }
   for (const platform of ARCHIVED_PROVIDER_PLATFORMS) {
     const credentialCount = keyCountMap.get(platform) ?? 0;
     if (credentialCount === 0) continue;
@@ -289,6 +319,32 @@ function isCapabilityProfile(value: unknown): value is CapabilityProfile {
 
 export function saveProviderDraft(input: ProviderDraftInput): void {
   const db = getDb();
+  const configured = input.adapter === 'openai-compatible' ? getConfiguredProviderFromDb(db, input.platform) : undefined;
+  if (configured?.lifecycle === 'active') throw new Error('Active provider definitions cannot be replaced by a draft');
+  if (configured) {
+    updateConfigurationProvider(input.platform, {
+      displayName: input.displayName,
+      lifecycle: 'draft',
+      enabled: false,
+      endpoint: input.endpoint,
+      capabilities: input.capabilities,
+      actor: 'registry-api',
+      source: 'provider-draft',
+    });
+  } else if (input.adapter === 'openai-compatible') {
+    createConfigurationProvider({
+      platform: input.platform,
+      displayName: input.displayName,
+      endpoint: input.endpoint,
+      adapter: 'openai-compatible',
+      authScheme: 'bearer',
+      capabilities: input.capabilities,
+      lifecycle: 'draft',
+      enabled: false,
+      actor: 'registry-api',
+      source: 'provider-draft',
+    });
+  }
   const existing = db.prepare('SELECT lifecycle FROM provider_registry WHERE platform = ?').get(input.platform) as { lifecycle: string } | undefined;
   if (existing?.lifecycle === 'active') throw new Error('Active provider definitions cannot be replaced by a draft');
   db.prepare(`
@@ -324,6 +380,17 @@ export function saveProviderDraft(input: ProviderDraftInput): void {
 export function setProviderEnabled(platform: string, enabled: boolean): void {
   if (!isActiveProviderPlatform(platform)) throw new Error('Only an active provider can be toggled');
   const db = getDb();
+  const configured = getConfiguredProviderFromDb(db, platform);
+  if (configured) {
+    // Keep the old control endpoint useful while routing all durable state
+    // through the revisioned configuration service.
+    updateConfigurationProvider(platform, {
+      enabled,
+      actor: 'registry-api',
+      source: 'provider-state',
+    });
+    return;
+  }
   db.transaction(() => {
     db.prepare(`
       INSERT INTO provider_runtime_state (platform, enabled, updated_at) VALUES (?, ?, datetime('now'))
@@ -335,6 +402,10 @@ export function setProviderEnabled(platform: string, enabled: boolean): void {
 }
 
 export function removeProviderDraft(platform: string): boolean {
+  const configured = getConfiguredProviderFromDb(getDb(), platform);
+  if (configured?.lifecycle === 'draft') {
+    updateConfigurationProvider(platform, { lifecycle: 'archived', enabled: false, actor: 'registry-api', source: 'provider-delete' });
+  }
   const result = getDb().prepare("DELETE FROM provider_registry WHERE platform = ? AND lifecycle = 'draft'").run(platform);
-  return result.changes > 0;
+  return result.changes > 0 || configured?.lifecycle === 'draft';
 }

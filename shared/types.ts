@@ -5,7 +5,7 @@
 // Moonshot and MiniMax direct integrations were dropped in migrateModelsV4
 // (see server/src/db/index.ts). HuggingFace was dropped in V4 and re-added
 // in V13 via the router.huggingface.co Inference Providers meta-router.
-export type Platform =
+export type KnownPlatform =
   | 'google'
   | 'groq'
   | 'cerebras'
@@ -45,6 +45,11 @@ export type Platform =
   | 'bynara'
   | 'tokenharbor'
   | 'andoryyu';
+
+// Provider identities are data in GloryAPI. Keep known values for editor
+// assistance while allowing a validated OpenAI-compatible provider slug to be
+// added without changing this package or the router.
+export type Platform = KnownPlatform | (string & {});
 
 export const REGISTRY_SCHEMA_VERSION = 'glory-registry-v1' as const;
 

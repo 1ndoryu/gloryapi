@@ -63,12 +63,74 @@ export interface ConfiguredModel {
   nativeVision: boolean
   supportsReasoning: boolean
   routeIds: string[]
+  bridgeVisible: boolean
+}
+
+export interface ConfigurationRouteMember {
+  modelDbId: number
+  priority: number
+  enabled: boolean
+}
+
+export interface ConfigurationRoute {
+  routeId: string
+  name: string
+  kind: 'auto' | 'pinned' | 'policy'
+  enabled: boolean
+  visible: boolean
+  members: ConfigurationRouteMember[]
+}
+
+export interface ConfigurationFieldDefinition {
+  key: string
+  label: string
+  description: string
+  type: 'text' | 'integer' | 'duration-ms' | 'boolean' | 'enum' | 'json-map'
+  section: string
+  scope: 'provider' | 'model' | 'route'
+  min?: number
+  max?: number
+  options?: Array<{ value: string; label: string }>
+  requiresRestart: boolean
+  sensitive: boolean
+  consumer: string
+}
+
+export interface ConfigurationProvider {
+  platform: string
+  displayName: string
+  lifecycle: 'active' | 'archived' | 'draft'
+  adapter: string
+  endpoint: string
+  authScheme: string
+  enabled: boolean
+  timeoutMs: number
+  capabilities: { streaming: boolean; tools: boolean; reasoning: boolean; multimodal: boolean; maxContextWindow: number | null }
+  transport: { messageProfile: string; includeStreamUsage: boolean; bufferUntilContent: boolean; bufferUntilDone: boolean; maxReasoningEffort: string; modelAliases: Record<string, string>; modelReasoningLimits: Record<string, string>; extraHeadersProfile: string }
+  failurePolicy: { cooldownMs: number; rateLimitCooldownMs?: number; recordPenalty: boolean; recordProviderFailure: boolean }
+}
+
+export interface ConfigurationSchema {
+  schemaVersion: string
+  fields: ConfigurationFieldDefinition[]
+}
+
+export interface BridgeCatalogProjection {
+  schemaVersion: string
+  revision: number
+  hash: string
+  generatedAt: string
+  entries: Array<{ id: string; wireModel: string; pickerId: string | null; provider: string; displayName: string; contextWindow: number | null }>
 }
 
 export interface ConfigurationSnapshot {
   schemaVersion: 'glory-configuration-v2'
   revision: number
+  routes: ConfigurationRoute[]
   models: ConfiguredModel[]
+  providers: ConfigurationProvider[]
+  schema: ConfigurationSchema
+  bridge: BridgeCatalogProjection
 }
 
 async function listenForRoutingChanges(
@@ -166,6 +228,15 @@ export function useFallbackPage() {
     onSuccess: next => queryClient.setQueryData(['configuration'], next),
   })
 
+  const routeMutation = useMutation({
+    mutationFn: (input: { routeId: string; patch: Pick<ConfigurationRoute, 'name' | 'enabled' | 'visible' | 'members'> }) =>
+      apiFetch<ConfigurationSnapshot>(`/api/configuration/routes/${encodeURIComponent(input.routeId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ ...input.patch, expectedRevision: configuration?.revision }),
+      }),
+    onSuccess: next => queryClient.setQueryData(['configuration'], next),
+  })
+
   const allEntries = localEntries ?? entries
   const displayEntries = allEntries.filter(entry => entry.keyCount > 0)
   const unconfiguredPlatforms = [...new Set(allEntries.filter(entry => entry.keyCount === 0).map(entry => entry.platform))]
@@ -222,5 +293,6 @@ export function useFallbackPage() {
     saveError,
     configuration,
     modelMutation,
+    routeMutation,
   }
 }

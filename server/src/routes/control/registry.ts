@@ -60,7 +60,13 @@ const modelSelectionSchema = z.object({
     displayName: z.string().trim().min(1).max(200),
     contextWindow: z.number().int().positive().max(2_000_000).nullable(),
     capabilities: capabilitiesSchema,
-  })).min(1).max(64),
+  })).min(1).max(64).superRefine((models, context) => {
+    const seen = new Set<string>();
+    models.forEach((model, index) => {
+      if (seen.has(model.modelId)) context.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'modelId'], message: 'modelId must be unique within a provider selection' });
+      seen.add(model.modelId);
+    });
+  }),
 });
 
 const providerStateSchema = z.object({ enabled: z.boolean() }).strict();
@@ -237,7 +243,7 @@ registryRouter.post('/providers/:platform/verify', async (req: Request, res: Res
     return;
   }
 
-  const provider = getProvider(platform as Platform);
+  const provider = getProvider(platform as Platform, { allowDraft: true });
   const draft = getDb().prepare("SELECT lifecycle FROM provider_registry WHERE platform = ? AND lifecycle = 'draft'").get(platform);
   if (!draft) {
     res.status(404).json({ error: { message: 'Provider draft not found' } });

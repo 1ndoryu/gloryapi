@@ -1,5 +1,5 @@
 import {
-  PROVIDER_FAILURE_POLICY,
+  getProviderFailurePolicy,
   registerModelRoutes,
   setStickyModel,
   timingSafeStringEqual,
@@ -72,7 +72,7 @@ function safeRequestId(req: Request): string | undefined {
 
 function requestTelemetry(req: Request): ProxyRequestTelemetry {
   const requestedKind = req.header('x-glory-request-kind');
-  const requestKind = requestedKind && /^(main|audit|continuation|recovery|summary|auxiliary_title)$/.test(requestedKind)
+  const requestKind = requestedKind && /^(main|audit|continuation|recovery|summary|auxiliary_title|web_limit_synthesis)$/.test(requestedKind)
     ? requestedKind
     : 'main';
   const parent = req.header('x-glory-parent-request-id');
@@ -299,6 +299,12 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
     const routingAttemptId = beginRoutingAttempt(route);
 
     try {
+      // Make the routing decision observable at the HTTP boundary for both
+      // streaming and non-streaming clients. The bridge can carry these
+      // headers into diagnostics without parsing prompt-bearing content.
+      res.setHeader('X-Glory-Configuration-Revision', String(selectionTelemetry.configurationRevision ?? ''));
+      res.setHeader('X-Glory-Route-Id', selection.routeId ?? 'legacy');
+      res.setHeader('X-Glory-Selection-Reason', selection.selectionReason ?? 'unknown');
       if (stream) {
         await streamProxyResponse({
           route,
@@ -387,7 +393,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
         skipKeys.add(skipId);
         if (retryable) {
           if (errorClassification.cooldownEligible) {
-            const policy = PROVIDER_FAILURE_POLICY[route.platform];
+            const policy = getProviderFailurePolicy(route.platform);
             // rate_limited (429) en un pool con cuota diaria (opencode-zen)
             // suele significar cuota agotada: escalar el cooldown a horas en
             // vez de los ~5 min de un fallo transitorio (503, timeout).

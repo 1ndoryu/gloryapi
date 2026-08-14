@@ -7,8 +7,8 @@
  * (config.toml) que apunta a un `models.json`. El preparador del home aislado
  * copiaba el `models.json` normal (una sola entrada `deepseek-v4-flash`), por lo
  * que el picker nunca ofrecía CommandCode ni Muse. Este script genera un
- * `models.json` del bridge que conserva el modo Auto y publica cada modelo
- * explícito que el catálogo del bridge conoce.
+ * `models.json` del bridge que conserva el modo Auto y publica únicamente los
+ * modelos explícitos que la proyección persistida de GloryAPI conoce.
  *
  * Cada entrada se clona de la entrada real de Codex (para conservar
  * `base_instructions`, `model_messages` y el resto de metadatos) y solo se
@@ -25,7 +25,6 @@ const { DEFAULT_MODEL_CATALOG } = require('../bridge/model-catalog.js');
 
 const DESCRIPTIONS = {
   auto: 'Selección automática: GloryAPI elige el proveedor disponible.',
-  'deepseek-v4-flash': 'Enrutamiento automático de GloryAPI con fallback entre proveedores.',
   'deepseek/deepseek-v4-flash': 'DeepSeek V4 Flash a través de CommandCode.',
   'meta/muse-spark-1.2-contributor': 'Muse Spark 1.2 Contributor a través de CommandCode (visión nativa).',
 };
@@ -34,7 +33,7 @@ const DESCRIPTIONS = {
 // normal no aporta un template real del que clonar.
 function minimalTemplate() {
   return {
-    slug: 'deepseek-v4-flash',
+    slug: 'auto',
     prefer_websockets: false,
     support_verbosity: true,
     default_verbosity: 'low',
@@ -55,7 +54,7 @@ function minimalTemplate() {
     auto_compact_token_limit: 150000,
     reasoning_summary_format: 'experimental',
     default_reasoning_summary: 'none',
-    display_name: 'DeepSeek-V4-Flash',
+    display_name: 'Auto (router de GloryAPI)',
     description: 'Auto (router de GloryAPI)',
     default_reasoning_level: 'high',
     supported_reasoning_levels: [
@@ -92,7 +91,7 @@ function loadTemplate(sourcePath) {
     try {
       const parsed = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
       const models = Array.isArray(parsed && parsed.models) ? parsed.models : [];
-      const preferred = models.find((entry) => entry && entry.slug === 'deepseek-v4-flash');
+      const preferred = models.find((entry) => entry && entry.slug === 'auto');
       const template = preferred || models[0];
       if (template && typeof template === 'object') return template;
     } catch {
@@ -117,7 +116,12 @@ function loadCatalogOverride(catalogPath) {
       supportsReasoning: row.supportsReasoning === true,
       contextWindow: Number.isSafeInteger(row.contextWindow) ? row.contextWindow : 150000,
     })).filter((row) => row.id && row.displayName);
-    return entries.length > 0 ? entries : null;
+    if (entries.length === 0) return null;
+    if (!entries.some((entry) => entry.id === 'auto')) {
+      const auto = DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'auto');
+      entries.unshift({ ...auto, id: 'auto', pickerId: auto.pickerId, provider: 'auto', displayName: auto.displayName });
+    }
+    return entries;
   } catch {
     return null;
   }

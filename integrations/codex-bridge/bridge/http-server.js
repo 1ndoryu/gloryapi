@@ -193,7 +193,7 @@ function createBridgeHttpServer({
     }
     if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, service: identity.bridgeId, version: identity.bridgeVersion, model: upstream.model }));
+      res.end(JSON.stringify({ ok: true, service: identity.bridgeId, version: identity.bridgeVersion, model: upstream.model, catalog: { state: config.catalog.state, revision: config.catalog.revision, hash: config.catalog.hash, entries: config.catalog.entries.length } }));
       return;
     }
     if (req.method === 'GET' && (url.pathname === '/ready' || url.pathname === '/readiness')) {
@@ -204,7 +204,7 @@ function createBridgeHttpServer({
       }
       const readiness = getReadiness();
       res.writeHead(readiness.ready ? 200 : 503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: readiness.ready, service: identity.bridgeId, model: upstream.model, ...readiness }));
+      res.end(JSON.stringify({ ok: readiness.ready, service: identity.bridgeId, model: upstream.model, catalog: { state: config.catalog.state, revision: config.catalog.revision, hash: config.catalog.hash, entries: config.catalog.entries.length }, ...readiness }));
       return;
     }
     if (req.method === 'GET' && (url.pathname === '/lifecycle' || url.pathname === '/v1/lifecycle')) {
@@ -231,6 +231,7 @@ function createBridgeHttpServer({
         service: identity.bridgeId,
         adapterVersion: identity.adapterVersion,
         lifecycle: getLifecycle(),
+        catalog: { state: config.catalog.state, revision: config.catalog.revision, hash: config.catalog.hash, entries: config.catalog.entries.length },
         metrics: metrics ? metrics.snapshot() : {},
       }));
       return;

@@ -112,6 +112,11 @@ async function chatContentParts(content, focusHint, channelNote, nativeVision) {
   }
 
   const descriptions = await Promise.all(imageJobs.map(async (c) => {
+    try {
+      validateImageReference(c.image_url);
+    } catch {
+      return { text: null, failure: { kind: 'validation', status: 'none', bytes: 0 } };
+    }
     if (typeof describeImageResult === 'function') return describeImageResult(c.image_url, focusHint);
     const text = await describeImage(c.image_url, focusHint);
     return text ? { text, failure: null } : { text: null, failure: { kind: 'unknown', status: 'none', bytes: 0 } };

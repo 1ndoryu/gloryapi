@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { ConfiguredModel } from '@/hooks/useFallbackPage'
+import type { ConfiguredModel, ConfigurationFieldDefinition } from '@/hooks/useFallbackPage'
 
-type EditableModel = Pick<ConfiguredModel, 'displayName' | 'enabled' | 'contextWindow' | 'nativeVision' | 'supportsReasoning'>
+type EditableValue = string | number | boolean | null
+type EditableModel = Record<string, EditableValue>
 
 export function ModelConfigDialog({
   model,
@@ -12,12 +13,14 @@ export function ModelConfigDialog({
   onSave,
   isSaving,
   error,
+  fields,
 }: {
   model: ConfiguredModel
   onClose: () => void
   onSave: (patch: EditableModel) => void
   isSaving: boolean
   error: string | null
+  fields: ConfigurationFieldDefinition[]
 }) {
   const [draft, setDraft] = useState<EditableModel>({
     displayName: model.displayName,
@@ -25,11 +28,14 @@ export function ModelConfigDialog({
     contextWindow: model.contextWindow,
     nativeVision: model.nativeVision,
     supportsReasoning: model.supportsReasoning,
+    bridgeVisible: model.bridgeVisible,
   })
 
-  function update<Key extends keyof EditableModel>(key: Key, value: EditableModel[Key]) {
+  function update(key: string, value: EditableValue) {
     setDraft(current => ({ ...current, [key]: value }))
   }
+
+  const modelFields = fields.filter(field => field.scope === 'model')
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}>
@@ -42,19 +48,31 @@ export function ModelConfigDialog({
           <Button variant="ghost" size="sm" onClick={onClose}>Cerrar</Button>
         </div>
         <div className="mt-5 space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="modelo-display-name">Nombre visible</Label>
-            <Input id="modelo-display-name" value={draft.displayName} onChange={event => update('displayName', event.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="modelo-context-window">Ventana de contexto</Label>
-            <Input id="modelo-context-window" type="number" min={1} max={2000000} value={draft.contextWindow ?? ''} onChange={event => update('contextWindow', event.target.value === '' ? null : Number(event.target.value))} />
-          </div>
-          <div className="space-y-2 text-sm">
-            <label className="flex items-center gap-2"><input type="checkbox" checked={draft.enabled} onChange={event => update('enabled', event.target.checked)} /> Disponible para selección</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={draft.nativeVision} onChange={event => update('nativeVision', event.target.checked)} /> Visión nativa</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={draft.supportsReasoning} onChange={event => update('supportsReasoning', event.target.checked)} /> Admite razonamiento</label>
-          </div>
+          {modelFields.map(field => {
+            const key = field.key
+            const value = draft[key]
+            if (field.type === 'boolean') {
+              return (
+                <label key={field.key} className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" checked={Boolean(value)} onChange={event => update(key, event.target.checked)} />
+                  <span><span className="block">{field.label}</span><span className="block text-xs text-muted-foreground">{field.description}</span></span>
+                </label>
+              )
+            }
+            const numeric = field.type === 'integer' || field.type === 'duration-ms'
+            return (
+              <div key={field.key} className="space-y-1.5">
+                <Label htmlFor={`modelo-${field.key}`}>{field.label}</Label>
+                <Input id={`modelo-${field.key}`} type={numeric ? 'number' : 'text'} min={field.min} max={field.max} value={value == null ? '' : String(value)} onChange={event => {
+                  const raw = event.target.value
+                  const next = numeric ? (raw === '' ? null : Number(raw)) : raw
+                  update(key, next)
+                }} />
+                <p className="text-xs text-muted-foreground">{field.description}</p>
+              </div>
+            )
+          })}
+          {modelFields.length === 0 && <p className="text-sm text-muted-foreground">El esquema de configuración no publicó campos editables para este modelo.</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2 border-t pt-4">
             <Button variant="outline" onClick={onClose}>Cancelar</Button>
