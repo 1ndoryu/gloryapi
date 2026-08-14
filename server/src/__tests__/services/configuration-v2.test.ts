@@ -36,6 +36,8 @@ describe('configuration-v2', () => {
     expect(new Set(pickerIds).size).toBe(6);
     expect(pickerIds.every(pickerId => pickerId !== null && DESKTOP_PICKER_ALIAS_VALUES.includes(pickerId))).toBe(true);
     expect(pickerIds.some(pickerId => pickerId?.startsWith('gpt-bridge-'))).toBe(false);
+    expect(pickerIds).toContain('gpt-5.4-mini');
+    expect(pickerIds).not.toContain('gpt-5.6-sol-wm');
   });
 
   it('projects verified model reasoning and vision independently from provider capabilities', () => {

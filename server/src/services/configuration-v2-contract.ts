@@ -132,7 +132,11 @@ export function normalizeBridgeContextWindow(value: number | null | undefined): 
 
 export const DESKTOP_PICKER_ALIASES: Array<{ value: string; label: string }> = [
   { value: 'gpt-5.4', label: 'Ranura compatible 1 (gpt-5.4)' },
-  { value: 'gpt-5.6-sol-wm', label: 'Ranura compatible 2 (gpt-5.6-sol-wm)' },
+  /* `gpt-5.6-sol-wm` existe en el catálogo interno de Codex Desktop con
+   * visibility=hide. Aunque GloryAPI lo publique como visible, Desktop vuelve
+   * a ocultarlo al combinar catálogos. Solo se ofrecen ranuras cuyo catálogo
+   * base declara visibility=list. */
+  { value: 'gpt-5.4-mini', label: 'Ranura compatible 2 (gpt-5.4-mini)' },
   { value: 'gpt-5.6-luna', label: 'Ranura compatible 3 (gpt-5.6-luna)' },
   { value: 'gpt-5.5', label: 'Ranura compatible 4 (gpt-5.5)' },
   { value: 'gpt-5.6-sol', label: 'Ranura compatible 5 (gpt-5.6-sol)' },

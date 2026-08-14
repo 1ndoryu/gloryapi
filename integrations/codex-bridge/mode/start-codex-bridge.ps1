@@ -73,6 +73,11 @@ if (-not $NoStartBridge -and -not $PrepareOnly) {
         throw "Falta el launcher del bridge: $startBridgeScript"
     }
     $bridgeArgs = @{ Port = $BridgePort }
+    # RefreshConfig means that the persisted catalog may have changed. The
+    # running bridge keeps its catalog in memory, so it must reload before the
+    # Desktop home is regenerated; otherwise the shortcut can reopen a window
+    # with a fresh models.json backed by a stale bridge revision.
+    if ($RefreshConfig) { $bridgeArgs.Restart = $true }
     if (-not [string]::IsNullOrWhiteSpace($RuntimeDataDir)) { $bridgeArgs.RuntimeDataDir = $RuntimeDataDir }
     if (-not [string]::IsNullOrWhiteSpace($DatabasePath)) { $bridgeArgs.DatabasePath = $DatabasePath }
     if (-not [string]::IsNullOrWhiteSpace($VisionBaseUrl)) { $bridgeArgs.VisionBaseUrl = $VisionBaseUrl }

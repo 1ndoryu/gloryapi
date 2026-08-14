@@ -199,6 +199,11 @@ test('the model selector is a versioned persisted catalog with an Auto-only fall
   assert.match(server, /input_modalities: entry\.nativeVision === true \? \['text', 'image'\] : \['text'\]/);
 });
 
+test('refreshing the isolated Desktop profile also reloads the bridge catalog', () => {
+  const launcher = read('mode/start-codex-bridge.ps1');
+  assert.match(launcher, /if \(\$RefreshConfig\) \{ \$bridgeArgs\.Restart = \$true \}/);
+});
+
 test('web search does not fetch arbitrary model-provided URLs', () => {
   assert.match(server, /descarga directa de URL está deshabilitada/);
   assert.match(server, /Contenido web no confiable/);
