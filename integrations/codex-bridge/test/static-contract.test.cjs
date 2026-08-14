@@ -253,7 +253,7 @@ test('the isolated home prepares a bridge model catalog for the Desktop picker',
   const prepare = read('mode', 'prepare-isolated-home.ps1');
   const builder = read('mode', 'build-model-catalog.cjs');
   assert.match(prepare, /build-model-catalog\.cjs/);
-  assert.match(prepare, /model = "codex-auto-review"/);
+  assert.match(prepare, /model = "gloryapi-auto"/);
   assert.match(prepare, /models_cache\.json/);
   assert.match(prepare, /Get-Command node/);
   assert.match(prepare, /No se pudo generar el catálogo de modelos del bridge/);

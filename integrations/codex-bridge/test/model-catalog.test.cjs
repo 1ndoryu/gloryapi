@@ -29,7 +29,7 @@ test('the compiled fallback is versioned and Auto-only; persisted rows are separ
 
 test('resolveModelSelection maps missing and auto to the canonical Auto route', () => {
   const defaultModel = 'deepseek-v4-flash';
-  for (const requested of [undefined, 'auto']) {
+  for (const requested of [undefined, 'auto', 'gloryapi-auto', 'codex-auto-review']) {
     assert.deepEqual(resolveModelSelection(DEFAULT_MODEL_CATALOG, requested, defaultModel), {
       id: 'auto', provider: 'auto', nativeVision: false, supportsReasoning: true, explicit: false,
     });
@@ -52,10 +52,18 @@ test('resolveModelSelection maps persisted Desktop-safe picker ids back to provi
 });
 
 test('resolvePresentationModel always returns a Desktop catalog id', () => {
-  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, undefined), 'auto');
+  assert.equal(resolvePresentationModel(DEFAULT_MODEL_CATALOG, undefined), 'gloryapi-auto');
+  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, undefined), 'gloryapi-auto');
   assert.equal(resolvePresentationModel(PERSISTED_CATALOG, 'gpt-5.6-terra'), 'gpt-5.6-terra');
   assert.equal(resolvePresentationModel(PERSISTED_CATALOG, 'meta/muse-spark-1.2-contributor'), 'gpt-5.6-terra');
-  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, 'legacy/deepseek-v4-flash'), 'auto');
+  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, 'legacy/deepseek-v4-flash'), 'gloryapi-auto');
+});
+
+test('legacy Auto picker aliases normalize to the visible bridge-owned id', () => {
+  const catalog = parseModelCatalog(JSON.stringify([
+    { id: 'auto', pickerId: 'codex-auto-review', provider: 'auto', displayName: 'Auto' },
+  ]));
+  assert.equal(catalog[0].pickerId, 'gloryapi-auto');
 });
 
 test('an unknown model passes through fail-closed', () => {

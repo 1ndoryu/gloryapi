@@ -21,7 +21,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { DEFAULT_MODEL_CATALOG } = require('../bridge/model-catalog.js');
+const { DEFAULT_MODEL_CATALOG, AUTO_MODEL_ID, AUTO_PICKER_ID } = require('../bridge/model-catalog.js');
 
 const DESCRIPTIONS = {
   auto: 'Selección automática: GloryAPI elige el proveedor disponible.',
@@ -117,7 +117,14 @@ function loadCatalogOverride(catalogPath) {
       // The bridge catalog has one operational compaction ceiling for every
       // selectable model. Provider-specific physical limits stay in GloryAPI.
       contextWindow: 150000,
-    })).filter((row) => row.id && row.displayName);
+    })).filter((row) => row.id && row.displayName).map((row) => ({
+      ...row,
+      // Normalize the persisted internal Auto alias before writing the
+      // Desktop catalog. The database remains backwards compatible.
+      pickerId: row.id === AUTO_MODEL_ID && (!row.pickerId || row.pickerId === 'codex-auto-review')
+        ? AUTO_PICKER_ID
+        : row.pickerId,
+    }));
     if (entries.length === 0) return null;
     if (!entries.some((entry) => entry.id === 'auto')) {
       const auto = DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'auto');
@@ -140,10 +147,11 @@ function cloneEntry(template, catalogEntry, index) {
   const entry = JSON.parse(JSON.stringify(template));
   const contextWindow = 150000;
   const nativeVision = catalogEntry.nativeVision === true;
-  // Desktop currently filters custom-provider ids from its renderer. Keep the
-  // real id in the bridge catalog, but expose an allowlisted picker id in the
-  // local Desktop catalog; request-translator maps it back to catalogEntry.id.
-  entry.slug = catalogEntry.pickerId;
+  // Desktop filters reserved/internal ids from its renderer. Keep the real
+  // id in the bridge catalog, but expose the visible bridge-owned picker ids
+  // in the local Desktop catalog. The persisted codex-auto-review alias is
+  // normalized to gloryapi-auto above and remains accepted at the bridge.
+  entry.slug = catalogEntry.pickerId || (catalogEntry.id === AUTO_MODEL_ID ? AUTO_PICKER_ID : catalogEntry.id);
   entry.display_name = catalogEntry.displayName;
   entry.description = DESCRIPTIONS[catalogEntry.id] || catalogEntry.displayName;
   entry.input_modalities = nativeVision ? ['text', 'image'] : ['text'];

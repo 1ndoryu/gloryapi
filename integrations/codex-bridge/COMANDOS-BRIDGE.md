@@ -42,11 +42,11 @@ abierto pero GloryAPI fue cerrado, vuelve a iniciar automáticamente el runtime 
 `-RefreshConfig` regenera solo la configuración aislada del bridge. No copia `auth.json`, conversaciones
 ni bases SQLite del home normal.
 
-El perfil aislado arranca con `model = "codex-auto-review"`, que es el alias de escritorio de Auto
-presente en `models.json`. El bridge interno sigue recibiendo `auto` y GloryAPI sigue decidiendo la
-ruta; no cambies ese valor por `model = "auto"` en el perfil, porque Desktop no lo encuentra en el
-catálogo y puede mostrar su ventana interna de 258400 tokens. Todos los modelos publicados por el
-bridge declaran `context_window`, `max_context_window` y `auto_compact_token_limit` en `150000`.
+El perfil aislado arranca con `model = "gloryapi-auto"`, un alias visible propio del bridge, y el catálogo
+Desktop lo publica para poder volver a Auto después de elegir un modelo explícito. GloryAPI sigue recibiendo
+`auto` y decide la ruta; `auto` y `codex-auto-review` se aceptan como alias de compatibilidad en la
+configuración V2. Todos los modelos publicados por el bridge declaran `context_window`,
+`max_context_window` y `auto_compact_token_limit` en `150000`.
 
 Para preparar la configuración sin abrir una ventana:
 
