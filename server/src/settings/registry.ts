@@ -238,6 +238,28 @@ function mergeCapabilities(base: CapabilityProfile, override: ProviderSettingsOv
   return { ...base, ...(override ?? {}) };
 }
 
+function mergeModelCapabilities(
+  model: CapabilityProfile,
+  provider: CapabilityProfile,
+  override: ModelSettingsOverrides['capabilities'],
+): CapabilityProfile {
+  const requested = mergeCapabilities(model, override);
+  return {
+    ...requested,
+    // A model-level false is fail-closed and cannot be raised by a provider or
+    // settings override. Verified model metadata must be changed explicitly.
+    streaming: model.streaming && provider.streaming && requested.streaming,
+    tools: model.tools && provider.tools && requested.tools,
+    reasoning: model.reasoning && provider.reasoning && requested.reasoning,
+    multimodal: model.multimodal && provider.multimodal && requested.multimodal,
+    maxContextWindow: model.maxContextWindow === null
+      ? null
+      : (typeof requested.maxContextWindow === 'number'
+        ? Math.min(model.maxContextWindow, requested.maxContextWindow)
+        : model.maxContextWindow),
+  };
+}
+
 export function getProviderSettingsSnapshot(): ProviderSettingsSnapshot {
   const registry = getRegistrySnapshot();
   const providers = registry.providers.map(provider => {
@@ -261,7 +283,7 @@ export function getProviderSettingsSnapshot(): ProviderSettingsSnapshot {
         const effective: EffectiveModelSettings = {
           alias: overrides.alias ?? null,
           timeoutMs: overrides.timeoutMs ?? providerEffective.timeoutMs,
-          capabilities: mergeCapabilities(providerEffective.capabilities, overrides.capabilities),
+          capabilities: mergeModelCapabilities(model.capabilities, providerEffective.capabilities, overrides.capabilities),
           sources: {
             alias: overrides.alias ? 'model' : 'default',
             timeoutMs: overrides.timeoutMs ? 'model' : providerOverrides.timeoutMs ? 'provider' : 'default',

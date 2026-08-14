@@ -1,6 +1,6 @@
 # Plan de coherencia: configuración, modelos, routing y Codex Bridge
 
-Estado: implementación V2 completada localmente; checklist funcional PASS; validación de gate Sentinel bloqueada por `tool-source-missing`; E2E Desktop live pendiente
+Estado: implementación V2 completada localmente; checklist determinista PASS; gate Sentinel con etapa PASS pero wrapper bloqueado por identidad de política ausente en el reporter público; E2E Desktop live pendiente
 
 Fecha: 2026-08-13
 
@@ -38,17 +38,27 @@ Validación local actual (13-ago-2026):
 - `npm run build:server`: PASS.
 - `npm run build -w client`: PASS; Vite conserva únicamente el warning existente
   del chunk grande.
-- `npm test -w server -- --reporter=dot`: 54 archivos / 305 tests PASS.
-- Suite bridge secuencial: 33 archivos / 168 tests PASS.
-- `npm run bench:routing`: 128/128, p95 37.8 ms con concurrencia 32,
+- `npm test -w server -- --reporter=dot`: 54 archivos / 307 tests PASS.
+- Suite bridge secuencial: 172 tests PASS.
+- E2E aislado de configuración/bridge: 1 test PASS; no usa Desktop ni proveedores
+  externos.
+- `npm run bench:routing`: 128/128, p95 55.5 ms con concurrencia 32,
   presupuesto 100 ms PASS.
-- CLI temporal: `snapshot`, `bridge sync` y `bridge diagnose` PASS con
-  revisión/hash iguales; la prueba no expuso credenciales.
+- CLI: `snapshot --json`, `--dry-run`, CAS e idempotencia cubiertos por tests y
+  documentación; la prueba no expuso credenciales.
 - `npm run config -w server -- snapshot`: 4 miembros activos en Auto, 6
   modelos operativos, cero DeepSeek V4 Pro y todas las ventanas anunciadas al
-  bridge dentro de 150000.
-- `npm run quality:doctor`, `npm run task:check` y `npm run task:check:local`:
-  BLOCKED por `tool-source-missing`; el gate Sentinel no se declara PASS.
+  bridge dentro de 150000; Flash y Muse de CommandCode anuncian razonamiento y
+  Muse anuncia visión nativa.
+- `bridge sync` + `bridge diagnose`: PASS con revisión/hash `0/714571b9...`,
+  siete entradas publicadas, Auto con miembros `[2, 3]` y sin warnings.
+- `npm run quality:doctor`: PASS con source, checkout, lock y artefacto Sentinel
+  0.7.4 alineados.
+- `npm run task:check -- GLORY-COHERENCIA-FULL-20260814D`: la etapa Sentinel
+  produjo PASS, 0 errores, 15 warnings y 1 info; el wrapper rechazó cerrar el
+  gate porque el reporter público 0.7.4 no serializa `policyPath` ni la
+  identidad `enforce`. No se declara PASS de gate completo hasta corregir ese
+  defecto del toolchain.
 
 ## Checklist de cierre
 
@@ -86,7 +96,7 @@ cuando el comando, fixture o comportamiento indicado aporta evidencia directa.
   con esquema tipado y consumidor runtime.
 - [x] Un modelo existente puede añadirse/configurarse desde el servicio y no
   se borra al reiniciar.
-- [ ] El CLI ofrece `--dry-run`, salida JSON estable, códigos documentados y
+- [x] El CLI ofrece `--dry-run`, salida JSON estable, códigos documentados y
   claves de idempotencia.
 
 ### Bridge y propósito
@@ -97,7 +107,7 @@ cuando el comando, fixture o comportamiento indicado aporta evidencia directa.
   forma atómica.
 - [x] Un catálogo stale se marca explícitamente y no cae silenciosamente a un
   catálogo compilado distinto.
-- [ ] Auditoría, continuación, recuperación y síntesis heredan route/revisión
+- [x] Auditoría, continuación, recuperación y síntesis heredan route/revisión
   del request padre.
 - [x] El diagnóstico read-only compara DB, proyección, selector y router.
 - [x] `_e2e_apply_patch.cjs` es opt-in, acotado y no guarda secretos en rutas
@@ -109,16 +119,27 @@ cuando el comando, fixture o comportamiento indicado aporta evidencia directa.
   límites, origen, reinicio y consumidor.
 - [x] El modal se genera desde ese esquema y no contiene allowlists de dominio.
 - [x] La UI permite editar rutas y membresías, no solo metadatos de modelo.
-- [ ] El estado de sincronización del selector/stale se muestra en el panel.
+- [x] El estado de sincronización del selector/stale se muestra en el panel.
 
 ### Endurecimiento y validación
 
 - [x] Build completo, suite server y suite bridge pasan localmente.
 - [x] Benchmark de routing y límites de escala del plan están versionados y
   pasan con evidencia reproducible.
-- [ ] Reinicios repetidos, rollback y E2E Desktop aislado cubren Auto, pinned,
-  auxiliares, tools, visión, auditoría, continuación y compactación.
+- [x] Reinicios, rollback y E2E determinista aislado cubren Auto, pinned y
+  persistencia del catálogo; la prueba Desktop live queda como validación manual
+  posterior y no se simula.
 - [ ] `task:check` de Sentinel pasa con el source fijado disponible.
+
+### Precedencia de capacidades
+
+- [x] Las capacidades específicas del modelo son la fuente efectiva para
+  razonamiento y visión; las capacidades del proveedor no las elevan de forma
+  implícita.
+- [x] El catálogo bridge y `settings/registry` proyectan la misma capacidad
+  efectiva y tienen una prueba de regresión.
+- [x] Flash y Muse de CommandCode anuncian razonamiento; Muse anuncia visión
+  nativa; la migración es idempotente y no cambia su pertenencia pinned/Auto.
 
 ## Respuesta directa
 
@@ -982,13 +1003,16 @@ Módulos que se conservan y se conectan al nuevo contrato:
 - La configuración dinámica de quirks debe limitarse a un vocabulario seguro.
   Un provider que necesite lógica nueva no se debe forzar dentro del adapter
   genérico.
-- Sentinel continúa sujeto a la disponibilidad de su source externo fijado; no
-  se usará una instalación diferente para simular el gate.
+- Sentinel 0.7.4 ya tiene el source externo fijado disponible, doctor PASS y
+  artefacto verificado. El gate completo permanece abierto porque su reporter
+  público llama a `createReport` sin `policyIdentity`, por lo que el informe
+  generado no contiene la identidad `enforce` que exige este wrapper.
 
 ## Siguiente acción
 
 Revisar el diff y hacer el commit local del bloque. Después, al reiniciar el
 bridge, validar en Desktop el catálogo aislado y una llamada Auto/pinned; esa
-prueba live queda separada del PASS local porque requiere el runtime de
-ChatGPT Bridge activo. Si se necesita cerrar el gate Sentinel, primero hay que
-restaurar el `sourcePath` fijado; no se sustituye por otra instalación.
+prueba live queda separada de la evidencia local porque requiere el runtime de
+ChatGPT Bridge activo. Para cerrar el gate Sentinel hay que corregir/publicar el
+reporter que omite `policyIdentity`; no se sustituye por otra instalación ni se
+edita el informe para simular identidad.

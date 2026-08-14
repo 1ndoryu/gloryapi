@@ -13,6 +13,7 @@ import {
   updateConfigurationRoute,
 } from '../../services/configuration-v2.js';
 import { getProvider } from '../../providers/index.js';
+import { getProviderSettingsSnapshot } from '../../settings/registry.js';
 
 describe('configuration-v2', () => {
   beforeEach(() => {
@@ -28,6 +29,25 @@ describe('configuration-v2', () => {
     expect(snapshot.bridge.entries.find(entry => entry.id === 'auto')?.wireModel).toBe('auto');
     expect(snapshot.bridge.entries.find(entry => entry.id === 'deepseek-v4-flash')).toBeUndefined();
     expect(snapshot.bridge.entries.filter(entry => entry.id !== 'auto').every(entry => entry.routeId !== 'route:auto')).toBe(true);
+  });
+
+  it('projects verified model reasoning and vision independently from provider capabilities', () => {
+    const snapshot = getConfigurationSnapshot();
+    const flash = snapshot.models.find(model => model.platform === 'commandcode' && model.modelId.endsWith('deepseek-v4-flash'))!;
+    const muse = snapshot.models.find(model => model.platform === 'commandcode' && model.modelId.includes('muse-spark'))!;
+    expect(flash.supportsReasoning).toBe(true);
+    expect(flash.nativeVision).toBe(false);
+    expect(muse.supportsReasoning).toBe(true);
+    expect(muse.nativeVision).toBe(true);
+    expect(snapshot.bridge.entries.find(entry => entry.id === flash.modelId)?.supportsReasoning).toBe(true);
+    expect(snapshot.bridge.entries.find(entry => entry.id === muse.modelId)?.supportsReasoning).toBe(true);
+    expect(snapshot.bridge.entries.find(entry => entry.id === muse.modelId)?.nativeVision).toBe(true);
+
+    const commandCode = getProviderSettingsSnapshot().providers.find(provider => provider.platform === 'commandcode')!;
+    expect(commandCode.effective.capabilities.reasoning).toBe(true);
+    expect(commandCode.models.find(model => model.modelId === flash.modelId)?.effective.capabilities.reasoning).toBe(true);
+    expect(commandCode.models.find(model => model.modelId === muse.modelId)?.effective.capabilities.reasoning).toBe(true);
+    expect(commandCode.models.find(model => model.modelId === muse.modelId)?.effective.capabilities.multimodal).toBe(true);
   });
 
   it('updates model capabilities through one revisioned service', () => {

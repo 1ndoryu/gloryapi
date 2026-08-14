@@ -76,9 +76,16 @@ function requestTelemetry(req: Request): ProxyRequestTelemetry {
     ? requestedKind
     : 'main';
   const parent = req.header('x-glory-parent-request-id');
+  const parentRoute = req.header('x-glory-parent-route-id');
+  const parentRevisionText = req.header('x-glory-parent-configuration-revision');
+  const parentRevision = Number(parentRevisionText);
+  const parentSelectionReason = req.header('x-glory-parent-selection-reason');
   return {
     requestKind,
     parentRequestId: parent && /^[A-Za-z0-9._:-]{1,96}$/.test(parent) ? parent : null,
+    parentRouteId: parentRoute && /^[a-z][a-z0-9:_-]{1,127}$/.test(parentRoute) ? parentRoute : null,
+    parentConfigurationRevision: Number.isSafeInteger(parentRevision) && parentRevision >= 0 ? parentRevision : null,
+    parentSelectionReason: parentSelectionReason && /^[A-Za-z0-9._:-]{1,96}$/.test(parentSelectionReason) ? parentSelectionReason : null,
   };
 }
 

@@ -47,6 +47,34 @@ function createUpstreamAdapter({
       : {}
     : () => ({});
 
+  const routingMetadataKeys = ['__parentRouteId', '__parentConfigurationRevision', '__parentSelectionReason'];
+
+  function attachRoutingMetadata(target, metadata) {
+    if (!target || !metadata) return target;
+    for (const [key, value] of Object.entries(metadata)) {
+      if (value === undefined || value === null || value === '') continue;
+      Object.defineProperty(target, key, {
+        value,
+        enumerable: false,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return target;
+  }
+
+  function routingMetadataFromHeaders(headers) {
+    const routeId = headers.get('x-glory-route-id');
+    const revisionText = headers.get('x-glory-configuration-revision');
+    const selectionReason = headers.get('x-glory-selection-reason');
+    const revision = Number(revisionText);
+    return {
+      __parentRouteId: routeId && /^[a-z][a-z0-9:_-]{1,127}$/.test(routeId) ? routeId : undefined,
+      __parentConfigurationRevision: Number.isSafeInteger(revision) && revision >= 0 ? revision : undefined,
+      __parentSelectionReason: selectionReason && /^[A-Za-z0-9._:-]{1,96}$/.test(selectionReason) ? selectionReason : undefined,
+    };
+  }
+
   function preserveCanaryProvider(source, target) {
     if (typeof source.__canaryProvider === 'string') {
       Object.defineProperty(target, '__canaryProvider', {
@@ -54,7 +82,7 @@ function createUpstreamAdapter({
         enumerable: false,
       });
     }
-    for (const key of ['__requestKind', '__parentRequestId']) {
+    for (const key of ['__requestKind', '__parentRequestId', ...routingMetadataKeys]) {
       if (typeof source[key] === 'string' && source[key]) {
         Object.defineProperty(target, key, {
           value: source[key],
@@ -72,6 +100,15 @@ function createUpstreamAdapter({
     }
     if (typeof chat.__parentRequestId === 'string' && /^[A-Za-z0-9._:-]{1,96}$/.test(chat.__parentRequestId)) {
       headers['X-Glory-Parent-Request-Id'] = chat.__parentRequestId;
+    }
+    if (typeof chat.__parentRouteId === 'string' && /^[a-z][a-z0-9:_-]{1,127}$/.test(chat.__parentRouteId)) {
+      headers['X-Glory-Parent-Route-Id'] = chat.__parentRouteId;
+    }
+    if (Number.isSafeInteger(chat.__parentConfigurationRevision) && chat.__parentConfigurationRevision >= 0) {
+      headers['X-Glory-Parent-Configuration-Revision'] = String(chat.__parentConfigurationRevision);
+    }
+    if (typeof chat.__parentSelectionReason === 'string' && /^[A-Za-z0-9._:-]{1,96}$/.test(chat.__parentSelectionReason)) {
+      headers['X-Glory-Parent-Selection-Reason'] = chat.__parentSelectionReason;
     }
     return headers;
   }
@@ -332,7 +369,12 @@ function cloneForWebLimitSynthesis(chat, toolMap) {
   // Do not copy the source request kind: preserveCanaryProvider also copies
   // non-configurable lifecycle metadata, while this recovery must be tagged as
   // a new bounded synthesis request.
-  const synthesisChat = preserveCanaryProvider({ __canaryProvider: chat.__canaryProvider }, {
+  const synthesisChat = preserveCanaryProvider({
+    __canaryProvider: chat.__canaryProvider,
+    __parentRouteId: chat.__parentRouteId,
+    __parentConfigurationRevision: chat.__parentConfigurationRevision,
+    __parentSelectionReason: chat.__parentSelectionReason,
+  }, {
     ...chat,
     messages: [...(chat.messages || [])],
     stream: false,
@@ -448,6 +490,9 @@ async function fetchUpstreamCompletion(chat, authorization, timeoutMs = UPSTREAM
     // can correlate model behavior with the real upstream route.
     const routedVia = response.headers.get('x-routed-via');
     if (routedVia) Object.defineProperty(json, '__routedVia', { value: routedVia, enumerable: false });
+    const routingMetadata = routingMetadataFromHeaders(response.headers);
+    attachRoutingMetadata(chat, routingMetadata);
+    attachRoutingMetadata(json, routingMetadata);
     return json;
   } catch {
     const error = new Error('upstream returned invalid JSON');
@@ -504,8 +549,11 @@ async function fetchUpstreamStream(chat, authorization, callerSignal) {
       body: JSON.stringify({ ...chat, stream: true }),
       signal: controller.signal,
     });
+    const routingMetadata = routingMetadataFromHeaders(response.headers);
+    attachRoutingMetadata(chat, routingMetadata);
     return {
       response,
+      routingMetadata,
       read: async (reader) => {
         if (controller.signal.aborted) throw timeoutError(new Error('stream aborted'));
         const idleTimer = setTimeout(() => {
@@ -662,12 +710,19 @@ async function runInternalWebToolLoop(chat, toolMap, authorization) {
 }
 
 function cloneForEmptyRecovery(chat) {
-  const recovered = preserveCanaryProvider(chat, {
+  const recovered = preserveCanaryProvider({
+    __canaryProvider: chat.__canaryProvider,
+    __parentRouteId: chat.__parentRouteId,
+    __parentConfigurationRevision: chat.__parentConfigurationRevision,
+    __parentSelectionReason: chat.__parentSelectionReason,
+  }, {
     ...chat,
     stream: false,
     messages: [...(chat.messages || [])],
   });
   attachRequestId(recovered, chat.__gloryRequestId);
+  Object.defineProperty(recovered, '__requestKind', { value: 'recovery', enumerable: false });
+  Object.defineProperty(recovered, '__parentRequestId', { value: chat.__gloryRequestId || '', enumerable: false });
   Object.defineProperty(recovered, '__userTools', {
     value: chat.__userTools === true,
     enumerable: false,

@@ -1,7 +1,7 @@
 import type { ChatMessage } from '@gloryapi/shared/types.js';
 import { getStickyModel, isAutoModel } from '../proxy-routing.js';
 import { getDb } from '../../db/index.js';
-import { AUTO_ROUTE_ID, currentConfigurationRevision, getRouteModelIds, resolveClientCatalogEntry } from '../../services/configuration-v2.js';
+import { AUTO_ROUTE_ID, getRouteModelIds, resolveClientCatalogEntry } from '../../services/configuration-v2.js';
 
 export type ProxyModelSelection =
   | { preferredModel: number | undefined; restrictedChain: number[] | undefined; routeId?: string; selectionReason?: string; selectionConfidence?: 'persisted' | 'legacy' | 'unknown' }

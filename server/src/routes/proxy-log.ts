@@ -3,6 +3,9 @@ import { getDb } from '../db/index.js'
 export type ProxyRequestTelemetry = {
   requestKind?: string
   parentRequestId?: string | null
+  parentRouteId?: string | null
+  parentConfigurationRevision?: number | null
+  parentSelectionReason?: string | null
   cachedInputTokens?: number
   cacheWriteTokens?: number
   reasoningEffort?: 'low' | 'medium' | 'high' | 'max' | null
@@ -31,11 +34,11 @@ export function logProxyRequest(
     db.prepare(`
       INSERT INTO requests (
         platform, model_id, status, input_tokens, output_tokens, latency_ms, error,
-        api_key_id, request_kind, parent_request_id, cached_input_tokens, cache_write_tokens,
+        api_key_id, request_kind, parent_request_id, parent_route_id, parent_configuration_revision, parent_selection_reason, cached_input_tokens, cache_write_tokens,
         reasoning_effort, reasoning_tokens, reasoning_tokens_source,
         requested_model, route_id, configuration_revision, selection_reason, selection_confidence
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       platform,
       modelId,
@@ -47,6 +50,9 @@ export function logProxyRequest(
       keyId,
       telemetry.requestKind || 'main',
       telemetry.parentRequestId || null,
+      telemetry.parentRouteId || null,
+      telemetry.parentConfigurationRevision ?? null,
+      telemetry.parentSelectionReason || null,
       Math.max(0, telemetry.cachedInputTokens || 0),
       Math.max(0, telemetry.cacheWriteTokens || 0),
       telemetry.reasoningEffort || null,

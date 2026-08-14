@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
 import { initDb } from '../../db/index.js'
+import { createConfigurationModel } from '../../services/configuration-v2.js'
 
 describe('Migration idempotency', () => {
   it('initDb on a fresh database then re-run produces identical row counts', () => {
@@ -46,6 +47,32 @@ describe('Migration idempotency', () => {
     db2.close()
   })
 
+  it('keeps a CLI-created catalog slug stable across restart and idempotent replay', () => {
+    process.env.ENCRYPTION_KEY = '0'.repeat(64)
+    const tmpPath = `/tmp/freeapi-cli-model-${Date.now()}.db`
+    const input = {
+      platform: 'custom-provider',
+      modelId: 'custom/model',
+      displayName: 'Modelo CLI',
+      addToAuto: false,
+      expectedRevision: 0,
+      idempotencyKey: 'cli-restart-replay',
+      actor: 'test',
+      source: 'test',
+    }
+    const db1 = initDb(tmpPath, { catalogMode: 'operational' })
+    const first = createConfigurationModel(input)
+    const firstSlug = (db1.prepare('SELECT external_slug FROM client_catalog_entries WHERE model_db_id = ?').get(first.models.find(model => model.modelId === input.modelId)?.modelDbId) as { external_slug: string }).external_slug
+    db1.close()
+
+    const db2 = initDb(tmpPath, { catalogMode: 'operational' })
+    const second = createConfigurationModel(input)
+    const secondSlug = (db2.prepare('SELECT external_slug FROM client_catalog_entries WHERE external_slug LIKE ?').get('%custom/model') as { external_slug: string }).external_slug
+    expect(second.revision).toBe(first.revision)
+    expect(secondSlug).toBe(firstSlug)
+    db2.close()
+  })
+
   it('adds request telemetry columns to an existing operational requests table', () => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64)
     const tmpPath = `/tmp/freeapi-request-telemetry-${Date.now()}.db`
@@ -71,6 +98,9 @@ describe('Migration idempotency', () => {
     expect(columns.map(column => column.name)).toEqual(expect.arrayContaining([
       'request_kind',
       'parent_request_id',
+      'parent_route_id',
+      'parent_configuration_revision',
+      'parent_selection_reason',
       'cached_input_tokens',
       'cache_write_tokens',
       'reasoning_effort',

@@ -41,6 +41,16 @@ function createContextAdapter({
         enumerable: false,
       });
     }
+    for (const key of ['__parentRouteId', '__parentConfigurationRevision', '__parentSelectionReason']) {
+      if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+        Object.defineProperty(target, key, {
+          value: source[key],
+          enumerable: false,
+          configurable: true,
+          writable: true,
+        });
+      }
+    }
     return target;
   }
 
@@ -659,7 +669,7 @@ function buildTranscript(msgs) {
   return lines.join('\n');
 }
 
-async function summarizeHistory(oldMessages, auth, canaryProvider, requestId) {
+async function summarizeHistory(oldMessages, auth, canaryProvider, requestId, parentChat) {
   // Bound the summarization input so it never exceeds the context window
   // (reserving room for the COMPACT_MAX_TOKENS summary output).
   const budget = Math.min(CONTEXT_LIMIT, CONTEXT_LIMIT - COMPACT_MAX_TOKENS);
@@ -701,6 +711,9 @@ async function summarizeHistory(oldMessages, auth, canaryProvider, requestId) {
         enumerable: false,
       });
     }
+    preserveCanaryProvider(parentChat || {}, summaryChat);
+    Object.defineProperty(summaryChat, '__requestKind', { value: 'summary', enumerable: false });
+    Object.defineProperty(summaryChat, '__parentRequestId', { value: requestId || '', enumerable: false });
     const json = await fetchUpstreamCompletion(summaryChat, auth, UPSTREAM_TIMEOUT_MS);
     const text = json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
     return text && String(text).trim() ? String(text).trim() : null;
@@ -793,7 +806,7 @@ async function compactContext(chat, auth, options = {}) {
 
   let summaryText = null;
   if (old.length) {
-    summaryText = await summarizeHistory(old, auth, chat.__canaryProvider, chat.__gloryRequestId);
+    summaryText = await summarizeHistory(old, auth, chat.__canaryProvider, chat.__gloryRequestId, chat);
   }
   if (summaryText) {
     log(

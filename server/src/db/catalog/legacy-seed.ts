@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-export function seedLegacyModels(db: Database.Database): void {
+export function seedLegacyModels(db: Database.Database, options: { quiet?: boolean } = {}): void {
   const count = db.prepare('SELECT COUNT(*) as cnt FROM models').get() as { cnt: number };
   if (count.cnt > 0) return;
 
@@ -45,5 +45,5 @@ export function seedLegacyModels(db: Database.Database): void {
   db.transaction(() => {
     for (let index = 0; index < allModels.length; index++) insertFallback.run(allModels[index].id, index + 1);
   })();
-  console.log(`Seeded ${models.length} models and fallback config`);
+  if (!options.quiet) console.log(`Seeded ${models.length} models and fallback config`);
 }

@@ -39,6 +39,9 @@ test('nudge retries preserve the provider directive on non-enumerable request me
   const chat = { messages: [{ role: 'user', content: 'continue' }] };
   Object.defineProperty(chat, '__canaryProvider', { value: 'opencode-go', enumerable: false });
   Object.defineProperty(chat, '__gloryRequestId', { value: 'req_test_correlation', enumerable: false });
+  Object.defineProperty(chat, '__parentRouteId', { value: 'route:model:test', enumerable: false, configurable: true });
+  Object.defineProperty(chat, '__parentConfigurationRevision', { value: 42, enumerable: false, configurable: true });
+  Object.defineProperty(chat, '__parentSelectionReason', { value: 'persisted', enumerable: false, configurable: true });
 
   await adapter.nudgeForToolCalls(chat, 'Bearer test', 'I will continue');
 
@@ -47,6 +50,8 @@ test('nudge retries preserve the provider directive on non-enumerable request me
   assert.equal(Object.prototype.propertyIsEnumerable.call(seen[0], '__canaryProvider'), false);
   assert.equal(seen[0].__gloryRequestId, 'req_test_correlation');
   assert.equal(Object.prototype.propertyIsEnumerable.call(seen[0], '__gloryRequestId'), false);
+  assert.equal(seen[0].__parentRouteId, 'route:model:test');
+  assert.equal(seen[0].__parentConfigurationRevision, 42);
 });
 
 test('adaptive audit uses the real final user message instead of merged injected context', () => {
@@ -74,10 +79,16 @@ test('upstream adapter emits authenticated canary routing headers', async t => {
   const seen = [];
   global.fetch = async (_url, options) => {
     seen.push(options.headers);
+    const responseHeaders = new Map([
+      ['x-routed-via', 'commandcode/deepseek-v4-flash'],
+      ['x-glory-route-id', 'route:model:test'],
+      ['x-glory-configuration-revision', '42'],
+      ['x-glory-selection-reason', 'persisted'],
+    ]);
     return {
       ok: true,
       status: 200,
-      headers: { get: () => null },
+      headers: { get: name => responseHeaders.get(name) || null },
       text: async () => JSON.stringify({ choices: [{ message: { content: 'ok' } }] }),
     };
   };
@@ -104,9 +115,18 @@ test('upstream adapter emits authenticated canary routing headers', async t => {
   });
   const chat = { messages: [{ role: 'user', content: 'test' }] };
   Object.defineProperty(chat, '__canaryProvider', { value: 'opencode-zen', enumerable: false });
+  Object.defineProperty(chat, '__parentRouteId', { value: 'route:model:parent', enumerable: false, configurable: true });
+  Object.defineProperty(chat, '__parentConfigurationRevision', { value: 7, enumerable: false, configurable: true });
+  Object.defineProperty(chat, '__parentSelectionReason', { value: 'persisted', enumerable: false, configurable: true });
 
   await adapter.fetchUpstreamCompletion(chat, 'Bearer test');
 
   assert.equal(seen[0]['X-Glory-Canary-Provider'], 'opencode-zen');
   assert.equal(seen[0]['X-Glory-Canary-Token'], 'test-canary-token');
+  assert.equal(seen[0]['X-Glory-Parent-Route-Id'], 'route:model:parent');
+  assert.equal(seen[0]['X-Glory-Parent-Configuration-Revision'], '7');
+  assert.equal(seen[0]['X-Glory-Parent-Selection-Reason'], 'persisted');
+  assert.equal(chat.__parentRouteId, 'route:model:test');
+  assert.equal(chat.__parentConfigurationRevision, 42);
+  assert.equal(chat.__parentSelectionReason, 'persisted');
 });

@@ -25,6 +25,7 @@ export function getDb(): Database.Database {
 
 export interface InitDbOptions {
   catalogMode?: 'operational' | 'legacy';
+  quiet?: boolean;
 }
 
 export function initDb(dbPath?: string, options: InitDbOptions = {}): Database.Database {
@@ -73,7 +74,7 @@ export function initDb(dbPath?: string, options: InitDbOptions = {}): Database.D
   try {
     if (useLegacyCatalogMigrations) {
       ensureLegacyCatalogColumns(db);
-      seedLegacyModels(db);
+      seedLegacyModels(db, { quiet: options.quiet });
       migrateModels(db);
       migrateModelsV2(db);
       migrateModelsV3Ranks(db);
@@ -121,9 +122,9 @@ export function initDb(dbPath?: string, options: InitDbOptions = {}): Database.D
     if (hadConfigurationTables) db.pragma('foreign_keys = ON');
   }
   ensureConfigurationV2(db);
-  ensureUnifiedKey(db);
+  ensureUnifiedKey(db, { quiet: options.quiet });
 
-  console.log(`Database initialized at ${resolvedPath}`);
+  if (!options.quiet) console.log(`Database initialized at ${resolvedPath}`);
   return db;
 }
 
@@ -176,6 +177,9 @@ function createTables(db: Database.Database) {
       api_key_id INTEGER REFERENCES api_keys(id),
       request_kind TEXT NOT NULL DEFAULT 'main',
       parent_request_id TEXT,
+      parent_route_id TEXT,
+      parent_configuration_revision INTEGER,
+      parent_selection_reason TEXT,
       cached_input_tokens INTEGER NOT NULL DEFAULT 0,
       cache_write_tokens INTEGER NOT NULL DEFAULT 0,
       reasoning_effort TEXT,
@@ -299,6 +303,9 @@ function ensureRequestTelemetryColumns(database: Database.Database): void {
   const additions: Array<[string, string]> = [
     ['request_kind', "TEXT NOT NULL DEFAULT 'main'"],
     ['parent_request_id', 'TEXT'],
+    ['parent_route_id', 'TEXT'],
+    ['parent_configuration_revision', 'INTEGER'],
+    ['parent_selection_reason', 'TEXT'],
     ['cached_input_tokens', 'INTEGER NOT NULL DEFAULT 0'],
     ['cache_write_tokens', 'INTEGER NOT NULL DEFAULT 0'],
     ['reasoning_effort', 'TEXT'],
@@ -311,7 +318,9 @@ function ensureRequestTelemetryColumns(database: Database.Database): void {
     ['selection_confidence', 'TEXT'],
   ];
   for (const [name, definition] of additions) {
-    if (!columns.has(name)) database.exec(`ALTER TABLE requests ADD COLUMN ${name} ${definition}`);
+    /* Las columnas son un conjunto cerrado de migraciones internas; usar
+     * prepare().run() mantiene el DDL parametrizable sin pasar por exec(). */
+    if (!columns.has(name)) database.prepare(`ALTER TABLE requests ADD COLUMN ${name} ${definition}`).run();
   }
   database.exec('CREATE INDEX IF NOT EXISTS idx_requests_kind ON requests(request_kind)');
 }

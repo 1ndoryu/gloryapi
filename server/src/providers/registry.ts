@@ -271,7 +271,8 @@ export function getRegistrySnapshot(): RegistrySnapshot {
 
   const capabilityByPlatform = new Map(providers.map(provider => [provider.platform, provider.capabilities]));
   const rows = db.prepare(`
-    SELECT platform, model_id, display_name, enabled, context_window
+    SELECT platform, model_id, display_name, enabled, context_window,
+           native_vision, supports_reasoning, capabilities_explicit
     FROM models
     ORDER BY intelligence_rank ASC, speed_rank ASC, id ASC
   `).all() as Array<{
@@ -280,6 +281,9 @@ export function getRegistrySnapshot(): RegistrySnapshot {
     display_name: string;
     enabled: number;
     context_window: number | null;
+    native_vision: number;
+    supports_reasoning: number;
+    capabilities_explicit: number;
   }>;
   const models: ModelDefinition[] = rows.map(row => {
     const providerCapabilities = capabilityByPlatform.get(row.platform as Platform) ?? activeCapabilities;
@@ -291,6 +295,10 @@ export function getRegistrySnapshot(): RegistrySnapshot {
       contextWindow: row.context_window,
       capabilities: {
         ...providerCapabilities,
+        // Model-level capability flags are the durable source of truth. A
+        // provider may accept a feature while one of its models does not.
+        multimodal: row.capabilities_explicit === 1 ? row.native_vision === 1 : providerCapabilities.multimodal,
+        reasoning: row.capabilities_explicit === 1 ? row.supports_reasoning === 1 : providerCapabilities.reasoning,
         // A null provider limit is intentional: do not infer an unverified
         // context window from catalog metadata for fail-closed providers.
         maxContextWindow: providerCapabilities.maxContextWindow === null

@@ -24,7 +24,7 @@ function assertValidToken(row: LocalTokenRow): void {
   }
 }
 
-export function ensureUnifiedKey(db: Database.Database): void {
+export function ensureUnifiedKey(db: Database.Database, options: { quiet?: boolean } = {}): void {
   const existing = db.prepare("SELECT value FROM settings WHERE key = 'unified_api_key'").get() as { value: string } | undefined
   if (db.name === ':memory:') {
     if (!existing) {
@@ -43,7 +43,7 @@ export function ensureUnifiedKey(db: Database.Database): void {
       VALUES (?, ?, ?, ?, 1, datetime('now'), NULL)
     `).run(TOKEN_NAME, protectedToken.ciphertext, protectedToken.fingerprint, DPAPI_ENCRYPTION_SCHEME)
     db.prepare("DELETE FROM settings WHERE key = 'unified_api_key'").run()
-    console.log('Unified API key migrated to the DPAPI local token vault.')
+    if (!options.quiet) console.log('Unified API key migrated to the DPAPI local token vault.')
     return
   }
 

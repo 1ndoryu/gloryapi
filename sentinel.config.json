@@ -17,7 +17,7 @@
     }
   },
   "runtime": {
-    "minimumVersion": "0.7.1",
+    "minimumVersion": "0.7.4",
     "protocolVersion": 1,
     "lockFile": "sentinel.lock.json"
   },

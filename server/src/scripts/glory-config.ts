@@ -15,28 +15,31 @@ import {
   updateConfigurationProvider,
   updateConfigurationRoute,
   validateConfigurationDocument,
+  ConfigurationRevisionConflictError,
+  ConfigurationValidationError,
 } from '../services/configuration-v2.js';
 
 type JsonObject = Record<string, unknown>;
 
 function usage(): never {
-  throw new Error([
+  throw new CliError([
     'Uso:',
-    '  npm run config -w server -- snapshot [--json]',
-    '  npm run config -w server -- config export --output <ruta>',
-    '  npm run config -w server -- config validate <archivo>',
-    '  npm run config -w server -- config diff <archivo>',
-    '  npm run config -w server -- config apply <archivo> [--expected-revision N] [--idempotency-key K] [--dry-run]',
-    '  npm run config -w server -- config rollback --to-revision N [--expected-revision N] [--idempotency-key K]',
-    '  npm run config -w server -- provider add <json> [--idempotency-key K] [--dry-run]',
-    '  npm run config -w server -- provider set <platform> <json> [--idempotency-key K] [--dry-run]',
-    '  npm run config -w server -- provider enable|disable <platform>',
-    '  npm run config -w server -- model add|set <json|id json> [--dry-run]',
-    '  npm run config -w server -- model enable|disable <id>',
-    '  npm run config -w server -- route set <routeId> <json> [--idempotency-key K] [--dry-run]',
-    '  npm run config -w server -- bridge catalog|sync <ruta>',
-    '  npm run config -w server -- bridge diagnose [ruta-catalogo-bridge.json] [--json]',
-  ].join('\n'));
+    '  npm --silent run config -w server -- snapshot [--json]',
+    '  npm --silent run config -w server -- config export --output <ruta> [--json]',
+    '  npm --silent run config -w server -- config validate <archivo> [--json]',
+    '  npm --silent run config -w server -- config diff <archivo> [--json]',
+    '  npm --silent run config -w server -- config apply <archivo> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- config rollback --to-revision N [--expected-revision N] [--idempotency-key K] [--dry-run]',
+    '  npm --silent run config -w server -- provider add <json> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- provider set <platform> <json> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- provider enable|disable <platform> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- model add <json> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- model set <id> <json> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- model enable|disable <id> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- route set <routeId> <json> [--expected-revision N] [--idempotency-key K] [--dry-run] [--json]',
+    '  npm --silent run config -w server -- bridge catalog|sync <ruta>',
+    '  npm --silent run config -w server -- bridge diagnose [ruta-catalogo-bridge.json] [--json]',
+  ].join('\n'), 'usage');
 }
 
 function object(value: unknown, name: string): JsonObject {
@@ -46,7 +49,14 @@ function object(value: unknown, name: string): JsonObject {
 
 function parseJson(value: string | undefined, name = 'argumento'): JsonObject {
   if (!value) usage();
-  try { return object(JSON.parse(value), name); } catch (error) { throw new Error(`JSON inválido en ${name}: ${error instanceof Error ? error.message : 'error desconocido'}`); }
+  try { return object(JSON.parse(value), name); } catch (error) { throw new CliError(`JSON inválido en ${name}: ${error instanceof Error ? error.message : 'error desconocido'}`, 'invalid_json'); }
+}
+
+class CliError extends Error {
+  constructor(message: string, readonly code: string) {
+    super(message);
+    this.name = 'CliError';
+  }
 }
 
 function flag(args: string[], name: string): string | undefined {
@@ -61,13 +71,14 @@ function numericFlag(args: string[], name: string): number | undefined {
   const value = flag(args, name);
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${name} debe ser un entero no negativo`);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new CliError(`${name} debe ser un entero no negativo`, 'invalid_number');
   return parsed;
 }
 
 function readJson(file: string): unknown {
   const absolute = path.resolve(file);
-  return JSON.parse(fs.readFileSync(absolute, 'utf8')) as unknown;
+  try { return JSON.parse(fs.readFileSync(absolute, 'utf8')) as unknown; }
+  catch (error) { throw new CliError(`JSON inválido en ${absolute}: ${error instanceof Error ? error.message : 'error desconocido'}`, 'invalid_json'); }
 }
 
 function print(value: unknown, jsonOutput: boolean): void {
@@ -160,12 +171,12 @@ function main(): void {
   const dryRun = hasFlag(args, '--dry-run');
   const command = args.find(arg => !arg.startsWith('--'));
   if (!command || command === 'snapshot') {
-    initDb(process.env.GLORYAPI_DB_PATH);
+    initDb(process.env.GLORYAPI_DB_PATH, { quiet: jsonOutput });
     print(getConfigurationSnapshot(), jsonOutput);
     return;
   }
 
-  initDb(process.env.GLORYAPI_DB_PATH);
+  initDb(process.env.GLORYAPI_DB_PATH, { quiet: jsonOutput });
   const group = args[0];
   const action = args[1];
   const positionals: string[] = [];
@@ -298,6 +309,16 @@ function main(): void {
 try {
   main();
 } catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+  const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof ConfigurationRevisionConflictError
+    ? error.code
+    : error instanceof ConfigurationValidationError
+      ? error.code
+      : error instanceof CliError
+        ? error.code
+        : 'cli_error';
+  const jsonOutput = process.argv.includes('--json');
+  if (jsonOutput) process.stdout.write(`${JSON.stringify({ ok: false, error: { code, message } })}\n`);
+  else process.stderr.write(`${code}: ${message}\n`);
+  process.exitCode = code === 'configuration_revision_conflict' ? 3 : code === 'invalid_configuration' || code.startsWith('idempotency_') || code === 'invalid_json' || code === 'invalid_number' || code === 'usage' ? 2 : 1;
 }

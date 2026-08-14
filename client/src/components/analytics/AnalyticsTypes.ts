@@ -18,6 +18,9 @@ export type RequestHistoryItem = {
   apiKeyLabel: string | null
   requestKind: string
   parentRequestId: string | null
+  parentRouteId: string | null
+  parentConfigurationRevision: number | null
+  parentSelectionReason: string | null
   cachedInputTokens: number
   cacheWriteTokens: number
 }

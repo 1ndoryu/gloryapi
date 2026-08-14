@@ -6,13 +6,15 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 ## Siguiente bloque ejecutable
 
 1. Revisar y commitear el bloque de configuración V2, routing coherente,
-   selector dinámico, telemetría y `_e2e_apply_patch.cjs`; la checklist de
-   cierre está en `Agente/planes/plan-coherencia-configuracion-modelos-routing-bridge-2026-08-13.md`.
+   selector dinámico, telemetría y la checklist de cierre en
+   `Agente/planes/plan-coherencia-configuracion-modelos-routing-bridge-2026-08-13.md`.
 2. Reiniciar únicamente el bridge cuando se quiera hacer la validación live del
    catálogo aislado; ChatGPT normal y `C:\Users\Owner\.codex` permanecen fuera
    del alcance.
-3. Si se requiere el gate completo, reparar primero el `sourcePath` fijado de
-   Sentinel (`tool-source-missing`); no declarar PASS con otro binario.
+3. Si se requiere el gate completo, corregir el reporter público de Sentinel
+   0.7.4 para que serialice `policyIdentity`; el source fijado ya está presente
+   y alineado, pero no se declara PASS mientras el informe no tenga identidad
+   `enforce`.
 
 ## Decisiones y bloqueos explícitos
 
@@ -68,45 +70,27 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 ## Evidencia del bloque actual
 
 - Configuración V2 y routing coherente: `npm run build:server` PASS; suite
-  server 54 archivos / 305 tests PASS; snapshot real con 4 miembros activos en
+  server 54 archivos / 307 tests PASS; snapshot real con 4 miembros activos en
   Auto, 6 modelos y cero DeepSeek V4 Pro.
-- Bridge y `_e2e_apply_patch.cjs`: suite secuencial 33 archivos / 168 tests PASS; el E2E es
-  opt-in, no guarda tokens en `C:\temp` y usa un directorio temporal aislado.
-- CLI: `snapshot`, `bridge sync` y `bridge diagnose` PASS sobre una base
-  temporal; el diagnóstico confirma que DB, ruta Auto, proyección y hash son
+- Bridge: suite secuencial 172 tests PASS; E2E aislado de configuración 1/1 PASS.
+  `_e2e_apply_patch.cjs` permanece opt-in y fuera de la suite automática.
+- CLI: `snapshot`, `bridge sync` y `bridge diagnose` PASS sobre la base
+  operativa; el diagnóstico confirma que DB, ruta Auto, proyección y hash son
   coherentes.
-- Rendimiento: `npm run bench:routing` 128/128 PASS, p95 37.8 ms con
+- Rendimiento: `npm run bench:routing` 128/128 PASS, p95 53.2 ms con
   concurrencia 32 frente a un presupuesto de 100 ms.
 - Telemetría: cada request nuevo conserva modelo solicitado, ruta, revisión,
   motivo y confianza de selección en Analytics.
-- Limitación: Sentinel continúa bloqueado por `tool-source-missing`; no se
-  presenta como gate PASS.
+- Limitación: `quality:doctor` pasa con Sentinel 0.7.4 alineado; `task:check`
+  queda bloqueado por el bug del reporter que omite `policyIdentity`, no por
+  `tool-source-missing`; no se presenta como gate PASS.
 
-- `npm test -w server`: 54 archivos / 305 tests PASS.
-- Suite bridge: 168/168 PASS en ejecución secuencial, incluyendo el launcher de dos `CODEX_HOME`,
-  CLI/Desktop controlados, switches seguros sin mutación del home normal, el web loop del navegador,
-  el nudge universal sin depender de frases de intención, recuperación de herramientas mixtas en
-  streaming/no-streaming, límite de rondas con síntesis final sin herramienta web, auditoría inconclusa sin falso `completed` y protección
-  contra inyección en argumentos. La auditoría también continúa ante una narración intermedia y solo
-  emite `response.failed` al agotar sus 3 rondas o presupuesto.
-- `npm run build` (shared, server y client): PASS. Vite conserva únicamente el warning existente de
-  chunk grande del cliente.
-- `npm run quality:doctor`: bloqueado por `tool-source-missing`; el source fijado de Sentinel no está
-  inicializado en `glory-rs-rest`.
-- `npm run task:check` y `npm run task:check:local`: bloqueados antes del análisis post-cambio porque el runtime
-  local de Sentinel no tiene inicializado su `sourcePath` (`tool-source-missing`). No se declara PASS;
-  la suite y el build sí son evidencia post-cambio. Las excepciones de directorios densos siguen
-  declaradas explícitamente en `sentinel.config.json`.
-- Routing: 128/128 sin fallos; p95 **63.9 ms con concurrencia 8**, **30.8 ms con 16** y
-  **62.6 ms con 32**, todos bajo el presupuesto de 100 ms.
 - FreeLLMAPI sigue en `:3001`; ChatGPT normal y `C:\Users\Owner\.codex\config.toml` permanecen
   sin cambios. El bridge responde en `http://127.0.0.1:4100/health` y se opera desde el acceso
   directo `ChatGPT Bridge - GloryAPI.lnk`.
 - La coexistencia quedó preparada y verificada: el home normal es
   `C:\Users\Owner\.codex` y el home aislado es `C:\Users\Owner\.codex-gloryapi`; el segundo
   no copia `auth.json`, SQLite ni conversaciones del primero.
-- El bloque anterior quedó en `89e4506` (`fix(codex): estabiliza bridge aislado y recuperacion de turnos`);
-  el bloque actual añade recuperación del web loop, resúmenes Responses y presupuesto de nudge.
 - Manual operativo: `integrations/codex-bridge/COMANDOS-BRIDGE.md`.
 
 Fuente de detalle: `PLAN-GLORYAPI.md`. Evidencia histórica: `Agente/completados/` y

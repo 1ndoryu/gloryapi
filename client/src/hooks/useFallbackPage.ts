@@ -121,6 +121,7 @@ export interface BridgeCatalogProjection {
   hash: string
   generatedAt: string
   entries: Array<{ id: string; wireModel: string; pickerId: string | null; provider: string; displayName: string; contextWindow: number | null }>
+  sync: { state: 'synced' | 'stale' | 'missing' | 'invalid'; path: string; checkedAt: string; revision: number | null; hash: string | null; errors: string[] }
 }
 
 export interface ConfigurationSnapshot {

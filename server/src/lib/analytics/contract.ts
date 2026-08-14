@@ -59,6 +59,9 @@ export type HistoryRow = {
   api_key_label: string | null;
   request_kind: string | null;
   parent_request_id: string | null;
+  parent_route_id: string | null;
+  parent_configuration_revision: number | null;
+  parent_selection_reason: string | null;
   cached_input_tokens: number | null;
   cache_write_tokens: number | null;
   requested_model: string | null;

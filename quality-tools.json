@@ -4,10 +4,10 @@
   "tools": {
     "sentinel": {
       "repository": "https://github.com/1ndoryu/glory-sentinel.git",
-      "sourcePath": "../glory-rs-rest/tools/sentinel",
-      "provisionPath": ".quality-tools/sentinel/versions/0.7.1",
-      "commit": "7d18a755f12751ae9fd1ac67827f5a6dad8be631",
-      "version": "0.7.1",
+      "sourcePath": "../glory-sentinel",
+      "provisionPath": ".quality-tools/sentinel/versions/0.7.4",
+      "commit": "0349485c121784513c7ecef8a8de1535e841a5ae",
+      "version": "0.7.4",
       "outputSchemaVersion": "1",
       "buildScript": "compile",
       "testScript": "test:unit",

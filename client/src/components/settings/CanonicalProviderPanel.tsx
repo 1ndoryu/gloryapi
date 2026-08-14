@@ -69,6 +69,12 @@ export function CanonicalProviderPanel() {
       </div>
     })}
     {mutation.isError && <p className="text-sm text-destructive">{(mutation.error as Error).message}</p>}
-    <p className="text-xs text-muted-foreground">Revisión canónica: {data.revision}. Catálogo bridge publicado: revisión {data.bridge.revision}, hash {data.bridge.hash.slice(0, 12)}… Las modificaciones concurrentes se rechazan con CAS.</p>
+    <div className="space-y-1 text-xs text-muted-foreground">
+      <p>Revisión canónica: {data.revision}. Catálogo bridge publicado: revisión {data.bridge.revision}, hash {data.bridge.hash.slice(0, 12)}… Las modificaciones concurrentes se rechazan con CAS.</p>
+      <p className={data.bridge.sync.state === 'synced' ? 'text-emerald-600' : data.bridge.sync.state === 'stale' ? 'text-amber-600' : 'text-muted-foreground'}>
+        Sincronización local del bridge: {data.bridge.sync.state === 'synced' ? 'al día' : data.bridge.sync.state === 'stale' ? 'desactualizada' : data.bridge.sync.state === 'missing' ? 'sin proyección local' : 'proyección inválida'}.
+        {data.bridge.sync.state !== 'synced' && data.bridge.sync.errors[0] ? ` ${data.bridge.sync.errors[0]}.` : ''}
+      </p>
+    </div>
   </section>
 }
