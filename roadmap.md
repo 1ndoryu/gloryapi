@@ -5,11 +5,17 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Siguiente bloque ejecutable
 
-1. Mantener y verificar el runtime externo: `%USERPROFILE%\.gloryapi\gloryapi.db`, snapshot
+1. Ejecutar la Fase 0 del
+   `Agente/planes/plan-coherencia-configuracion-modelos-routing-bridge-2026-08-13.md`:
+   instrumentar intención, ruta y revisión; añadir el diagnóstico de divergencia sin cambiar todavía
+   la selección efectiva. La auditoría confirmó que la ruta hardcodeada de
+   `deepseek-v4-flash` ignora `fallback_config.enabled` y que aliases internos de Codex pueden
+   convertirse en modelos pinned antes del router.
+2. Mantener y verificar el runtime externo: `%USERPROFILE%\.gloryapi\gloryapi.db`, snapshot
    `freellmapi-live-20260811.db` y 23 credenciales DPAPI; no tocar `freellmapi`.
-2. Completar schemas de respuesta/unions, timeouts por fase, idempotency de tools, propagación
+3. Completar schemas de respuesta/unions, timeouts por fase, idempotency de tools, propagación
    de métricas por salto, SSRF de socket y smoke de scripts Windows sin activar ChatGPT.
-3. Ejecutar preflight de cada bloque: `npm run task:check:local -- <ID>`; al cerrar:
+4. Ejecutar preflight de cada bloque: `npm run task:check:local -- <ID>`; al cerrar:
    `npm run task:check -- GLORY-BASELINE`, build, suite server/client y suite bridge.
 
 ## Decisiones y bloqueos explícitos
@@ -18,6 +24,9 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
   puntual. El workspace no tiene aún un remoto externo configurado.
 - No hacer cutover ni rollback sobre la configuración activa: el usuario pidió mantener ChatGPT
   normal. El E2E Desktop probado usa exclusivamente `desktop-user-data-bridge`.
+- No ampliar el catálogo ni añadir más overrides hardcodeados mientras esté activo el plan de
+  coherencia. Los cambios urgentes de routing deben expresarse en la DB actual y acompañarse de una
+  prueba que demuestre que ningún camino alternativo ignora sus flags.
 - La restauración bajo otro perfil/equipo Windows requiere una ventana administrativa real; no se
   simula como PASS desde este perfil.
 
