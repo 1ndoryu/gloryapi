@@ -29,6 +29,10 @@ function createResponseHandlers({
   } = context;
   const SseParserError = sseParserError;
 
+  function responseModel(chat) {
+    return chat.__bridgePresentationModel || chat.model || MODEL;
+  }
+
   async function runNudgeWithKeepAlive(res, chat, finalText) {
     const keepAlive = setInterval(() => {
       if (!res.writableEnded && !res.destroyed) res.write(': nudge-recovery\n\n');
@@ -96,7 +100,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
   });
   sseEvent(res, 'response.created', {
     type: 'response.created',
-    response: { id: responseId, status: 'in_progress', model: chat.model || MODEL },
+    response: { id: responseId, status: 'in_progress', model: responseModel(chat) },
   });
 
   const keepAlive = setInterval(() => {
@@ -283,7 +287,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
 
   sseEvent(res, 'response.created', {
     type: 'response.created',
-    response: { id: responseId, status: 'in_progress', model: chat.model || MODEL },
+    response: { id: responseId, status: 'in_progress', model: responseModel(chat) },
   });
 
   const controller = new AbortController();
@@ -867,7 +871,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       object: 'response',
       created_at: Math.floor(Date.now() / 1000),
       status: 'completed',
-      model: chat.model || MODEL,
+      model: responseModel(chat),
       output,
       usage: responseUsage ? responseUsageFromChatUsage(responseUsage) : null,
       end_turn: !hasToolOutput,

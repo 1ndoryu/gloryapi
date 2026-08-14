@@ -59,6 +59,7 @@ export interface ConfigurationModel {
   supportsReasoning: boolean;
   routeIds: string[];
   bridgeVisible: boolean;
+  pickerId: string | null;
 }
 
 export interface ConfigurationProvider extends ConfiguredProvider {}
@@ -115,17 +116,33 @@ export interface ConfigurationSnapshot {
 export const CONFIGURATION_REVISION_KEY = 'configuration_revision';
 export const AUTO_ROUTE_ID = 'route:auto';
 export const BRIDGE_INTEGRATION = 'codex-bridge';
+/**
+ * Límite operativo que se publica al bridge para que Codex Desktop compacte
+ * antes de entrar en la zona de degradación de los proveedores. No sustituye
+ * la capacidad física que cada proveedor declara en su perfil.
+ */
+export const BRIDGE_CONTEXT_WINDOW = 150_000;
+
+export function normalizeBridgeContextWindow(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isSafeInteger(value) || value <= 0) {
+    return BRIDGE_CONTEXT_WINDOW;
+  }
+  return Math.min(value, BRIDGE_CONTEXT_WINDOW);
+}
+
+export const DESKTOP_PICKER_ALIASES: Array<{ value: string; label: string }> = [
+  { value: 'gpt-5.4', label: 'Ranura compatible 1 (gpt-5.4)' },
+  { value: 'gpt-5.6-sol-wm', label: 'Ranura compatible 2 (gpt-5.6-sol-wm)' },
+  { value: 'gpt-5.6-luna', label: 'Ranura compatible 3 (gpt-5.6-luna)' },
+  { value: 'gpt-5.5', label: 'Ranura compatible 4 (gpt-5.5)' },
+  { value: 'gpt-5.6-sol', label: 'Ranura compatible 5 (gpt-5.6-sol)' },
+  { value: 'gpt-5.6-terra', label: 'Ranura compatible 6 (gpt-5.6-terra)' },
+];
+export const DESKTOP_PICKER_ALIAS_VALUES = DESKTOP_PICKER_ALIASES.map(alias => alias.value);
 
 export function safeRouteId(platform: string, modelId: string): string {
   const digest = crypto.createHash('sha256').update(`${platform}\0${modelId}`).digest('hex').slice(0, 16);
   return `route:model:${digest}`;
-}
-
-export function safePickerId(platform: string, modelId: string): string {
-  // El picker es una identidad opaca del cliente; un prefijo de 64 bits evita
-  // colisiones cuando se agregan providers sin hacer depender el routing del slug.
-  const digest = crypto.createHash('sha256').update(`${platform}\0${modelId}`).digest('hex').slice(0, 16);
-  return `gpt-bridge-${digest}`;
 }
 
 export const CONFIGURATION_SCHEMA: ConfigurationSchema = {
@@ -139,9 +156,10 @@ export const CONFIGURATION_SCHEMA: ConfigurationSchema = {
     { key: 'enabled', label: 'Ruta disponible', description: 'Permite que la ruta sea seleccionada.', type: 'boolean', section: 'routing', scope: 'route', requiresRestart: false, sensitive: false, consumer: 'route resolver' },
     { key: 'visible', label: 'Ruta visible', description: 'Publica la ruta en clientes que consuman el catálogo.', type: 'boolean', section: 'bridge', scope: 'route', requiresRestart: false, sensitive: false, consumer: 'catalog projection' },
     { key: 'enabled', label: 'Disponible', description: 'Permite que el modelo sea candidato de sus rutas.', type: 'boolean', section: 'routing', scope: 'model', requiresRestart: false, sensitive: false, consumer: 'route resolver' },
-    { key: 'contextWindow', label: 'Ventana de contexto', description: 'Capacidad real declarada por el proveedor.', type: 'integer', section: 'capabilities', scope: 'model', min: 1, max: 2000000, requiresRestart: false, sensitive: false, consumer: 'capability validator' },
+    { key: 'contextWindow', label: 'Ventana de contexto del bridge', description: 'Límite operativo publicado a Codex Desktop para activar la compactación; la capacidad física del proveedor se conserva por separado.', type: 'integer', section: 'capabilities', scope: 'model', min: 1, max: BRIDGE_CONTEXT_WINDOW, requiresRestart: false, sensitive: false, consumer: 'Codex Desktop compaction catalog' },
     { key: 'nativeVision', label: 'Visión nativa', description: 'El modelo recibe imágenes sin convertirlas a texto.', type: 'boolean', section: 'capabilities', scope: 'model', requiresRestart: false, sensitive: false, consumer: 'bridge vision adapter' },
     { key: 'supportsReasoning', label: 'Admite razonamiento', description: 'Permite solicitar un nivel de razonamiento al modelo.', type: 'boolean', section: 'capabilities', scope: 'model', requiresRestart: false, sensitive: false, consumer: 'capability validator' },
+    { key: 'pickerId', label: 'Ranura del selector', description: 'Alias compatible que ChatGPT Desktop muestra y que el bridge traduce al modelo real.', type: 'enum', section: 'bridge', scope: 'model', options: DESKTOP_PICKER_ALIASES, requiresRestart: true, sensitive: false, consumer: 'Codex Desktop catalog adapter' },
     { key: 'timeoutMs', label: 'Tiempo de espera', description: 'Límite de espera del transporte upstream.', type: 'duration-ms', section: 'transport', scope: 'provider', min: 1000, max: 300000, requiresRestart: false, sensitive: false, consumer: 'OpenAI-compatible adapter' },
     { key: 'endpoint', label: 'Endpoint', description: 'URL HTTPS pública del proveedor compatible.', type: 'text', section: 'transport', scope: 'provider', min: 1, max: 2048, requiresRestart: false, sensitive: false, consumer: 'OpenAI-compatible adapter' },
     { key: 'messageProfile', label: 'Perfil de mensajes', description: 'Normalización declarativa permitida para el contrato upstream.', type: 'enum', section: 'transport', scope: 'provider', options: [{ value: 'none', label: 'Ninguno' }, { value: 'null-assistant', label: 'Normalizar assistant nulo' }, { value: 'deepseek-thinking', label: 'Thinking de DeepSeek' }], requiresRestart: false, sensitive: false, consumer: 'OpenAI-compatible adapter' },
@@ -161,6 +179,6 @@ export const CONFIGURATION_SCHEMA: ConfigurationSchema = {
     { key: 'reasoning', label: 'Razonamiento', description: 'El proveedor acepta controles de razonamiento.', type: 'boolean', section: 'capabilities', scope: 'provider', requiresRestart: false, sensitive: false, consumer: 'capability validator' },
     { key: 'multimodal', label: 'Multimodal', description: 'El proveedor declara entrada multimodal.', type: 'boolean', section: 'capabilities', scope: 'provider', requiresRestart: false, sensitive: false, consumer: 'capability validator' },
     { key: 'maxContextWindow', label: 'Ventana máxima declarada', description: 'Límite de contexto que el proveedor garantiza; vacío significa desconocido.', type: 'integer', section: 'capabilities', scope: 'provider', min: 1, max: 2000000, requiresRestart: false, sensitive: false, consumer: 'capability validator' },
-    { key: 'bridgeVisible', label: 'Visible en el bridge', description: 'Publica el modelo en el selector aislado.', type: 'boolean', section: 'bridge', scope: 'model', requiresRestart: false, sensitive: false, consumer: 'Codex catalog projector' },
+    { key: 'bridgeVisible', label: 'Visible en el bridge', description: 'Publica el modelo en el selector aislado.', type: 'boolean', section: 'bridge', scope: 'model', requiresRestart: true, sensitive: false, consumer: 'Codex catalog projector' },
   ],
 };

@@ -29,6 +29,7 @@ export function ModelConfigDialog({
     nativeVision: model.nativeVision,
     supportsReasoning: model.supportsReasoning,
     bridgeVisible: model.bridgeVisible,
+    pickerId: model.pickerId,
   })
 
   function update(key: string, value: EditableValue) {
@@ -57,6 +58,17 @@ export function ModelConfigDialog({
                   <input type="checkbox" checked={Boolean(value)} onChange={event => update(key, event.target.checked)} />
                   <span><span className="block">{field.label}</span><span className="block text-xs text-muted-foreground">{field.description}</span></span>
                 </label>
+              )
+            }
+            if (field.type === 'enum') {
+              return (
+                <div key={field.key} className="space-y-1.5">
+                  <Label htmlFor={`modelo-${field.key}`}>{field.label}</Label>
+                  <select id={`modelo-${field.key}`} className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm" value={value == null ? '' : String(value)} onChange={event => update(key, event.target.value)}>
+                    {(field.options ?? []).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <p className="text-xs text-muted-foreground">{field.description}{field.requiresRestart ? ' Requiere reabrir ChatGPT Bridge.' : ''}</p>
+                </div>
               )
             }
             const numeric = field.type === 'integer' || field.type === 'duration-ms'

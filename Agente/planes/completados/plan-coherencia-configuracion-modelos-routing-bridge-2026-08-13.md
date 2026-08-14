@@ -1,6 +1,6 @@
 # Plan de coherencia: configuración, modelos, routing y Codex Bridge
 
-Estado: completado localmente; checklist completo; gate Sentinel PASS con identidad `enforce`; Desktop Bridge aislado verificado en vivo
+Estado: completado localmente; checklist completo; gate Sentinel actual PASS con identidad `enforce`
 
 Fecha: 2026-08-13
 
@@ -43,32 +43,60 @@ Corrección posterior de visibilidad (2026-08-14):
   esquema y hash; un runtime antiguo que no exponga el endpoint se detecta y no
   se oculta como catálogo publicado.
 
+Corrección de coherencia del selector y capacidades (2026-08-14):
+
+- [x] La página de enrutamiento usa una sola lista central de modelos; Auto se
+  configura mediante pertenencia y prioridad en esas mismas filas, y las rutas
+  fijadas se abren desde la fila del modelo.
+- [x] La ruta Auto real se limpió de CommandCode Flash: sigue disponible como
+  modelo explícito, pero no puede entrar en Auto por una proyección heredada.
+- [x] `pickerId` dejó de ser un hash generado; se persiste como ranura Desktop
+  compatible, se migra de forma idempotente y el bridge la traduce al ID real.
+- [x] Las rutas DeepSeek V4 Flash de Andoryyu, OpenCode Zen, OpenCode Go y
+  CommandCode conservan `supportsReasoning=true` en SQLite, catálogo y
+  selector; el traductor probado con `gpt-5.6-sol` emite
+  `reasoning_effort=high` y el proveedor debe declarar razonamiento para
+  aceptar el cambio.
+- [x] TokenHarbor permanece con razonamiento desactivado porque su contrato
+  local no lo declara; no se anuncia una función que el transporte no puede
+  garantizar.
+
 Validación local actual (14-ago-2026):
 
 - `npm run build:server`: PASS.
 - `npm run build -w client`: PASS; Vite conserva únicamente el warning existente
   del chunk grande.
-- `npm test -w server -- --reporter=dot`: 54 archivos / 307 tests PASS.
+- `npm test -w server -- --reporter=dot`: 54 archivos / 310 tests PASS.
 - Suite bridge secuencial: 173 tests PASS.
 - E2E aislado de configuración/bridge: 1 test PASS; no usa proveedores
   externos. El sincronizador tiene además una regresión específica PASS.
 - Desktop Bridge live aislado: PASS de arranque, `CODEX_HOME`, `config.toml`,
-  `/v1/models`, health `published`, reinicio y catálogo sin Pro; no se envió
-  una solicitud a un proveedor externo durante esta comprobación.
+  `/v1/models`, health `published`, reinicio y catálogo sin Pro; revisión 7,
+  siete entradas incluyendo Auto, Flash con alias `gpt-5.6-sol` y razonamiento;
+  no se envió una solicitud a un proveedor externo durante esta comprobación.
 - `npm run bench:routing`: 128/128, p95 53.2 ms con concurrencia 32,
   presupuesto 100 ms PASS.
 - CLI: `snapshot --json`, `--dry-run`, CAS e idempotencia cubiertos por tests y
   documentación; la prueba no expuso credenciales.
-- `npm run config -w server -- snapshot`: 4 miembros activos en Auto, 6
-  modelos operativos, cero DeepSeek V4 Pro y todas las ventanas anunciadas al
-  bridge dentro de 150000; Flash y Muse de CommandCode anuncian razonamiento y
-  Muse anuncia visión nativa.
-- `bridge sync` + `bridge diagnose`: PASS con revisión/hash `0/714571b9...`,
-  siete entradas publicadas, Auto con miembros `[2, 3]` y sin warnings.
-- `npm run quality:doctor`: PASS con source, tag, lock, evidencia y artefacto
-  Sentinel 0.7.5 alineados.
+- `npm run config -w server -- snapshot`: 2 miembros activos en Auto, 6
+  modelos configurados, cero DeepSeek V4 Pro y todas las ventanas anunciadas al
+  bridge dentro de 150000; las cuatro rutas Flash compatibles y Muse de
+  CommandCode anuncian razonamiento, y Muse anuncia visión nativa. TokenHarbor
+  permanece sin razonamiento declarado.
+- Corrección posterior: la base operativa queda con Auto limitado a los dos
+  miembros gratuitos que ya estaban activos; CommandCode Flash queda solo en
+  su ruta pinned. La proyección de revisión 7 conserva seis modelos más la
+  entrada Auto (siete entradas del selector), Flash CommandCode con
+  razonamiento y alias `gpt-5.6-sol`.
+- `bridge diagnose --json`: PASS, revisión/hash `7/7402d409...`, siete entradas
+  publicadas, Auto con miembros `[2, 3]`, cero errores. El único warning indica
+  que la comprobación CLI no recibió un archivo local; el health live y la
+  proyección aislada sí fueron comprobados por separado.
+- `npm run quality:doctor`: PASS, `readyForGate=true`, fuente, lock y artefacto
+  Sentinel verificables.
 - `npm run task:check -- GLORY-COHERENCIA-FULL-20260814F`: PASS completo,
-  identidad de política `enforce`, 0 errores, 15 warnings y 1 info.
+  identidad de política `enforce`, 0 errores, 19 warnings y 3 info; los warnings
+  son hallazgos preexistentes fuera de este bloque.
 
 ## Checklist de cierre
 
@@ -149,8 +177,16 @@ cuando el comando, fixture o comportamiento indicado aporta evidencia directa.
   implícita.
 - [x] El catálogo bridge y `settings/registry` proyectan la misma capacidad
   efectiva y tienen una prueba de regresión.
-- [x] Flash y Muse de CommandCode anuncian razonamiento; Muse anuncia visión
-  nativa; la migración es idempotente y no cambia su pertenencia pinned/Auto.
+- [x] Andoryyu, OpenCode Zen, OpenCode Go y CommandCode Flash anuncian
+  razonamiento; Muse anuncia razonamiento y visión nativa; TokenHarbor no lo
+  anuncia. La migración es idempotente y no cambia la pertenencia pinned/Auto.
+
+## Diagnóstico previo que originó el cambio
+
+Esta sección conserva el diagnóstico realizado antes de ejecutar el plan. Las
+fuentes duplicadas y la normalización destructiva descritas aquí son el motivo
+de la refactorización; no describen el estado operativo después de la revisión
+4.
 
 ## Respuesta directa
 
@@ -168,11 +204,11 @@ Hoy hay varias fuentes de verdad que se superponen:
 - overrides guardados como JSON en `settings`;
 - metadatos y traducciones repetidos en el frontend.
 
-La SQLite operativa ya es una base real y persistente, pero todavía **no es la
-fuente de verdad del catálogo**: durante el arranque, `normalizeGloryCatalog`
-conserva preferencias de filas conocidas, elimina modelos fuera de una lista
-compilada y vuelve a insertar los objetivos hardcodeados. El router también
-mantiene cadenas especiales fuera de la base.
+La SQLite operativa ya es una base real y persistente. En el estado previo del
+plan todavía no era la fuente completa de verdad del catálogo: el arranque y el
+router podían conservar listas compiladas y cadenas especiales fuera de la
+base. La implementación actual elimina ese camino para el catálogo V2 y deja
+los alias Desktop como datos persistidos/migrados, no como decisión de routing.
 
 La decisión recomendada es:
 
@@ -187,9 +223,9 @@ SQLite operativa de GloryAPI y mantener fuera de ella únicamente el sobre
 mínimo de arranque: ruta de la DB, loopback/puertos, ubicación del home aislado
 y referencias a secretos protegidos.
 
-## Resultado deseado
+## Resultado alcanzado
 
-Al terminar la ejecución futura de este plan:
+La ejecución local alcanzó estos resultados:
 
 1. `Auto` elegirá exclusivamente miembros activos de la ruta `auto` persistida.
 2. Desactivar un miembro en Enrutamiento impedirá que cualquier request Auto lo

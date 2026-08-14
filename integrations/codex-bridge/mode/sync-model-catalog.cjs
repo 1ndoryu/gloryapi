@@ -63,7 +63,7 @@ async function main() {
     displayName: entry.displayName,
     nativeVision: entry.nativeVision === true,
     supportsReasoning: entry.supportsReasoning === true,
-    contextWindow: Number.isSafeInteger(entry.contextWindow) ? entry.contextWindow : 150000,
+    contextWindow: 150000,
   }));
   if (!entries.some(entry => entry.id === 'auto')) throw new Error('catalog projection omitted auto');
   const hash = crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');

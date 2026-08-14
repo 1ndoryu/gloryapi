@@ -12,9 +12,11 @@ const builder = path.join(root, 'mode', 'build-model-catalog.cjs');
 
 function runBuilder(sourcePath, outputPath, cachePath, metadataSourcePath, catalogPath) {
   const args = [builder, sourcePath, outputPath];
-  if (cachePath) args.push(cachePath);
-  if (metadataSourcePath) args.push(metadataSourcePath);
-  if (catalogPath) args.push(catalogPath);
+  if (catalogPath) args.push(cachePath || '-', metadataSourcePath || '-', catalogPath);
+  else {
+    if (cachePath) args.push(cachePath);
+    if (metadataSourcePath) args.push(metadataSourcePath);
+  }
   return spawnSync(process.execPath, args, {
     cwd: root,
     encoding: 'utf8',
@@ -116,6 +118,30 @@ test('build-model-catalog creates a first-launch cache with Codex metadata', () 
     assert.equal(cache.client_version, '0.147.0-empty-test');
     assert.equal(cache.etag, null);
     assert.equal(cache.models.length, 1);
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+test('build-model-catalog rejects visible entries without a unique Desktop picker alias', () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gloryapi-catalog-invalid-picker-'));
+  try {
+    const outputPath = path.join(temporaryRoot, 'bridge-models.json');
+    const catalogPath = path.join(temporaryRoot, 'catalog.json');
+    fs.writeFileSync(catalogPath, JSON.stringify({ entries: [
+      { id: 'fixture/one', pickerId: 'gpt-5.6-sol', provider: 'fixture', displayName: 'Fixture one' },
+      { id: 'fixture/two', pickerId: 'gpt-5.6-sol', provider: 'fixture', displayName: 'Fixture two' },
+    ] }), 'utf8');
+    const duplicate = runBuilder('-', outputPath, undefined, undefined, catalogPath);
+    assert.notEqual(duplicate.status, 0);
+    assert.match(duplicate.stderr, /pickerId 'gpt-5\.6-sol' is duplicated/);
+
+    fs.writeFileSync(catalogPath, JSON.stringify({ entries: [
+      { id: 'fixture/missing', provider: 'fixture', displayName: 'Fixture missing' },
+    ] }), 'utf8');
+    const missing = runBuilder('-', outputPath, undefined, undefined, catalogPath);
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /has no Desktop pickerId/);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }

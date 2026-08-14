@@ -64,6 +64,7 @@ export interface ConfiguredModel {
   supportsReasoning: boolean
   routeIds: string[]
   bridgeVisible: boolean
+  pickerId: string | null
 }
 
 export interface ConfigurationRouteMember {
@@ -238,6 +239,38 @@ export function useFallbackPage() {
     onSuccess: next => queryClient.setQueryData(['configuration'], next),
   })
 
+  const autoRoute = configuration?.routes.find(route => route.routeId === 'route:auto') ?? null
+
+  function toggleAutoMembership(modelDbId: number, included: boolean) {
+    if (!autoRoute) return
+    const activeMembers = autoRoute.members.filter(member => member.enabled && member.modelDbId !== modelDbId)
+    if (included) {
+      const current = autoRoute.members.find(member => member.modelDbId === modelDbId)
+      activeMembers.push({ modelDbId, priority: current?.priority ?? activeMembers.length + 1, enabled: true })
+    }
+    const members = activeMembers.map((member, index) => ({ ...member, priority: index + 1, enabled: true }))
+    if (members.length === 0) return
+    routeMutation.mutate({
+      routeId: autoRoute.routeId,
+      patch: { name: autoRoute.name, enabled: autoRoute.enabled, visible: autoRoute.visible, members },
+    })
+  }
+
+  function handleAutoDragEnd(event: DragEndEvent) {
+    if (!autoRoute) return
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const autoMembers = autoRoute.members.filter(member => member.enabled)
+    const oldIndex = autoMembers.findIndex(member => member.modelDbId === active.id)
+    const newIndex = autoMembers.findIndex(member => member.modelDbId === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const members = arrayMove(autoMembers, oldIndex, newIndex).map((member, index) => ({ ...member, priority: index + 1, enabled: true }))
+    routeMutation.mutate({
+      routeId: autoRoute.routeId,
+      patch: { name: autoRoute.name, enabled: autoRoute.enabled, visible: autoRoute.visible, members },
+    })
+  }
+
   const allEntries = localEntries ?? entries
   const displayEntries = allEntries.filter(entry => entry.keyCount > 0)
   const unconfiguredPlatforms = [...new Set(allEntries.filter(entry => entry.keyCount === 0).map(entry => entry.platform))]
@@ -293,6 +326,9 @@ export function useFallbackPage() {
     saveMutation,
     saveError,
     configuration,
+    autoRoute,
+    toggleAutoMembership,
+    handleAutoDragEnd,
     modelMutation,
     routeMutation,
   }

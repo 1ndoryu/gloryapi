@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { BRIDGE_CONTEXT_WINDOW } from '../../services/configuration-v2-contract.js';
 
 export function normalizeGloryCatalog(db: Database.Database): void {
   const targetModels = [
@@ -9,7 +10,7 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       intelligenceRank: 1,
       speedRank: 1,
       sizeLabel: 'Frontier',
-      contextWindow: 131072,
+      contextWindow: BRIDGE_CONTEXT_WINDOW,
     },
     {
       platform: 'opencode-zen',
@@ -18,7 +19,7 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       intelligenceRank: 2,
       speedRank: 2,
       sizeLabel: 'Frontier',
-      contextWindow: 131072,
+      contextWindow: BRIDGE_CONTEXT_WINDOW,
     },
     {
       platform: 'tokenharbor',
@@ -29,7 +30,7 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       sizeLabel: 'Frontier',
       // TokenHarbor's public compatibility contract does not establish a
       // context limit; keep the capability gate fail-closed until discovery.
-      contextWindow: null,
+      contextWindow: BRIDGE_CONTEXT_WINDOW,
     },
     {
       platform: 'opencode-go',
@@ -38,7 +39,7 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       intelligenceRank: 4,
       speedRank: 4,
       sizeLabel: 'Frontier',
-      contextWindow: 131072,
+      contextWindow: BRIDGE_CONTEXT_WINDOW,
     },
     // CommandCode es un proveedor de pago seleccionable explícitamente. Sus
     // modelos NO entran en la cadena `auto` (fallback_config) para no gastar
@@ -51,7 +52,7 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       intelligenceRank: 5,
       speedRank: 5,
       sizeLabel: 'Frontier',
-      contextWindow: 1048576,
+      contextWindow: BRIDGE_CONTEXT_WINDOW,
       explicitOnly: true,
     },
     {
@@ -63,7 +64,7 @@ export function normalizeGloryCatalog(db: Database.Database): void {
       sizeLabel: 'Frontier',
       // Muse Spark 1.2 acepta texto e imágenes de forma nativa (visión) con
       // ventana de ~1.05M tokens según la documentación oficial de CommandCode.
-      contextWindow: 1050000,
+      contextWindow: BRIDGE_CONTEXT_WINDOW,
       explicitOnly: true,
     },
   ] as const;

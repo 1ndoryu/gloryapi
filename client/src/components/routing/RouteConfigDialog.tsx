@@ -45,7 +45,9 @@ export function RouteConfigDialog({
   }
 
   function save() {
-    const members = orderedModels.filter(model => selectedIds.has(model.modelDbId)).map((model, index) => ({ modelDbId: model.modelDbId, priority: index + 1, enabled: true }))
+    const members = route.kind === 'auto'
+      ? route.members.filter(member => member.enabled).map((member, index) => ({ ...member, priority: index + 1, enabled: true }))
+      : orderedModels.filter(model => selectedIds.has(model.modelDbId)).map((model, index) => ({ modelDbId: model.modelDbId, priority: index + 1, enabled: true }))
     if (members.length === 0) return
     onSave({ name: name.trim() || route.name, enabled, visible, members })
   }
@@ -60,10 +62,14 @@ export function RouteConfigDialog({
         <div className="mt-5 space-y-4">
           {nameField && <div className="space-y-1.5"><Label htmlFor="ruta-nombre">{nameField.label}</Label><Input id="ruta-nombre" value={name} minLength={nameField.min} maxLength={nameField.max} onChange={event => setName(event.target.value)} /><p className="text-xs text-muted-foreground">{nameField.description}</p></div>}
           <div className="flex flex-wrap gap-4 text-sm">{enabledField && <label className="flex items-center gap-2"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} /> {enabledField.label}</label>}{visibleField && <label className="flex items-center gap-2"><input type="checkbox" checked={visible} onChange={event => setVisible(event.target.checked)} /> {visibleField.label}</label>}</div>
-          <div className="space-y-2"><p className="text-sm font-medium">Modelos, en este orden</p>{orderedModels.map(model => <label key={model.modelDbId} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"><input type="checkbox" checked={selectedIds.has(model.modelDbId)} onChange={() => toggle(model.modelDbId)} /><span className="flex-1">{model.displayName}<span className="ml-2 text-xs text-muted-foreground">{model.platform}/{model.modelId}</span></span></label>)}</div>
-          {selectedIds.size === 0 && <p className="text-sm text-destructive">Selecciona al menos un modelo.</p>}
+          {route.kind === 'auto' ? (
+            <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">La pertenencia y el orden de Auto se controlan directamente en la lista principal.</p>
+          ) : (
+            <div className="space-y-2"><p className="text-sm font-medium">Modelos de respaldo, en este orden</p>{orderedModels.map(model => <label key={model.modelDbId} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm"><input type="checkbox" checked={selectedIds.has(model.modelDbId)} onChange={() => toggle(model.modelDbId)} /><span className="flex-1">{model.displayName}<span className="ml-2 text-xs text-muted-foreground">{model.platform}/{model.modelId}</span></span></label>)}</div>
+          )}
+          {route.kind !== 'auto' && selectedIds.size === 0 && <p className="text-sm text-destructive">Selecciona al menos un modelo.</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2 border-t pt-4"><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={isSaving || selectedIds.size === 0}>{isSaving ? 'Guardando…' : 'Guardar ruta'}</Button></div>
+          <div className="flex justify-end gap-2 border-t pt-4"><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={isSaving || (route.kind !== 'auto' && selectedIds.size === 0)}>{isSaving ? 'Guardando…' : 'Guardar ruta'}</Button></div>
         </div>
       </section>
     </div>

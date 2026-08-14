@@ -42,6 +42,12 @@ abierto pero GloryAPI fue cerrado, vuelve a iniciar automáticamente el runtime 
 `-RefreshConfig` regenera solo la configuración aislada del bridge. No copia `auth.json`, conversaciones
 ni bases SQLite del home normal.
 
+El perfil aislado arranca con `model = "codex-auto-review"`, que es el alias de escritorio de Auto
+presente en `models.json`. El bridge interno sigue recibiendo `auto` y GloryAPI sigue decidiendo la
+ruta; no cambies ese valor por `model = "auto"` en el perfil, porque Desktop no lo encuentra en el
+catálogo y puede mostrar su ventana interna de 258400 tokens. Todos los modelos publicados por el
+bridge declaran `context_window`, `max_context_window` y `auto_compact_token_limit` en `150000`.
+
 Para preparar la configuración sin abrir una ventana:
 
 ```powershell
@@ -90,7 +96,22 @@ El selector es el picker de modelos de la ventana ChatGPT del bridge. Desktop le
 expone el mismo catálogo para clientes compatibles. El catálogo está versionado como
 `glory-bridge-model-catalog-v2` (`bridge/model-catalog.js`). Algunas versiones de Desktop filtran los
 IDs de proveedores personalizados; por eso el archivo local usa alias `pickerId` reconocibles por
-Desktop, pero el bridge los traduce al ID real antes de llamar a GloryAPI. Opciones visibles por defecto:
+Desktop, pero el bridge los traduce al ID real antes de llamar a GloryAPI. La lista visible procede de
+la configuración V2; no hay una lista paralela del bridge.
+
+En Enrutamiento hay una sola lista de modelos:
+
+- El interruptor `Auto` decide si el modelo pertenece a `route:auto`.
+- El orden de las filas que están en Auto decide su prioridad.
+- `Configurar ruta` de una fila edita la ruta fijada que se usa cuando se solicita ese modelo de forma
+  explícita.
+- `Configurar opciones de Auto` solo modifica nombre, visibilidad y estado de la ruta; no mantiene una
+  segunda lista de modelos.
+
+Cuando el picker recibe `auto` (o no recibe modelo), GloryAPI usa únicamente los miembros activos de
+`route:auto`. Cuando recibe un alias explícito, el bridge lo traduce al modelo real y GloryAPI usa la
+ruta fijada de ese modelo; no salta a otro modelo por el mero hecho de que Auto esté activo. Opciones
+visibles por defecto:
 
 - `auto` — comportamiento actual: GloryAPI enruta/fallback entre los proveedores gratuitos.
 - `deepseek-v4-flash-free` — OpenCode Zen · DeepSeek V4 Flash gratuito.
@@ -105,9 +126,14 @@ o el proveedor falla, la respuesta es un error estructurado visible, no un cierr
 Muse Spark 1.2 tiene visión nativa: con ese modelo, las imágenes se reenvían como `image_url` para
 que el modelo las vea directamente. Con el resto de modelos se conserva la descripción por texto.
 
-El selector `Esfuerzo` también se aplica por modelo. En Muse, `Alto` se envía a CommandCode como
-`reasoning_effort: "high"` y `Máximo` como `reasoning_effort: "max"`. Los modelos que no declaran
-razonamiento, como TokenHarbor Free, no reciben el parámetro ni anuncian niveles en el catálogo.
+El selector `Esfuerzo` también se aplica por modelo. Las rutas DeepSeek V4 Flash de Andoryyu,
+OpenCode Zen, OpenCode Go y CommandCode, además de Muse de CommandCode, declaran razonamiento en la
+configuración del modelo y del proveedor: `Alto` se envía como
+`reasoning_effort: "high"` y `Máximo` como `reasoning_effort: "max"`. El bridge solo transmite ese
+parámetro cuando el modelo seleccionado declara la capacidad; los modelos que no tienen un contrato
+verificable, como TokenHarbor Free, no lo reciben ni anuncian niveles de razonamiento. Así, que la
+interfaz muestre `Alto` no se interpreta como prueba suficiente: la capacidad debe coincidir en DB,
+catálogo y traductor.
 
 Para guardar la credencial de CommandCode (bóveda DPAPI, nunca en código ni en logs), usa el panel
 local de GloryAPI o su API segura:

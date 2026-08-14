@@ -1,5 +1,5 @@
 const { resolveToolProfile } = require('./tool-profile');
-const { resolveModelSelection } = require('./model-catalog');
+const { resolveModelSelection, resolvePresentationModel } = require('./model-catalog');
 
 // Codex Responses sends the picker value as `reasoning.effort`. Keep the
 // legacy flat field too because some clients/profiles send
@@ -601,6 +601,7 @@ async function translateRequest(body) {
   // Selector de modelos: `body.model` (lo que el cliente eligió en el picker)
   // decide el modelo wire y si la imagen viaja nativa (visión) o como texto.
   const selection = resolveModelSelection(MODEL_CATALOG, body.model, DEFAULT_MODEL);
+  const presentationModel = resolvePresentationModel(MODEL_CATALOG, body.model);
   const nativeVision = selection.nativeVision === true;
   const reasoningEffort = requestReasoningEffort(body, selection);
 
@@ -802,6 +803,13 @@ async function translateRequest(body) {
   });
   Object.defineProperty(chat, '__latestUserText', {
     value: latestVisibleUserText,
+    enumerable: false,
+  });
+  // Codex Desktop calculates the context indicator from the response model
+  // slug. Keep the physical wire model for GloryAPI, but persist the catalog
+  // picker id so old routed ids cannot trigger the Desktop default window.
+  Object.defineProperty(chat, '__bridgePresentationModel', {
+    value: presentationModel,
     enumerable: false,
   });
   if (typeof body.tool_choice === 'string' && body.tool_choice) chat.tool_choice = body.tool_choice;

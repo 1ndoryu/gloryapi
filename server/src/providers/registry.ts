@@ -301,9 +301,13 @@ export function getRegistrySnapshot(): RegistrySnapshot {
         reasoning: row.capabilities_explicit === 1 ? row.supports_reasoning === 1 : providerCapabilities.reasoning,
         // A null provider limit is intentional: do not infer an unverified
         // context window from catalog metadata for fail-closed providers.
+        // `contextWindow` is the bridge's compaction ceiling. Keep the
+        // provider guarantee fail-closed and separate so publishing 150k to
+        // Codex Desktop cannot silently upgrade an upstream that only
+        // guarantees a smaller physical window.
         maxContextWindow: providerCapabilities.maxContextWindow === null
           ? null
-          : (row.context_window ?? providerCapabilities.maxContextWindow),
+          : Math.min(row.context_window ?? providerCapabilities.maxContextWindow, providerCapabilities.maxContextWindow),
       },
     };
   });

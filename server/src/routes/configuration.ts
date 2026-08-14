@@ -5,6 +5,7 @@ import { requireAdmin } from '../lib/admin-auth.js';
 import {
   ConfigurationRevisionConflictError,
   ConfigurationValidationError,
+  DESKTOP_PICKER_ALIAS_VALUES,
   createConfigurationModel,
   createConfigurationProvider,
   getConfigurationSnapshot,
@@ -20,6 +21,7 @@ configurationRouter.use((req: Request, res: Response, next) => {
 
 const revisionSchema = z.number().int().nonnegative().optional();
 const idempotencyKeySchema = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/).optional();
+const pickerIdSchema = z.string().refine(value => DESKTOP_PICKER_ALIAS_VALUES.includes(value), 'pickerId is not compatible with Codex Desktop');
 const memberSchema = z.object({
   modelDbId: z.number().int().positive(),
   priority: z.number().int().positive(),
@@ -42,6 +44,7 @@ const modelSchema = z.object({
   nativeVision: z.boolean().optional(),
   supportsReasoning: z.boolean().optional(),
   bridgeVisible: z.boolean().optional(),
+  pickerId: pickerIdSchema.nullable().optional(),
 }).strict();
 const createModelSchema = z.object({
   idempotencyKey: idempotencyKeySchema,
@@ -51,6 +54,8 @@ const createModelSchema = z.object({
   contextWindow: z.number().int().positive().max(2_000_000).nullable().optional(),
   nativeVision: z.boolean().optional(),
   supportsReasoning: z.boolean().optional(),
+  bridgeVisible: z.boolean().optional(),
+  pickerId: pickerIdSchema.optional(),
   intelligenceRank: z.number().int().positive().optional(),
   speedRank: z.number().int().positive().optional(),
   addToAuto: z.boolean().optional(),

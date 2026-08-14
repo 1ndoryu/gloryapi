@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getDb, initDb } from '../../db/index.js';
 import {
   ConfigurationRevisionConflictError,
+  DESKTOP_PICKER_ALIAS_VALUES,
   createConfigurationModel,
+  ensureConfigurationV2,
   exportConfigurationDocument,
   getConfigurationSnapshot,
   getRouteModelIds,
@@ -29,10 +31,25 @@ describe('configuration-v2', () => {
     expect(snapshot.bridge.entries.find(entry => entry.id === 'auto')?.wireModel).toBe('auto');
     expect(snapshot.bridge.entries.find(entry => entry.id === 'deepseek-v4-flash')).toBeUndefined();
     expect(snapshot.bridge.entries.filter(entry => entry.id !== 'auto').every(entry => entry.routeId !== 'route:auto')).toBe(true);
+    const pickerIds = snapshot.bridge.entries.filter(entry => entry.id !== 'auto').map(entry => entry.pickerId);
+    expect(pickerIds).toHaveLength(6);
+    expect(new Set(pickerIds).size).toBe(6);
+    expect(pickerIds.every(pickerId => pickerId !== null && DESKTOP_PICKER_ALIAS_VALUES.includes(pickerId))).toBe(true);
+    expect(pickerIds.some(pickerId => pickerId?.startsWith('gpt-bridge-'))).toBe(false);
   });
 
   it('projects verified model reasoning and vision independently from provider capabilities', () => {
     const snapshot = getConfigurationSnapshot();
+    for (const model of [
+      ['andoryyu', 'deepseek-v4-flash'],
+      ['opencode-zen', 'deepseek-v4-flash-free'],
+      ['opencode-go', 'deepseek-v4-flash'],
+      ['commandcode', 'deepseek/deepseek-v4-flash'],
+    ]) {
+      const entry = snapshot.models.find(candidate => candidate.platform === model[0] && candidate.modelId === model[1]);
+      expect(entry?.supportsReasoning).toBe(true);
+      expect(snapshot.bridge.entries.find(candidate => candidate.provider === model[0] && candidate.id !== 'auto')?.supportsReasoning).toBe(true);
+    }
     const flash = snapshot.models.find(model => model.platform === 'commandcode' && model.modelId.endsWith('deepseek-v4-flash'))!;
     const muse = snapshot.models.find(model => model.platform === 'commandcode' && model.modelId.includes('muse-spark'))!;
     expect(flash.supportsReasoning).toBe(true);
@@ -65,10 +82,52 @@ describe('configuration-v2', () => {
     expect(after.revision).toBe(before.revision + 1);
   });
 
+  it('does not advertise model reasoning when the provider contract disables it', () => {
+    const snapshot = getConfigurationSnapshot();
+    const tokenHarbor = snapshot.models.find(model => model.platform === 'tokenharbor')!;
+    expect(tokenHarbor.supportsReasoning).toBe(false);
+    expect(() => updateConfigurationModel(tokenHarbor.modelDbId, {
+      expectedRevision: snapshot.revision,
+      supportsReasoning: true,
+      actor: 'test',
+      source: 'test',
+    })).toThrow(/no declara control de razonamiento/);
+  });
+
   it('rejects stale writes instead of silently overwriting the current configuration', () => {
     const snapshot = getConfigurationSnapshot();
     const model = snapshot.models[0];
     expect(() => updateConfigurationModel(model.modelDbId, { expectedRevision: 99, enabled: false })).toThrow(ConfigurationRevisionConflictError);
+  });
+
+  it('migrates legacy hashed picker ids once and keeps the repaired catalog stable', () => {
+    const db = getDb();
+    const rows = db.prepare("SELECT model_db_id FROM client_catalog_entries WHERE integration = 'codex-bridge' AND model_db_id IS NOT NULL ORDER BY sort_order, model_db_id").all() as Array<{ model_db_id: number }>;
+    const update = db.prepare("UPDATE client_catalog_entries SET picker_id = ? WHERE integration = 'codex-bridge' AND model_db_id = ?");
+    rows.forEach((row, index) => update.run(`gpt-bridge-legacy-${index}`, row.model_db_id));
+    const beforeRevision = getConfigurationSnapshot().revision;
+
+    ensureConfigurationV2(db);
+    const repaired = getConfigurationSnapshot();
+    const repairedIds = repaired.bridge.entries.filter(entry => entry.id !== 'auto').map(entry => entry.pickerId);
+    expect(repairedIds).toEqual(DESKTOP_PICKER_ALIAS_VALUES);
+    expect(repaired.revision).toBe(beforeRevision + 1);
+
+    ensureConfigurationV2(db);
+    expect(getConfigurationSnapshot().revision).toBe(repaired.revision);
+  });
+
+  it('exposes picker aliases in the model schema and rejects alias collisions', () => {
+    const snapshot = getConfigurationSnapshot();
+    const pickerField = snapshot.schema.fields.find(field => field.scope === 'model' && field.key === 'pickerId');
+    expect(pickerField?.options?.map(option => option.value)).toEqual(DESKTOP_PICKER_ALIAS_VALUES);
+    const [first, second] = snapshot.models;
+    expect(() => updateConfigurationModel(second.modelDbId, {
+      expectedRevision: snapshot.revision,
+      pickerId: first.pickerId,
+      actor: 'test',
+      source: 'test',
+    })).toThrow(/already assigned/);
   });
 
   it('replays an idempotent mutation without creating a second revision', () => {
@@ -126,7 +185,7 @@ describe('configuration-v2', () => {
     expect(getRouteModelIds('route:auto')).toHaveLength(4);
   });
 
-  it('materializes provider model selections once and publishes a pinned route', () => {
+  it('materializes provider model selections once and keeps a pinned route when picker slots are exhausted', () => {
     const before = getConfigurationSnapshot();
     const selection = {
       modelId: 'example/selected',
@@ -139,10 +198,14 @@ describe('configuration-v2', () => {
     const repeated = materializeConfigurationModels('example-provider', [selection], { actor: 'test', source: 'test' });
     expect(after.revision).toBe(before.revision + 1);
     expect(repeated.revision).toBe(after.revision);
-    expect(repeated.models.some(model => model.platform === 'example-provider' && model.modelId === selection.modelId)).toBe(true);
-    const entry = repeated.bridge.entries.find(candidate => candidate.id === 'example-provider/example/selected');
-    expect(entry).toBeTruthy();
-    expect(getRouteModelIds(entry!.routeId)).toHaveLength(1);
+    const model = repeated.models.find(candidate => candidate.platform === 'example-provider' && candidate.modelId === selection.modelId)!;
+    expect(model).toBeTruthy();
+    expect(model.bridgeVisible).toBe(false);
+    expect(model.pickerId).toBeNull();
+    const pinnedRoute = model.routeIds.find(routeId => routeId !== 'route:auto');
+    expect(pinnedRoute).toBeTruthy();
+    expect(getRouteModelIds(pinnedRoute!)).toEqual([model.modelDbId]);
+    expect(repeated.bridge.entries.find(candidate => candidate.id === 'example-provider/example/selected')).toBeUndefined();
   });
 
   it('exports and rolls back a complete revision without resurrecting post-snapshot models', () => {

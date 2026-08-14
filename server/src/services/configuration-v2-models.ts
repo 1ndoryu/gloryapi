@@ -1,8 +1,26 @@
 import { getDb } from '../db/index.js';
-import { AUTO_ROUTE_ID, BRIDGE_INTEGRATION, ConfigurationRevisionConflictError, ConfigurationValidationError, safePickerId, safeRouteId, type ConfigurationRouteKind, type ConfigurationSnapshot } from './configuration-v2-contract.js';
+import { AUTO_ROUTE_ID, BRIDGE_INTEGRATION, ConfigurationRevisionConflictError, ConfigurationValidationError, normalizeBridgeContextWindow, safeRouteId, type ConfigurationRouteKind, type ConfigurationSnapshot } from './configuration-v2-contract.js';
 import { abandonIdempotency, claimIdempotency, completeIdempotency, normalizeIdempotencyKey } from './configuration-v2-idempotency.js';
 import { getConfigurationSnapshot } from './configuration-v2-catalog.js';
+import { allocateDesktopPickerAlias, requireDesktopPickerAlias } from './configuration-v2-picker.js';
 import { ensureMember, ensureRoute, getRevision, writeRevision } from './configuration-v2-storage.js';
+
+function assertReasoningCapability(db: ReturnType<typeof getDb>, platform: string, supportsReasoning: boolean): void {
+  if (!supportsReasoning) return;
+  const row = db.prepare('SELECT capabilities_json FROM configuration_providers WHERE platform = ?').get(platform) as { capabilities_json: string } | undefined;
+  if (!row) return;
+  let providerReasoning = false;
+  try {
+    const capabilities = JSON.parse(row.capabilities_json) as { reasoning?: unknown };
+    providerReasoning = capabilities.reasoning === true;
+  } catch {
+    providerReasoning = false;
+  }
+  if (!providerReasoning) {
+    throw new ConfigurationValidationError(`El proveedor '${platform}' no declara control de razonamiento para este modelo`);
+  }
+}
+
 export function updateConfigurationRoute(
   routeId: string,
   input: {
@@ -76,6 +94,7 @@ export function updateConfigurationModel(
     nativeVision?: boolean;
     supportsReasoning?: boolean;
     bridgeVisible?: boolean;
+    pickerId?: string | null;
     actor?: string;
     source?: string;
     idempotencyKey?: string;
@@ -90,34 +109,65 @@ export function updateConfigurationModel(
     const currentRevision = getRevision(db);
     if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) throw new ConfigurationRevisionConflictError(currentRevision);
     const current = db.prepare(`
-      SELECT m.id, m.display_name, m.enabled, m.context_window, m.native_vision, m.supports_reasoning, m.capabilities_explicit,
-             MAX(CASE WHEN c.integration = ? AND c.visible = 1 THEN 1 ELSE 0 END) AS bridge_visible
+      SELECT m.id, m.platform, m.display_name, m.enabled, m.context_window, m.native_vision, m.supports_reasoning, m.capabilities_explicit,
+             MAX(CASE WHEN c.integration = ? AND c.visible = 1 THEN 1 ELSE 0 END) AS bridge_visible,
+             MAX(CASE WHEN c.integration = ? THEN c.picker_id ELSE NULL END) AS picker_id
       FROM models m LEFT JOIN client_catalog_entries c ON c.model_db_id = m.id
       WHERE m.id = ? GROUP BY m.id
-    `).get(BRIDGE_INTEGRATION, modelDbId) as {
-      id: number; display_name: string; enabled: number; context_window: number | null; native_vision: number; supports_reasoning: number; capabilities_explicit: number; bridge_visible: number;
+    `).get(BRIDGE_INTEGRATION, BRIDGE_INTEGRATION, modelDbId) as {
+      id: number; platform: string; display_name: string; enabled: number; context_window: number | null; native_vision: number; supports_reasoning: number; capabilities_explicit: number; bridge_visible: number; picker_id: string | null;
     } | undefined;
     if (!current) throw new ConfigurationValidationError(`Model '${modelDbId}' does not exist`);
     const next = {
       displayName: input.displayName ?? current.display_name,
       enabled: input.enabled === undefined ? current.enabled : input.enabled ? 1 : 0,
-      contextWindow: input.contextWindow === undefined ? current.context_window : input.contextWindow,
+      contextWindow: normalizeBridgeContextWindow(input.contextWindow === undefined ? current.context_window : input.contextWindow),
       nativeVision: input.nativeVision === undefined ? current.native_vision : input.nativeVision ? 1 : 0,
       supportsReasoning: input.supportsReasoning === undefined ? current.supports_reasoning : input.supportsReasoning ? 1 : 0,
       capabilitiesExplicit: input.nativeVision === undefined && input.supportsReasoning === undefined
         ? current.capabilities_explicit
         : 1,
       bridgeVisible: input.bridgeVisible === undefined ? current.bridge_visible === 1 : input.bridgeVisible,
+      pickerId: input.pickerId === undefined
+        ? current.picker_id
+        : input.pickerId === null
+          ? null
+          : requireDesktopPickerAlias(input.pickerId),
     };
     if (!next.displayName.trim()) throw new ConfigurationValidationError('displayName cannot be empty');
+    assertReasoningCapability(db, current.platform, next.supportsReasoning === 1);
+    if (next.bridgeVisible && !next.pickerId) {
+      next.pickerId = allocateDesktopPickerAlias(db, modelDbId);
+    }
+    if (next.bridgeVisible && !next.pickerId) {
+      throw new ConfigurationValidationError('No compatible Codex Desktop picker alias is available; hide another model or assign a free alias');
+    }
+    if (next.pickerId) {
+      const owner = db.prepare(`
+        SELECT model_db_id FROM client_catalog_entries
+        WHERE integration = ? AND picker_id = ? AND model_db_id <> ?
+      `).get(BRIDGE_INTEGRATION, next.pickerId, modelDbId) as { model_db_id: number } | undefined;
+      if (owner) throw new ConfigurationValidationError(`pickerId '${next.pickerId}' is already assigned to another model`);
+    }
     db.prepare(`
       UPDATE models SET display_name = ?, enabled = ?, context_window = ?, native_vision = ?, supports_reasoning = ?, capabilities_explicit = ?
       WHERE id = ?
     `).run(next.displayName.trim(), next.enabled, next.contextWindow, next.nativeVision, next.supportsReasoning, next.capabilitiesExplicit, modelDbId);
-    if (input.bridgeVisible !== undefined) {
-      db.prepare('UPDATE client_catalog_entries SET visible = ? WHERE integration = ? AND model_db_id = ?')
-        .run(next.bridgeVisible ? 1 : 0, BRIDGE_INTEGRATION, modelDbId);
-    }
+    db.prepare(`
+      UPDATE client_catalog_entries SET
+        picker_id = ?, visible = ?, display_name = ?, native_vision = ?,
+        supports_reasoning = ?, context_window = ?
+      WHERE integration = ? AND model_db_id = ?
+    `).run(
+      next.pickerId,
+      next.bridgeVisible ? 1 : 0,
+      next.displayName.trim(),
+      next.nativeVision,
+      next.supportsReasoning,
+      next.contextWindow,
+      BRIDGE_INTEGRATION,
+      modelDbId,
+    );
     if (input.enabled !== undefined) {
       db.prepare('UPDATE fallback_config SET enabled = ? WHERE model_db_id = ?').run(next.enabled, modelDbId);
       db.prepare('UPDATE routing_route_members SET enabled = ? WHERE model_db_id = ? AND route_id = ?').run(next.enabled, modelDbId, AUTO_ROUTE_ID);
@@ -141,6 +191,8 @@ export function createConfigurationModel(input: {
   contextWindow?: number | null;
   nativeVision?: boolean;
   supportsReasoning?: boolean;
+  bridgeVisible?: boolean;
+  pickerId?: string;
   intelligenceRank?: number;
   speedRank?: number;
   addToAuto?: boolean;
@@ -156,6 +208,7 @@ export function createConfigurationModel(input: {
   if (!modelId || modelId.length > 200) throw new ConfigurationValidationError('modelId is required and must be at most 200 characters');
   if (!displayName) throw new ConfigurationValidationError('displayName cannot be empty');
   const db = getDb();
+  assertReasoningCapability(db, platform, input.supportsReasoning === true);
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   const replay = claimIdempotency(db, idempotencyKey, { operation: 'model-create', input: { ...input, idempotencyKey: undefined } });
   if (replay) return replay;
@@ -177,7 +230,7 @@ export function createConfigurationModel(input: {
       displayName,
       input.intelligenceRank ?? maxRanks.intelligence + 1,
       input.speedRank ?? maxRanks.speed + 1,
-      input.contextWindow ?? null,
+      normalizeBridgeContextWindow(input.contextWindow),
       input.nativeVision ? 1 : 0,
       input.supportsReasoning ? 1 : 0,
     );
@@ -185,13 +238,24 @@ export function createConfigurationModel(input: {
     const routeId = safeRouteId(platform, modelId);
     ensureRoute(db, routeId, displayName, 'pinned', true);
     ensureMember(db, routeId, modelDbId, 1, true);
-    const pickerId = safePickerId(platform, modelId);
+    const pickerId = input.pickerId === undefined
+      ? allocateDesktopPickerAlias(db)
+      : requireDesktopPickerAlias(input.pickerId);
+    const bridgeVisible = input.bridgeVisible === undefined ? pickerId !== null : input.bridgeVisible;
+    if (bridgeVisible && !pickerId) {
+      throw new ConfigurationValidationError('No compatible Codex Desktop picker alias is available; create the model with bridgeVisible=false or free an alias');
+    }
+    if (pickerId) {
+      const owner = db.prepare('SELECT model_db_id FROM client_catalog_entries WHERE integration = ? AND picker_id = ?')
+        .get(BRIDGE_INTEGRATION, pickerId) as { model_db_id: number } | undefined;
+      if (owner) throw new ConfigurationValidationError(`pickerId '${pickerId}' is already assigned to another model`);
+    }
     db.prepare(`
       INSERT INTO client_catalog_entries (
         integration, external_slug, route_id, model_db_id, picker_id, display_name,
         native_vision, supports_reasoning, context_window, visible, sort_order
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1000)
-    `).run(BRIDGE_INTEGRATION, `${platform}/${modelId}`, routeId, modelDbId, pickerId, displayName, input.nativeVision ? 1 : 0, input.supportsReasoning ? 1 : 0, input.contextWindow ?? null);
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1000)
+    `).run(BRIDGE_INTEGRATION, `${platform}/${modelId}`, routeId, modelDbId, pickerId, displayName, input.nativeVision ? 1 : 0, input.supportsReasoning ? 1 : 0, normalizeBridgeContextWindow(input.contextWindow), bridgeVisible ? 1 : 0);
     if (input.addToAuto) {
       const maxPriority = db.prepare("SELECT COALESCE(MAX(priority), 0) AS priority FROM routing_route_members WHERE route_id = 'route:auto'").get() as { priority: number };
       ensureMember(db, AUTO_ROUTE_ID, modelDbId, maxPriority.priority + 1, true);
@@ -237,6 +301,7 @@ export function materializeConfigurationModels(
 
   db.exec('BEGIN IMMEDIATE');
   try {
+    for (const model of pending) assertReasoningCapability(db, normalizedPlatform, model.supportsReasoning);
     const currentRevision = getRevision(db);
     const ranks = db.prepare('SELECT COALESCE(MAX(intelligence_rank), 0) AS intelligence, COALESCE(MAX(speed_rank), 0) AS speed FROM models').get() as { intelligence: number; speed: number };
     const insertModel = db.prepare(`
@@ -249,7 +314,7 @@ export function materializeConfigurationModels(
       INSERT INTO client_catalog_entries (
         integration, external_slug, route_id, model_db_id, picker_id, display_name,
         native_vision, supports_reasoning, context_window, visible, sort_order
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1000)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1000)
     `);
     pending.forEach((model, index) => {
       const modelResult = insertModel.run(
@@ -258,7 +323,7 @@ export function materializeConfigurationModels(
         model.displayName.trim(),
         ranks.intelligence + index + 1,
         ranks.speed + index + 1,
-        model.contextWindow,
+        normalizeBridgeContextWindow(model.contextWindow),
         model.nativeVision ? 1 : 0,
         model.supportsReasoning ? 1 : 0,
       );
@@ -266,16 +331,18 @@ export function materializeConfigurationModels(
       const routeId = safeRouteId(normalizedPlatform, model.modelId);
       ensureRoute(db, routeId, model.displayName, 'pinned', true);
       ensureMember(db, routeId, modelDbId, 1, true);
+      const pickerId = allocateDesktopPickerAlias(db);
       insertCatalog.run(
         BRIDGE_INTEGRATION,
         `${normalizedPlatform}/${model.modelId}`,
         routeId,
         modelDbId,
-        safePickerId(normalizedPlatform, model.modelId),
+        pickerId,
         model.displayName,
         model.nativeVision ? 1 : 0,
         model.supportsReasoning ? 1 : 0,
-        model.contextWindow,
+        normalizeBridgeContextWindow(model.contextWindow),
+        pickerId ? 1 : 0,
       );
     });
     writeRevision(

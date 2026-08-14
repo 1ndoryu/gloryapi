@@ -6,10 +6,11 @@ import { serializeConfigurationState } from './configuration-v2-snapshot.js';
 import { ensureKnownModelCapabilityDefaults } from './configuration-v2-capabilities.js';
 import {
   AUTO_ROUTE_ID,
+  BRIDGE_CONTEXT_WINDOW,
   BRIDGE_INTEGRATION,
   CONFIGURATION_REVISION_KEY,
   CONFIGURATION_SCHEMA,
-  safePickerId,
+  normalizeBridgeContextWindow,
   safeRouteId,
   type ConfigurationModel,
   type ConfigurationProvider,
@@ -17,6 +18,11 @@ import {
   type ConfigurationRouteKind,
   type ConfigurationSchema,
 } from './configuration-v2-contract.js';
+import {
+  allocateDesktopPickerAlias,
+  isDesktopPickerAlias,
+  reconcileDesktopPickerAliases,
+} from './configuration-v2-picker.js';
 
 export interface RoutingModelSnapshot {
   id: number;
@@ -108,24 +114,25 @@ function ensureCatalogEntry(
   const routeId = safeRouteId(model.platform, model.model_id);
   ensureRoute(db, routeId, model.display_name, 'pinned', true);
   ensureMember(db, routeId, model.id, 1, true);
-  const pickerId = safePickerId(model.platform, model.model_id);
-  const existingSlug = db.prepare(
-    'SELECT external_slug FROM client_catalog_entries WHERE integration = ? AND model_db_id = ? LIMIT 1',
-  ).get(BRIDGE_INTEGRATION, model.id) as { external_slug: string } | undefined;
-  const stableExternalSlug = existingSlug?.external_slug || externalSlug;
+  const existing = db.prepare(
+    'SELECT external_slug, picker_id FROM client_catalog_entries WHERE integration = ? AND model_db_id = ? LIMIT 1',
+  ).get(BRIDGE_INTEGRATION, model.id) as { external_slug: string; picker_id: string | null } | undefined;
+  const stableExternalSlug = existing?.external_slug || externalSlug;
+  const pickerId = isDesktopPickerAlias(existing?.picker_id)
+    ? existing.picker_id
+    : allocateDesktopPickerAlias(db, model.id);
   db.prepare(`
     INSERT INTO client_catalog_entries (
       integration, external_slug, route_id, model_db_id, picker_id, display_name,
       native_vision, supports_reasoning, context_window, visible, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(integration, external_slug) DO UPDATE SET
       route_id = excluded.route_id,
        model_db_id = excluded.model_db_id,
        display_name = excluded.display_name,
        native_vision = excluded.native_vision,
        supports_reasoning = excluded.supports_reasoning,
-       context_window = excluded.context_window,
-      visible = excluded.visible
+      context_window = excluded.context_window
   `).run(
     BRIDGE_INTEGRATION,
     stableExternalSlug,
@@ -135,7 +142,8 @@ function ensureCatalogEntry(
     model.display_name,
     model.native_vision === 1 ? 1 : 0,
     model.supports_reasoning === 1 ? 1 : 0,
-    model.context_window,
+    normalizeBridgeContextWindow(model.context_window),
+    pickerId ? 1 : 0,
     model.id,
   );
 }
@@ -147,6 +155,24 @@ function ensureModelCapabilityColumns(db: Database.Database): void {
   if (!columns.has('native_vision')) db.prepare('ALTER TABLE models ADD COLUMN native_vision INTEGER NOT NULL DEFAULT 0 CHECK (native_vision IN (0, 1))').run();
   if (!columns.has('supports_reasoning')) db.prepare('ALTER TABLE models ADD COLUMN supports_reasoning INTEGER NOT NULL DEFAULT 0 CHECK (supports_reasoning IN (0, 1))').run();
   if (!columns.has('capabilities_explicit')) db.prepare('ALTER TABLE models ADD COLUMN capabilities_explicit INTEGER NOT NULL DEFAULT 0 CHECK (capabilities_explicit IN (0, 1))').run();
+}
+
+function normalizeBridgeContextWindows(db: Database.Database): { models: number; catalogEntries: number } {
+  const operationalCatalog = Boolean(db.prepare(
+    "SELECT 1 FROM settings WHERE key = 'catalog_schema_version' AND value = 'glory-v1' LIMIT 1",
+  ).get());
+  if (!operationalCatalog) return { models: 0, catalogEntries: 0 };
+  const models = db.prepare(`
+    UPDATE models
+    SET context_window = ?
+    WHERE context_window IS NULL OR context_window <> ?
+  `).run(BRIDGE_CONTEXT_WINDOW, BRIDGE_CONTEXT_WINDOW).changes;
+  const catalogEntries = db.prepare(`
+    UPDATE client_catalog_entries
+    SET context_window = ?
+    WHERE integration = ? AND (context_window IS NULL OR context_window <> ?)
+  `).run(BRIDGE_CONTEXT_WINDOW, BRIDGE_INTEGRATION, BRIDGE_CONTEXT_WINDOW).changes;
+  return { models, catalogEntries };
 }
 
 export function ensureConfigurationV2(db: Database.Database): void {
@@ -230,7 +256,9 @@ export function ensureConfigurationV2(db: Database.Database): void {
     WHERE model_db_id IS NOT NULL AND model_db_id NOT IN (SELECT id FROM models);
   `);
 
-  db.transaction(() => {
+  const contextWindowMigration = db.transaction(() => normalizeBridgeContextWindows(db))();
+
+  const pickerAliasMigration = db.transaction(() => {
     ensureRoute(db, AUTO_ROUTE_ID, 'Auto (router de GloryAPI)', 'auto', true);
     const fallbackRows = db.prepare(`
       SELECT fc.model_db_id, fc.priority, fc.enabled, m.model_id
@@ -267,11 +295,12 @@ export function ensureConfigurationV2(db: Database.Database): void {
       INSERT INTO client_catalog_entries (
         integration, external_slug, route_id, model_db_id, picker_id, display_name,
         native_vision, supports_reasoning, context_window, visible, sort_order
-      ) VALUES (?, 'auto', ?, NULL, 'codex-auto-review', 'Auto (router de GloryAPI)', 0, 1, 150000, 1, 0)
+      ) VALUES (?, 'auto', ?, NULL, 'codex-auto-review', 'Auto (router de GloryAPI)', 0, 1, ?, 1, 0)
       ON CONFLICT(integration, external_slug) DO UPDATE SET
         route_id = excluded.route_id, picker_id = excluded.picker_id,
         display_name = excluded.display_name, visible = 1
-    `).run(BRIDGE_INTEGRATION, AUTO_ROUTE_ID);
+    `).run(BRIDGE_INTEGRATION, AUTO_ROUTE_ID, BRIDGE_CONTEXT_WINDOW);
+    return reconcileDesktopPickerAliases(db);
   })();
 
   db.exec(`
@@ -297,6 +326,26 @@ export function ensureConfigurationV2(db: Database.Database): void {
       WHERE EXISTS (SELECT 1 FROM routing_routes WHERE route_id = 'route:auto');
     END;
   `);
+
+  if (pickerAliasMigration.length > 0 || contextWindowMigration.models > 0 || contextWindowMigration.catalogEntries > 0) {
+    const currentRevision = getRevision(db);
+    db.transaction(() => {
+      writeRevision(
+        db,
+        currentRevision,
+        'configuration-migration',
+        'bridge-context-window',
+        'Normalización del límite operativo de contexto del bridge',
+        {
+          type: 'bridge-context-window',
+          contextWindow: BRIDGE_CONTEXT_WINDOW,
+          modelsUpdated: contextWindowMigration.models,
+          catalogEntriesUpdated: contextWindowMigration.catalogEntries,
+          pickerAliasChanges: pickerAliasMigration,
+        },
+      );
+    })();
+  }
 
   const initialState = serializeConfigurationState(db) as { providers: unknown[]; models: unknown[]; routes: unknown[]; catalog: unknown[] };
   db.prepare(`
@@ -392,15 +441,16 @@ export function getConfigurationModels(): ConfigurationModel[] {
     SELECT m.id, m.platform, m.model_id, m.display_name, m.enabled,
            m.context_window, m.native_vision, m.supports_reasoning,
            GROUP_CONCAT(rm.route_id) AS route_ids,
-           MAX(CASE WHEN c.integration = ? AND c.visible = 1 THEN 1 ELSE 0 END) AS bridge_visible
+           MAX(CASE WHEN c.integration = ? AND c.visible = 1 THEN 1 ELSE 0 END) AS bridge_visible,
+           MAX(CASE WHEN c.integration = ? THEN c.picker_id ELSE NULL END) AS picker_id
     FROM models m
     LEFT JOIN routing_route_members rm ON rm.model_db_id = m.id
     LEFT JOIN client_catalog_entries c ON c.model_db_id = m.id
     GROUP BY m.id ORDER BY m.platform ASC, m.display_name ASC
-  `).all(BRIDGE_INTEGRATION) as Array<{
+  `).all(BRIDGE_INTEGRATION, BRIDGE_INTEGRATION) as Array<{
     id: number; platform: string; model_id: string; display_name: string; enabled: number;
     context_window: number | null; native_vision: number; supports_reasoning: number;
-    route_ids: string | null; bridge_visible: number;
+    route_ids: string | null; bridge_visible: number; picker_id: string | null;
   }>;
   return rows.map(row => ({
     modelDbId: row.id,
@@ -413,6 +463,7 @@ export function getConfigurationModels(): ConfigurationModel[] {
     supportsReasoning: row.supports_reasoning === 1,
     routeIds: row.route_ids ? row.route_ids.split(',') : [],
     bridgeVisible: row.bridge_visible === 1,
+    pickerId: row.picker_id,
   }));
 }
 
@@ -424,4 +475,4 @@ export function getConfigurationSchema(): ConfigurationSchema {
   return CONFIGURATION_SCHEMA;
 }
 
-export { AUTO_ROUTE_ID, BRIDGE_INTEGRATION, safeRouteId, safePickerId };
+export { AUTO_ROUTE_ID, BRIDGE_INTEGRATION, safeRouteId };

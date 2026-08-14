@@ -1,5 +1,6 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
+const { BRIDGE_CONTEXT_WINDOW } = require('./model-catalog');
 
 function createBridgeHttpServer({
   config,
@@ -296,8 +297,8 @@ function createBridgeHttpServer({
       const catalogEntries = Array.isArray(config.catalog.entries) ? config.catalog.entries : [];
       const modelList = catalogEntries.map((entry) => {
         const contextWindow = Number.isSafeInteger(entry.contextWindow) && entry.contextWindow > 0
-          ? Math.min(entry.contextWindow, config.context.limitTokens)
-          : config.context.limitTokens;
+          ? Math.min(entry.contextWindow, config.context.limitTokens, BRIDGE_CONTEXT_WINDOW)
+          : Math.min(config.context.limitTokens, BRIDGE_CONTEXT_WINDOW);
         return {
           id: entry.id,
           slug: entry.id,

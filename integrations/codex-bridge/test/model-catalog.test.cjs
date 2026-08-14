@@ -10,6 +10,7 @@ const {
   parseModelCatalog,
   parseModelCatalogDetailed,
   resolveModelSelection,
+  resolvePresentationModel,
   hasNativeVision,
 } = require('../bridge/model-catalog');
 
@@ -48,6 +49,13 @@ test('resolveModelSelection maps persisted Desktop-safe picker ids back to provi
   assert.deepEqual(resolveModelSelection(PERSISTED_CATALOG, 'gpt-5.6-terra', 'auto'), {
     id: 'meta/muse-spark-1.2-contributor', provider: 'commandcode', nativeVision: true, supportsReasoning: true, explicit: true,
   });
+});
+
+test('resolvePresentationModel always returns a Desktop catalog id', () => {
+  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, undefined), 'auto');
+  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, 'gpt-5.6-terra'), 'gpt-5.6-terra');
+  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, 'meta/muse-spark-1.2-contributor'), 'gpt-5.6-terra');
+  assert.equal(resolvePresentationModel(PERSISTED_CATALOG, 'legacy/deepseek-v4-flash'), 'auto');
 });
 
 test('an unknown model passes through fail-closed', () => {

@@ -7,7 +7,8 @@ const { createRequestTranslator, normalizeReasoningEffort } = require('../bridge
 const { parseModelCatalog } = require('../bridge/model-catalog');
 
 const TEST_CATALOG = parseModelCatalog(JSON.stringify([
-  { id: 'deepseek/deepseek-v4-flash', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
+  { id: 'auto', pickerId: 'codex-auto-review', provider: 'auto', displayName: 'Auto (router de GloryAPI)', supportsReasoning: true },
+  { id: 'deepseek/deepseek-v4-flash', pickerId: 'gpt-5.6-sol', provider: 'commandcode', displayName: 'DeepSeek V4 Flash', supportsReasoning: true },
   { id: 'deepseek-v4-flash:free', provider: 'tokenharbor', displayName: 'DeepSeek Flash Free', supportsReasoning: false },
   { id: 'meta/muse-spark-1.2-contributor', pickerId: 'gpt-5.6-terra', provider: 'commandcode', displayName: 'Muse Spark', nativeVision: true, supportsReasoning: true },
 ]));
@@ -76,6 +77,7 @@ test('native vision forwards the image_url block to a multimodal model', async (
   const { chat } = await translateRequest(imageBody('meta/muse-spark-1.2-contributor'));
 
   assert.equal(chat.model, 'meta/muse-spark-1.2-contributor');
+  assert.equal(chat.__bridgePresentationModel, 'gpt-5.6-terra');
   const userMessage = chat.messages.find((message) => message.role === 'user');
   const imagePart = userMessage.content.find((part) => part.type === 'image_url');
   assert.deepEqual(imagePart.image_url, { url: PNG_DATA_URL });
@@ -93,6 +95,19 @@ test('Responses effort reaches Muse as canonical reasoning_effort', async () => 
   });
 
   assert.equal(chat.model, 'meta/muse-spark-1.2-contributor');
+  assert.equal(chat.reasoning_effort, 'high');
+});
+
+test('Responses effort reaches DeepSeek Flash through its Desktop picker alias', async () => {
+  const { translateRequest } = createTranslator();
+  const { chat } = await translateRequest({
+    model: 'gpt-5.6-sol',
+    reasoning: { effort: 'high' },
+    stream: true,
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'razona' }] }],
+  });
+
+  assert.equal(chat.model, 'deepseek/deepseek-v4-flash');
   assert.equal(chat.reasoning_effort, 'high');
 });
 
@@ -132,6 +147,7 @@ test('auto and missing model use the canonical Auto route and lossy vision', asy
   const { translateRequest, calls } = createTranslator();
   const { chat } = await translateRequest(imageBody('auto'));
   assert.equal(chat.model, 'auto');
+  assert.equal(chat.__bridgePresentationModel, 'codex-auto-review');
   const userMessage = chat.messages.find((message) => message.role === 'user');
   assert.equal(userMessage.content.some((part) => part.type === 'image_url'), false);
   assert.equal(calls.describeImage, 1);

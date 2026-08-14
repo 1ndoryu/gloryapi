@@ -3,7 +3,7 @@ import { Router } from 'express'
 import type { ChatMessage } from '@gloryapi/shared/types.js'
 import { getDb, getUnifiedApiKey } from '../db/index.js'
 import { getSettingNumber } from '../settings/registry.js'
-import { getRouteModelIds, resolveClientCatalogEntry } from '../services/configuration-v2.js';
+import { BRIDGE_CONTEXT_WINDOW, getRouteModelIds, resolveClientCatalogEntry } from '../services/configuration-v2.js';
 import { getConfiguredProviderFromDb, type ProviderFailurePolicy } from '../services/provider-configuration.js';
 
 export const AUTO_MODEL_ID = 'auto'
@@ -127,7 +127,7 @@ export function registerModelRoutes(router: Router): void {
         created: 0,
         owned_by: 'gloryapi',
         name: 'Auto (router picks the best available model)',
-        context_window: null,
+        context_window: BRIDGE_CONTEXT_WINDOW,
       },
       ...sortedModels.map(model => ({
         id: model.model_id,

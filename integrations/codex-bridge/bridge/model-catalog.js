@@ -59,9 +59,7 @@ function normalizeEntry(raw, index) {
   const pickerId = raw.pickerId == null ? null : (typeof raw.pickerId === 'string' ? raw.pickerId.trim() : '');
   if (!MODEL_ID_PATTERN.test(id) || !MODEL_ID_PATTERN.test(wireModel) || !PROVIDER_PATTERN.test(provider) || !displayName) return null;
   if (pickerId !== null && !MODEL_ID_PATTERN.test(pickerId)) return null;
-  const contextWindow = raw.contextWindow == null || Number.isSafeInteger(raw.contextWindow)
-    ? (Number.isSafeInteger(raw.contextWindow) ? raw.contextWindow : null)
-    : null;
+  const contextWindow = BRIDGE_CONTEXT_WINDOW;
   return {
     id,
     wireModel,
@@ -163,6 +161,27 @@ function resolveModelSelection(catalog, requestedModel, defaultModel) {
   return { id: requested, provider: 'unknown', nativeVision: false, supportsReasoning: false, explicit: true };
 }
 
+/**
+ * Return the identifier that Codex Desktop should persist for a response.
+ *
+ * GloryAPI may report the physical upstream model (for example
+ * `deepseek-v4-flash`) after routing `auto`. That identifier is deliberately
+ * not part of the Desktop catalog and makes Codex fall back to its built-in
+ * context window. Keep the upstream wire id in `chat.model`, but expose only
+ * the catalog picker id in response metadata. Unknown legacy ids are treated
+ * as Auto presentation ids because they can only come from a pre-catalog
+ * bridge session; the upstream request itself remains unchanged.
+ */
+function resolvePresentationModel(catalog, requestedModel) {
+  const requested = typeof requestedModel === 'string' && requestedModel.trim()
+    ? requestedModel.trim()
+    : '';
+  const entry = catalog.find((candidate) => candidate.id === requested || candidate.pickerId === requested);
+  if (entry) return entry.pickerId || entry.id;
+  const autoEntry = catalog.find((candidate) => candidate.id === AUTO_MODEL_ID);
+  return autoEntry?.pickerId || autoEntry?.id || AUTO_MODEL_ID;
+}
+
 function hasNativeVision(catalog, modelId) {
   const entry = catalog.find((candidate) => candidate.id === modelId);
   return Boolean(entry && entry.nativeVision === true);
@@ -176,5 +195,6 @@ module.exports = {
   parseModelCatalog,
   parseModelCatalogDetailed,
   resolveModelSelection,
+  resolvePresentationModel,
   hasNativeVision,
 };

@@ -6,6 +6,7 @@ import { getDb } from '../db/index.js';
 import {
   AUTO_ROUTE_ID,
   BRIDGE_INTEGRATION,
+  normalizeBridgeContextWindow,
   type BridgeCatalogProjection,
   type BridgeCatalogSyncStatus,
   type ConfigurationSnapshot,
@@ -103,7 +104,7 @@ export function getBridgeCatalogProjection(): BridgeCatalogProjection {
     displayName: row.display_name,
     nativeVision: row.native_vision === 1,
     supportsReasoning: row.supports_reasoning === 1,
-    contextWindow: row.context_window === null ? 150000 : Math.min(row.context_window, 150000),
+    contextWindow: normalizeBridgeContextWindow(row.context_window),
     routeId: row.route_id,
   }));
   const revision = currentConfigurationRevision();

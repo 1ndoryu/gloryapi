@@ -114,29 +114,36 @@ function loadCatalogOverride(catalogPath) {
       displayName: String(row.displayName || row.id || '').trim(),
       nativeVision: row.nativeVision === true,
       supportsReasoning: row.supportsReasoning === true,
-      contextWindow: Number.isSafeInteger(row.contextWindow) ? row.contextWindow : 150000,
+      // The bridge catalog has one operational compaction ceiling for every
+      // selectable model. Provider-specific physical limits stay in GloryAPI.
+      contextWindow: 150000,
     })).filter((row) => row.id && row.displayName);
     if (entries.length === 0) return null;
     if (!entries.some((entry) => entry.id === 'auto')) {
       const auto = DEFAULT_MODEL_CATALOG.find((entry) => entry.id === 'auto');
       entries.unshift({ ...auto, id: 'auto', pickerId: auto.pickerId, provider: 'auto', displayName: auto.displayName });
     }
+    const pickerIds = new Set();
+    for (const entry of entries) {
+      if (!entry.pickerId) throw new Error(`catalog entry '${entry.id}' has no Desktop pickerId`);
+      if (pickerIds.has(entry.pickerId)) throw new Error(`Desktop pickerId '${entry.pickerId}' is duplicated`);
+      pickerIds.add(entry.pickerId);
+    }
     return entries;
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(`invalid bridge catalog override: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
 function cloneEntry(template, catalogEntry, index) {
+  if (!catalogEntry.pickerId) throw new Error(`bridge catalog entry '${catalogEntry.id}' has no Desktop pickerId`);
   const entry = JSON.parse(JSON.stringify(template));
-  const contextWindow = Number.isSafeInteger(catalogEntry.contextWindow) && catalogEntry.contextWindow > 0
-    ? catalogEntry.contextWindow
-    : (Number.isSafeInteger(template.context_window) ? template.context_window : 150000);
+  const contextWindow = 150000;
   const nativeVision = catalogEntry.nativeVision === true;
   // Desktop currently filters custom-provider ids from its renderer. Keep the
   // real id in the bridge catalog, but expose an allowlisted picker id in the
   // local Desktop catalog; request-translator maps it back to catalogEntry.id.
-  entry.slug = catalogEntry.pickerId || catalogEntry.id;
+  entry.slug = catalogEntry.pickerId;
   entry.display_name = catalogEntry.displayName;
   entry.description = DESCRIPTIONS[catalogEntry.id] || catalogEntry.displayName;
   entry.input_modalities = nativeVision ? ['text', 'image'] : ['text'];
@@ -222,7 +229,7 @@ function main() {
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   writeAtomic(outputPath, JSON.stringify({ models }, null, 2));
-  if (cachePathArg) {
+  if (cachePathArg && cachePathArg !== '-') {
     const cachePath = path.resolve(cachePathArg);
     const cache = {
       ...resolveCacheMetadata(cachePath, cacheMetadataSourceArg),
@@ -236,7 +243,7 @@ function main() {
     fs.mkdirSync(path.dirname(cachePath), { recursive: true });
     writeAtomic(cachePath, JSON.stringify(cache, null, 2));
   }
-  process.stdout.write(`bridge model catalog written: ${models.length} models${cachePathArg ? ' (models_cache.json updated)' : ''}\n`);
+  process.stdout.write(`bridge model catalog written: ${models.length} models${cachePathArg && cachePathArg !== '-' ? ' (models_cache.json updated)' : ''}\n`);
 }
 
 main();

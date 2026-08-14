@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 
-const MODEL_CAPABILITY_DEFAULTS_REVISION = 'configuration_model_capabilities_v2';
+const MODEL_CAPABILITY_DEFAULTS_REVISION = 'configuration_model_capabilities_v3';
 
 /**
  * One-time metadata migration for models already present before V2. New models
@@ -8,6 +8,9 @@ const MODEL_CAPABILITY_DEFAULTS_REVISION = 'configuration_model_capabilities_v2'
  * from the provider-wide capability profile.
  */
 const KNOWN_MODEL_CAPABILITY_DEFAULTS = [
+  { platform: 'andoryyu', modelId: 'deepseek-v4-flash', nativeVision: false, supportsReasoning: true },
+  { platform: 'opencode-zen', modelId: 'deepseek-v4-flash-free', nativeVision: false, supportsReasoning: true },
+  { platform: 'opencode-go', modelId: 'deepseek-v4-flash', nativeVision: false, supportsReasoning: true },
   { platform: 'commandcode', modelId: 'deepseek/deepseek-v4-flash', nativeVision: false, supportsReasoning: true },
   { platform: 'commandcode', modelId: 'meta/muse-spark-1.2-contributor', nativeVision: true, supportsReasoning: true },
 ] as const;

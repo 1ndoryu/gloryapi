@@ -5,9 +5,11 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Siguiente bloque ejecutable
 
-El plan de coherencia está cerrado localmente. Para la operación normal solo
-queda abrir el acceso directo del bridge cuando se necesite; el reinicio es
-seguro y conserva el historial aislado. ChatGPT normal y
+La corrección de coherencia del selector y las capacidades quedó validada
+localmente. La UI usa una sola lista de modelos,
+sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
+  aislado después de verificar que las rutas compatibles de DeepSeek V4 Flash
+  transmiten el nivel de razonamiento seleccionado. ChatGPT normal y
 `C:\Users\Owner\.codex` permanecen fuera del alcance.
 
 ## Decisiones y bloqueos explícitos
@@ -19,6 +21,12 @@ seguro y conserva el historial aislado. ChatGPT normal y
 - No ampliar el catálogo ni añadir más overrides hardcodeados mientras esté activo el plan de
   coherencia. Los cambios urgentes de routing deben expresarse en la DB actual y acompañarse de una
   prueba que demuestre que ningún camino alternativo ignora sus flags.
+- La lista de Enrutamiento es la única superficie operativa para modelos: su interruptor controla la
+  pertenencia a Auto, el orden controla la prioridad de Auto y la ruta fijada se abre desde esa misma
+  fila. `Configurar Auto` queda solo para sus opciones generales.
+- La capacidad de razonamiento es efectiva por modelo y debe estar declarada también por el proveedor;
+  Andoryyu, OpenCode Zen, OpenCode Go y CommandCode Flash la anuncian, mientras TokenHarbor permanece
+  desactivado porque su contrato local no declara esa capacidad.
 - La restauración bajo otro perfil/equipo Windows requiere una ventana administrativa real; no se
   simula como PASS desde este perfil.
 
@@ -32,7 +40,8 @@ seguro y conserva el historial aislado. ChatGPT normal y
 - Aislamiento, snapshot real, bóveda DPAPI, importación original 22/22, credencial TokenHarbor,
   recovery y rutas externas.
 - Catálogo activo de cuatro familias: Andoryyu, OpenCode Zen, TokenHarbor y OpenCode Go; la ruta
-  explícita `deepseek-v4-flash:free` queda fijada a TokenHarbor.
+  explícita `deepseek-v4-flash:free` queda fijada a TokenHarbor. CommandCode Flash y Muse se
+  mantienen como modelos explícitos fuera de Auto.
 - Catálogo/registry/settings/routing/autosave y wizard provider→activación fail-closed.
 - Bridge modular y agnóstico: server.js orquesta; config, HTTP, Responses, SSE, translation,
   tools, upstream, visión, estado, redacción y métricas están separados.
@@ -47,8 +56,8 @@ seguro y conserva el historial aislado. ChatGPT normal y
   pero la instancia local actual todavía no tiene una fila `commandcode`; la clave debe añadirse
   desde el panel antes de enviar solicitudes reales.
 - Selector de modelos del bridge: el picker de Codex Desktop consume el catálogo local y la caché
-  aislada regenerados por `prepare-isolated-home.ps1`, y expone Auto, OpenCode Zen, TokenHarbor y
-  los dos modelos CommandCode restantes; `body.model` se resuelve contra el catálogo versionado
+  aislada regenerados por `prepare-isolated-home.ps1`, y expone los modelos visibles de la única
+  configuración canónica; `body.model` se resuelve contra el catálogo versionado
   `glory-bridge-model-catalog-v2`.
 - Muse Spark 1.2 usa visión nativa (bloques `image_url`); el resto conserva la adaptación a texto.
 - El web loop interno tiene un presupuesto configurable (`BRIDGE_WEB_TOOL_ROUNDS`) y, al agotarlo,
@@ -64,9 +73,10 @@ seguro y conserva el historial aislado. ChatGPT normal y
 ## Evidencia del bloque actual
 
 - Configuración V2 y routing coherente: `npm run build:server` PASS; suite
-  server 54 archivos / 307 tests PASS; snapshot real con 4 miembros activos en
-  Auto, 6 modelos y cero DeepSeek V4 Pro.
-- Bridge: suite secuencial 173 tests PASS; E2E aislado de configuración 1/1 PASS
+  server 54 archivos / 310 tests PASS; snapshot real con Auto limitado a sus
+  dos miembros actualmente activos, seis modelos configurados más la entrada
+  Auto en el selector, y cero DeepSeek V4 Pro.
+- Bridge: suite secuencial 174 tests PASS; E2E aislado de configuración 1/1 PASS
   y regresión del sincronizador PASS. `_e2e_apply_patch.cjs` permanece opt-in y
   fuera de la suite automática.
 - CLI: `snapshot`, `bridge sync` y `bridge diagnose` PASS sobre la base
