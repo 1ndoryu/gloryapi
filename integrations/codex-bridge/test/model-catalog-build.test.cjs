@@ -62,7 +62,7 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
     assert.equal(cache.client_version, '0.147.0-test');
     assert.match(cache.fetched_at, /^20\d\d-/);
     assert.deepEqual(catalog.models.map((entry) => entry.slug), [
-      'gloryapi-auto',
+      'gpt-5.6-auto',
       'gpt-5.6-sol',
       'gpt-5.5',
       'gpt-5.6-terra',
@@ -96,7 +96,7 @@ test('build-model-catalog falls back to a minimal catalog without a source templ
     assert.equal(result.status, 0, result.stderr || result.stdout);
     const catalog = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
     assert.equal(catalog.models.length, 1);
-    assert.equal(catalog.models[0].slug, 'gloryapi-auto');
+    assert.equal(catalog.models[0].slug, 'gpt-5.6-auto');
     assert.equal(catalog.models[0].visibility, 'list');
     assert.equal(catalog.models[0].supported_in_api, true);
     assert.equal(catalog.models[0].supports_reasoning, true);

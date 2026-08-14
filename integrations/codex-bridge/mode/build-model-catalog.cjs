@@ -150,7 +150,8 @@ function cloneEntry(template, catalogEntry, index) {
   // Desktop filters reserved/internal ids from its renderer. Keep the real
   // id in the bridge catalog, but expose the visible bridge-owned picker ids
   // in the local Desktop catalog. The persisted codex-auto-review alias is
-  // normalized to gloryapi-auto above and remains accepted at the bridge.
+  // normalized to the visible gpt-5.6-auto alias above and remains accepted
+  // at the bridge.
   entry.slug = catalogEntry.pickerId || (catalogEntry.id === AUTO_MODEL_ID ? AUTO_PICKER_ID : catalogEntry.id);
   entry.display_name = catalogEntry.displayName;
   entry.description = DESCRIPTIONS[catalogEntry.id] || catalogEntry.displayName;
