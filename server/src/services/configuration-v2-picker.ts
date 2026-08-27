@@ -50,7 +50,9 @@ export function reconcileDesktopPickerAliases(db: Database.Database): PickerAlia
     ORDER BY sort_order ASC, model_db_id ASC
   `).all(BRIDGE_INTEGRATION) as Array<{ model_db_id: number; picker_id: string | null; visible: number }>;
   const claimed = new Set(rows.filter(row => isDesktopPickerAlias(row.picker_id)).map(row => row.picker_id as string));
-  const pending = rows.filter(row => !isDesktopPickerAlias(row.picker_id));
+  // A hidden model intentionally has no Desktop slot. Do not keep treating
+  // that stable state as a migration on every database initialization.
+  const pending = rows.filter(row => row.visible === 1 && !isDesktopPickerAlias(row.picker_id));
   if (pending.length === 0) return [];
 
   const clear = db.prepare('UPDATE client_catalog_entries SET picker_id = NULL WHERE integration = ? AND model_db_id = ?');
