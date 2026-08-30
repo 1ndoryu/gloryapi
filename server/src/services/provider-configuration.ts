@@ -22,19 +22,31 @@ export interface ProviderFailurePolicy {
   recordProviderFailure: boolean;
 }
 
-export interface ConfiguredProvider {
+/* [por que] ISP (large-interface-isp): ConfiguredProvider tenia 11 campos en una
+ * sola interfaz. Se separan identidad, conexion y comportamiento para que cada
+ * consumidor dependa solo del subcontrato que usa; ConfiguredProvider se
+ * conserva como interseccion (misma API) para no romper a los consumidores. */
+export interface ProviderIdentity {
   platform: string;
   displayName: string;
   lifecycle: ProviderLifecycle;
   adapter: ProviderAdapterKind;
+  enabled: boolean;
+}
+
+export interface ProviderConnection {
   endpoint: string;
   authScheme: 'bearer' | 'account-and-token';
-  enabled: boolean;
   timeoutMs: number;
+}
+
+export interface ProviderBehavior {
   capabilities: CapabilityProfile;
   transport: ProviderTransportOptions;
   failurePolicy: ProviderFailurePolicy;
 }
+
+export type ConfiguredProvider = ProviderIdentity & ProviderConnection & ProviderBehavior;
 
 const DEFAULT_CAPABILITIES: CapabilityProfile = {
   streaming: true,

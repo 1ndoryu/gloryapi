@@ -17,6 +17,13 @@ import { getProvider } from '../../providers/index.js';
 import { resolveStoredCredential } from '../../lib/dpapi-vault.js';
 import { requireAdmin } from '../../lib/admin-auth.js';
 import { discoverProviderModelsCached } from '../../providers/catalog/model-discovery.js';
+import {
+  duplicateSchema,
+  modelSelectionSchema,
+  providerDraftSchema,
+  providerStateSchema,
+  verificationSchema,
+} from './registrySchema.js';
 
 export const registryRouter = Router();
 
@@ -26,50 +33,6 @@ export const registryRouter = Router();
 registryRouter.use((req: Request, res: Response, next) => {
   if (requireAdmin(req, res)) next();
 });
-const capabilitiesSchema = z.object({
-  streaming: z.boolean(),
-  tools: z.boolean(),
-  reasoning: z.boolean(),
-  multimodal: z.boolean(),
-  maxContextWindow: z.number().int().positive().max(2_000_000).nullable(),
-});
-
-const providerDraftSchema = z.object({
-  platform: z.string().trim().regex(/^[a-z][a-z0-9-]{1,63}$/, 'platform must be a stable lowercase slug'),
-  displayName: z.string().trim().min(1).max(120),
-  adapter: z.enum(['openai-compatible', 'google-gemini', 'cohere', 'cloudflare-workers-ai']),
-  endpoint: z.string().url().refine(value => new URL(value).protocol === 'https:', 'endpoint must use https'),
-  authScheme: z.enum(['bearer', 'account-and-token']),
-  capabilities: capabilitiesSchema,
-});
-
-const verificationSchema = z.object({
-  check: z.enum(['health', 'chat', 'capabilities']),
-  keyId: z.number().int().positive().optional(),
-  modelId: z.string().trim().min(1).max(200).optional(),
-});
-
-const duplicateSchema = z.object({
-  platform: z.string().trim().regex(/^[a-z][a-z0-9-]{1,63}$/, 'platform must be a stable lowercase slug'),
-  displayName: z.string().trim().min(1).max(120).optional(),
-});
-
-const modelSelectionSchema = z.object({
-  models: z.array(z.object({
-    modelId: z.string().trim().min(1).max(200),
-    displayName: z.string().trim().min(1).max(200),
-    contextWindow: z.number().int().positive().max(2_000_000).nullable(),
-    capabilities: capabilitiesSchema,
-  })).min(1).max(64).superRefine((models, context) => {
-    const seen = new Set<string>();
-    models.forEach((model, index) => {
-      if (seen.has(model.modelId)) context.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'modelId'], message: 'modelId must be unique within a provider selection' });
-      seen.add(model.modelId);
-    });
-  }),
-});
-
-const providerStateSchema = z.object({ enabled: z.boolean() }).strict();
 
 type StoredCredentialForVerification = {
   encrypted_key: string;

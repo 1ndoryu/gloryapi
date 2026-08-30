@@ -6,10 +6,10 @@ import {
 } from 'recharts'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PageHeader } from '@/components/page-header'
 import { Panel, Stat } from '@/components/analytics/AnalyticsPrimitives'
+import { ModelBreakdownTable, RequestHistoryTable, RecentErrorsTable } from '@/components/analytics/AnalyticsTables'
+import { formatTokens } from '@/components/analytics/AnalyticsFormatters'
 import type {
   RequestHistoryItem,
   AnalyticsSummary,
@@ -22,48 +22,14 @@ import type {
 
 type TimeRange = '24h' | '7d' | '30d'
 
-
-function formatTokens(n?: number): string {
-  if (!n) return '0'
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
-}
-
-function formatHistoryTime(value: string): string {
-  return new Date(value).toLocaleString('es-VE', {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function requestKindLabel(kind: string): string {
-  const labels: Record<string, string> = {
-    main: 'Principal',
-    audit: 'Auditoría',
-    continuation: 'Continuación',
-    recovery: 'Recuperación',
-    summary: 'Resumen',
-    auxiliary_title: 'Título local',
-  }
-  return labels[kind] ?? kind
-}
-
-function reasoningEffortLabel(effort: RequestHistoryItem['reasoningEffort']): string {
-  const labels: Record<NonNullable<RequestHistoryItem['reasoningEffort']>, string> = {
-    low: 'Bajo',
-    medium: 'Medio',
-    high: 'Alto',
-    max: 'Máximo',
-  }
-  return effort ? labels[effort] : 'No solicitado'
-}
-
 const axisStyle = { fontSize: 11, fill: 'var(--muted-foreground)' } as const
 const gridStyle = 'var(--border)'
 const primaryFill = 'var(--foreground)'
+const tooltipStyle = { backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }
+
+function ChartEmpty({ label }: { label: string }) {
+  return <p className="text-sm text-muted-foreground text-center py-8">{label}</p>
+}
 
 export default function AnalyticsPage() {
   const [range, setRange] = useState<TimeRange>('7d')
@@ -142,14 +108,14 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Panel title="Solicitudes por proveedor">
             {byPlatform.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">Todavía no hay datos</p>
+              <ChartEmpty label="Todavía no hay datos" />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
                   <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                   <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                  <Tooltip contentStyle={tooltipStyle} />
                   <Bar dataKey="requests" fill={primaryFill} radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -158,14 +124,14 @@ export default function AnalyticsPage() {
 
           <Panel title="Latencia media por proveedor">
             {byPlatform.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">Todavía no hay datos</p>
+              <ChartEmpty label="Todavía no hay datos" />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
                   <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                   <YAxis unit="ms" tick={axisStyle} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                  <Tooltip contentStyle={tooltipStyle} />
                   <Bar dataKey="avgLatencyMs" name="Latencia (ms)" fill="var(--muted-foreground)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -175,14 +141,14 @@ export default function AnalyticsPage() {
           <div className="lg:col-span-2">
             <Panel title="Solicitudes a lo largo del tiempo">
               {timeline.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">Todavía no hay datos</p>
+                <ChartEmpty label="Todavía no hay datos" />
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={timeline} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
                     <XAxis dataKey="timestamp" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                     <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                    <Tooltip contentStyle={tooltipStyle} />
                     <Legend wrapperStyle={{ fontSize: 12 }} iconType="line" />
                     <Line type="monotone" dataKey="successCount" name="Éxitos" stroke={primaryFill} strokeWidth={1.5} dot={false} />
                     <Line type="monotone" dataKey="failureCount" name="Fallos" stroke="var(--destructive)" strokeWidth={1.5} dot={false} />
@@ -195,35 +161,10 @@ export default function AnalyticsPage() {
           <div className="lg:col-span-2">
             <Panel title="Desglose por modelo">
               {byModel.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">Todavía no hay datos</p>
+                <ChartEmpty label="Todavía no hay datos" />
               ) : (
                 <div className="max-h-[360px] overflow-y-auto -mx-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="pl-4">Modelo</TableHead>
-                        <TableHead>Proveedor</TableHead>
-                        <TableHead className="text-right">Solicitudes</TableHead>
-                        <TableHead className="text-right">Éxito</TableHead>
-                        <TableHead className="text-right">Latencia</TableHead>
-                        <TableHead className="text-right">Tokens entrada</TableHead>
-                        <TableHead className="text-right pr-4">Tokens salida</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {byModel.map(m => (
-                        <TableRow key={`${m.platform}:${m.displayName}`}>
-                          <TableCell className="pl-4 text-sm font-medium">{m.displayName}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{m.platform}</TableCell>
-                          <TableCell className="text-right tabular-nums">{m.requests}</TableCell>
-                          <TableCell className="text-right tabular-nums">{m.successRate}%</TableCell>
-                          <TableCell className="text-right tabular-nums">{m.avgLatencyMs} ms</TableCell>
-                          <TableCell className="text-right tabular-nums">{formatTokens(m.totalInputTokens)}</TableCell>
-                          <TableCell className="text-right tabular-nums pr-4">{formatTokens(m.totalOutputTokens)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <ModelBreakdownTable rows={byModel} />
                 </div>
               )}
             </Panel>
@@ -231,14 +172,14 @@ export default function AnalyticsPage() {
 
           <Panel title="Errores por proveedor">
             {!errorDist?.byPlatform?.length ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No hay errores</p>
+              <ChartEmpty label="No hay errores" />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={errorDist.byPlatform} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="2 4" stroke={gridStyle} />
                   <XAxis dataKey="platform" tick={axisStyle} tickLine={false} axisLine={{ stroke: gridStyle }} />
                   <YAxis tick={axisStyle} tickLine={false} axisLine={false} />
-                  <Tooltip contentStyle={{ backgroundColor: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                  <Tooltip contentStyle={tooltipStyle} />
                   <Bar dataKey="count" fill="var(--destructive)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -248,73 +189,10 @@ export default function AnalyticsPage() {
           <div className="lg:col-span-2">
             <Panel title="Historial reciente de solicitudes">
               {history.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">Todavía no hay solicitudes</p>
+                <ChartEmpty label="Todavía no hay solicitudes" />
               ) : (
                 <div className="max-h-[320px] overflow-y-auto -mx-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="pl-4">Cuándo</TableHead>
-                        <TableHead>Modelo</TableHead>
-                        <TableHead>Proveedor</TableHead>
-                        <TableHead>Clave API</TableHead>
-                        <TableHead>Resultado</TableHead>
-                        <TableHead className="text-right">Latencia</TableHead>
-                        <TableHead className="text-right pr-4">Tokens</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {history.map(entry => (
-                        <TableRow key={entry.id}>
-                          <TableCell className="pl-4 text-xs text-muted-foreground whitespace-nowrap">
-                            {formatHistoryTime(entry.createdAt)}
-                          </TableCell>
-                          <TableCell className="min-w-[220px]">
-                            <div className="text-sm font-medium">{entry.displayName}</div>
-                            <div className="text-xs text-muted-foreground truncate max-w-[280px]">{entry.modelId}</div>
-                            <div className="text-[10px] text-muted-foreground mt-1">
-                              {requestKindLabel(entry.requestKind)}
-                              {entry.parentRequestId ? ' · vinculada al turno principal' : ''}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{entry.platform}</TableCell>
-                          <TableCell className="text-xs">
-                            {entry.apiKeyLabel
-                              ? <span className="font-mono text-[10px]">{entry.apiKeyLabel}</span>
-                              : <span className="text-muted-foreground/50 text-[10px]">{entry.apiKeyId ? `#${entry.apiKeyId}` : '-'}</span>
-                            }
-                          </TableCell>
-                          <TableCell className="min-w-[220px]">
-                            <div className="flex items-center gap-2">
-                              <Badge variant={entry.status === 'success' ? 'secondary' : 'destructive'}>
-                                {entry.status === 'success' ? 'Éxito' : 'Error'}
-                              </Badge>
-                              <span className="text-xs">{entry.resultBrief}</span>
-                            </div>
-                            {entry.status === 'error' && entry.errorPreview && entry.errorPreview !== entry.resultBrief ? (
-                              <div className="text-xs text-muted-foreground truncate max-w-[280px] mt-1">{entry.errorPreview}</div>
-                            ) : null}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums whitespace-nowrap">{entry.latencyMs} ms</TableCell>
-                          <TableCell className="text-right tabular-nums pr-4 whitespace-nowrap">
-                            {formatTokens(entry.inputTokens)} / {formatTokens(entry.outputTokens)}
-                            {entry.cachedInputTokens > 0 ? (
-                              <div className="text-[10px] text-muted-foreground">{formatTokens(entry.cachedInputTokens)} cacheados</div>
-                            ) : null}
-                            {entry.reasoningEffort ? (
-                              <div className="text-[10px] text-muted-foreground">
-                                Razonamiento: {reasoningEffortLabel(entry.reasoningEffort)} · {
-                                  entry.reasoningTokensSource === 'none'
-                                    ? 'no confirmado'
-                                    : `${formatTokens(entry.reasoningTokens)}${entry.reasoningTokensSource === 'estimated' ? ' estimados' : ' del proveedor'}`
-                                }
-                              </div>
-                            ) : null}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <RequestHistoryTable rows={history} />
                 </div>
               )}
             </Panel>
@@ -322,29 +200,10 @@ export default function AnalyticsPage() {
 
           <Panel title="Errores recientes">
             {errors.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">No hay errores</p>
+              <ChartEmpty label="No hay errores" />
             ) : (
               <div className="max-h-[240px] overflow-y-auto -mx-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="pl-4">Proveedor</TableHead>
-                      <TableHead>Mensaje</TableHead>
-                      <TableHead className="text-right pr-4">Hora</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {errors.slice(0, 20).map(e => (
-                      <TableRow key={e.id}>
-                        <TableCell className="pl-4 text-xs">{e.platform}</TableCell>
-                        <TableCell className="text-xs max-w-[200px] truncate">{e.error}</TableCell>
-                        <TableCell className="text-right text-xs text-muted-foreground tabular-nums pr-4">
-                          {new Date(e.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <RecentErrorsTable rows={errors} />
               </div>
             )}
           </Panel>
