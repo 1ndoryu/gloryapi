@@ -22,3 +22,5 @@ integrations/codex-bridge/bridge/*.bak-*
 # Personal deployment scripts (contain keys/credentials — kept local)
 deploy-pi.sh
 update-hermes.sh
+client-vite.log
+client-vite.err.log
