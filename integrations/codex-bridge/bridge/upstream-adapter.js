@@ -11,6 +11,7 @@ function createUpstreamAdapter({
   compactContext,
   assistantMessageFrom,
   assistantText,
+  assistantReasoning,
   assistantToolCalls,
   hasVisibleAssistantAction,
   lookupToolCall,
@@ -312,8 +313,11 @@ function assistantMessageForToolCalls(message, calls) {
     content: message.content == null ? '' : message.content,
     tool_calls: calls,
   };
-  if (visibleReasoning(message.reasoning_content || '')) {
-    assistantMessage.reasoning_content = message.reasoning_content;
+  const reasoningText = assistantReasoning
+    ? assistantReasoning(message)
+    : message.reasoning_content || message.reasoning || '';
+  if (visibleReasoning(reasoningText)) {
+    assistantMessage.reasoning_content = reasoningText;
   } else if (calls.length) {
     // DeepSeek requires reasoning_content on assistant tool-call messages.
     // This value is only sent to the upstream provider and is filtered before

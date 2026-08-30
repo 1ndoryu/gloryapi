@@ -251,7 +251,11 @@ function createVisionAdapter({ config, assertSafeVisionEndpoint, resolveSafeVisi
             ? response.text
             : await readResponseTextLimited(response, vision.maxResponseBytes, 'vision response');
           if (!response.ok) {
-            lastFailure = { kind: 'http', status: response.status, bytes: Buffer.byteLength(raw, 'utf8') };
+            const bytes = Buffer.byteLength(raw, 'utf8');
+            // Keep route-level metadata so a 401 from the anonymous primary
+            // cannot hide whether the credentialed fallback was attempted.
+            log(`vision route failed id=${route.id || 'route'} auth=${route.apiKey ? 'present' : 'absent'} kind=http status=${response.status} bytes=${bytes}`);
+            lastFailure = { kind: 'http', status: response.status, bytes };
             continue;
           }
           const json = JSON.parse(raw);

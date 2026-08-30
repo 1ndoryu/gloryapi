@@ -25,9 +25,23 @@ export interface BridgeCatalogEntry {
   provider: string;
   displayName: string;
   nativeVision: boolean;
+  acceptsImageInput: boolean;
   supportsReasoning: boolean;
   contextWindow: number | null;
   routeId: string;
+}
+
+export interface BridgeVisionModel {
+  routeId: string;
+  id: string;
+  provider: string;
+  displayName: string;
+  baseUrl: string;
+  completionsPath: string;
+  authPlatform: string;
+  contextWindow: number | null;
+  priority: number;
+  enabled: boolean;
 }
 
 export interface BridgeCatalogSyncStatus {
@@ -36,6 +50,7 @@ export interface BridgeCatalogSyncStatus {
   checkedAt: string;
   revision: number | null;
   hash: string | null;
+  visionHash: string | null;
   errors: string[];
 }
 
@@ -43,8 +58,10 @@ export interface BridgeCatalogProjection {
   schemaVersion: 'glory-bridge-model-catalog-v2';
   revision: number;
   hash: string;
+  visionHash: string;
   generatedAt: string;
   entries: BridgeCatalogEntry[];
+  visionModels: BridgeVisionModel[];
   sync?: BridgeCatalogSyncStatus;
 }
 

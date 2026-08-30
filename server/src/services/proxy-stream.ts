@@ -51,6 +51,17 @@ export async function streamProxyResponse({
       const reportedReasoningTokens = extractProviderReasoningTokens(chunk.usage);
       if (reportedReasoningTokens !== null) providerReasoningTokens = reportedReasoningTokens;
       const delta = chunk.choices[0]?.delta;
+      // CommandCode (Anthropic-style) streams reasoning in `delta.reasoning`;
+      // DeepSeek-style clients (e.g. the VSCode Copilot bridge) read
+      // `delta.reasoning_content`. Mirror whichever field the upstream sent so
+      // the thinking block renders regardless of the field name the provider
+      // uses. Both fields stay present; the mirror is additive, never drops
+      // the provider's original field.
+      if (delta && typeof delta.reasoning === 'string' && delta.reasoning_content === undefined) {
+        delta.reasoning_content = delta.reasoning;
+      } else if (delta && typeof delta.reasoning_content === 'string' && delta.reasoning === undefined) {
+        delta.reasoning = delta.reasoning_content;
+      }
       // Keep estimating from observed reasoning deltas until a positive
       // provider value arrives. A provisional usage=0 frame must not suppress
       // evidence that the model actually emitted reasoning.

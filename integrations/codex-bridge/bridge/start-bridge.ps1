@@ -183,37 +183,125 @@ $bridgeServer = Join-Path $BridgeDir 'server.js'
 # Vision se configura desde el launcher o desde el entorno del proceso que lo
 # invoca. El valor por defecto conserva el pool gratuito existente, pero no
 # obliga a editar este script para cambiar de proveedor o añadir fallbacks.
+$catalogVisionEnvelope = $null
+$catalogVisionRoutes = @()
+$catalogVisionHasProjection = $false
+if (Test-Path -LiteralPath $catalogFile -PathType Leaf) {
+    try {
+        $catalogVisionEnvelope = Get-Content -LiteralPath $catalogFile -Raw | ConvertFrom-Json
+        if ($null -ne $catalogVisionEnvelope -and $null -ne $catalogVisionEnvelope.visionModels) {
+            $catalogVisionHasProjection = $true
+            $catalogVisionRoutes = @($catalogVisionEnvelope.visionModels |
+                Where-Object { $_.enabled -eq $true } |
+                Sort-Object -Property @{ Expression = { [int]$_.priority } }, @{ Expression = { [string]$_.routeId } })
+        }
+    }
+    catch {
+        Write-Warning 'No se pudo leer visionModels del catálogo sincronizado; se conservan los valores explícitos o heredados.'
+    }
+}
+$primaryVisionRoute = @($catalogVisionRoutes | Select-Object -First 1)[0]
+$VisionBaseUrlExplicit = -not [string]::IsNullOrWhiteSpace($VisionBaseUrl) -or
+    -not [string]::IsNullOrWhiteSpace($env:VISION_BASE_URL)
+$VisionModelExplicit = -not [string]::IsNullOrWhiteSpace($VisionModel) -or
+    -not [string]::IsNullOrWhiteSpace($env:VISION_MODEL)
 $ConfiguredVisionBaseUrl = if (-not [string]::IsNullOrWhiteSpace($VisionBaseUrl)) {
     $VisionBaseUrl
 } elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_BASE_URL)) {
     $env:VISION_BASE_URL
+} elseif ($primaryVisionRoute -and -not [string]::IsNullOrWhiteSpace([string]$primaryVisionRoute.baseUrl)) {
+    [string]$primaryVisionRoute.baseUrl
 } else { 'https://opencode.ai/zen/v1' }
 $ConfiguredVisionModel = if (-not [string]::IsNullOrWhiteSpace($VisionModel)) {
     $VisionModel
 } elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_MODEL)) {
     $env:VISION_MODEL
+} elseif ($primaryVisionRoute -and -not [string]::IsNullOrWhiteSpace([string]$primaryVisionRoute.id)) {
+    [string]$primaryVisionRoute.id
 } else { 'mimo-v2.5-free' }
 $ConfiguredVisionApiKey = $env:VISION_API_KEY
+$ConfiguredVisionAuthPlatform = if ($primaryVisionRoute -and -not [string]::IsNullOrWhiteSpace([string]$primaryVisionRoute.authPlatform)) {
+    [string]$primaryVisionRoute.authPlatform
+} elseif ($primaryVisionRoute -and -not [string]::IsNullOrWhiteSpace([string]$primaryVisionRoute.provider)) {
+    [string]$primaryVisionRoute.provider
+} else { 'opencode-zen' }
+$visionAuthScript = Join-Path $BridgeDir '..\..\..\server\dist\scripts\bridge-vision-auth.js'
+$VisionCredentialEnvironment = @{}
+function Resolve-VisionCredential([string]$Platform) {
+    if ([string]::IsNullOrWhiteSpace($Platform) -or -not (Test-Path -LiteralPath $visionAuthScript -PathType Leaf)) { return '' }
+    $output = @(& $node $visionAuthScript --print --platform $Platform 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $output.Count -eq 1 -and -not [string]::IsNullOrWhiteSpace([string]$output[0])) {
+        return ([string]$output[0]).Trim()
+    }
+    return ''
+}
+# OpenCode Zen's free endpoint may reject anonymous direct requests with 401
+# even though the model is free. Reuse the local Zen credential for the primary
+# route when the default endpoint is selected; custom endpoints remain explicit
+# and never receive a credential from another provider.
+if (-not $VisionBaseUrlExplicit -and [string]::IsNullOrWhiteSpace($ConfiguredVisionApiKey)) {
+    $ConfiguredVisionApiKey = Resolve-VisionCredential $ConfiguredVisionAuthPlatform
+}
 $VisionFallbacksExplicit = -not [string]::IsNullOrWhiteSpace($VisionFallbacksJson) -or
     -not [string]::IsNullOrWhiteSpace($env:VISION_FALLBACKS_JSON)
 $ConfiguredVisionFallbacksJson = if (-not [string]::IsNullOrWhiteSpace($VisionFallbacksJson)) {
     $VisionFallbacksJson
 } elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_FALLBACKS_JSON)) {
     $env:VISION_FALLBACKS_JSON
+} elseif ($catalogVisionRoutes.Count -gt 1) {
+    # La cadena persistida del panel (/fallback) llega en visionModels del
+    # catálogo sincronizado. La ruta con prioridad 1 es el primary; el resto
+    # se convierte en fallbacks cuyo apiKeyEnv apunta a una variable aislada
+    # que el launcher rellena con la clave DPAPI de authPlatform. Las claves
+    # nunca entran en el JSON ni en este script.
+    $fallbackRows = @()
+    for ($index = 1; $index -lt $catalogVisionRoutes.Count; $index++) {
+        $route = $catalogVisionRoutes[$index]
+        $keyEnv = "BRIDGE_VISION_ROUTE_KEY_$index"
+        $routePlatform = if (-not [string]::IsNullOrWhiteSpace([string]$route.authPlatform)) { [string]$route.authPlatform } else { [string]$route.provider }
+        $routeKey = Resolve-VisionCredential $routePlatform
+        if (-not [string]::IsNullOrWhiteSpace($routeKey)) { $VisionCredentialEnvironment[$keyEnv] = $routeKey }
+        $fallbackRows += [ordered]@{
+            id = [string]$route.routeId
+            baseUrl = [string]$route.baseUrl
+            completionsPath = if (-not [string]::IsNullOrWhiteSpace([string]$route.completionsPath)) { [string]$route.completionsPath } else { '/chat/completions' }
+            model = [string]$route.id
+            apiKeyEnv = $keyEnv
+        }
+    }
+    if ($fallbackRows.Count -gt 0) { $fallbackRows | ConvertTo-Json -Compress } else { '[]' }
 } else {
     '[{"id":"opencode-go","baseUrl":"https://opencode.ai/zen/go/v1","model":"mimo-v2.5","apiKeyEnv":"OPENCODE_GO_VISION_API_KEY"}]'
 }
 $ConfiguredVisionFallbackApiKey = $env:OPENCODE_GO_VISION_API_KEY
-if (-not $VisionFallbacksExplicit -and [string]::IsNullOrWhiteSpace($ConfiguredVisionFallbackApiKey)) {
-    $visionAuthScript = Join-Path $BridgeDir '..\..\..\server\dist\scripts\bridge-vision-auth.js'
-    if (Test-Path -LiteralPath $visionAuthScript -PathType Leaf) {
-        $visionKeyOutput = @(& $node $visionAuthScript --print 2>$null)
-        if ($LASTEXITCODE -eq 0 -and $visionKeyOutput.Count -eq 1 -and
-            -not [string]::IsNullOrWhiteSpace([string]$visionKeyOutput[0])) {
-            $ConfiguredVisionFallbackApiKey = ([string]$visionKeyOutput[0]).Trim()
+if (-not $VisionFallbacksExplicit -and $catalogVisionRoutes.Count -le 1 -and [string]::IsNullOrWhiteSpace($ConfiguredVisionFallbackApiKey)) {
+    $ConfiguredVisionFallbackApiKey = Resolve-VisionCredential 'opencode-go'
+}
+if ($VisionFallbacksExplicit -and -not [string]::IsNullOrWhiteSpace($ConfiguredVisionFallbacksJson)) {
+    try {
+        $explicitFallbackRows = @($ConfiguredVisionFallbacksJson | ConvertFrom-Json)
+        $processEnv = @{}
+        foreach ($entry in [Environment]::GetEnvironmentVariables('Process').GetEnumerator()) {
+            $processEnv[$entry.Key] = [string]$entry.Value
+        }
+        foreach ($row in $explicitFallbackRows) {
+            $keyEnv = if ($row -and $row.apiKeyEnv) { [string]$row.apiKeyEnv } else { '' }
+            if ($keyEnv -and $processEnv.ContainsKey($keyEnv)) { $VisionCredentialEnvironment[$keyEnv] = $processEnv[$keyEnv] }
         }
     }
+    catch { throw 'VISION_FALLBACKS_JSON no contiene una configuración JSON válida.' }
 }
+$ConfiguredVisionCompletionsPath = if (-not [string]::IsNullOrWhiteSpace($env:VISION_COMPLETIONS_PATH)) {
+    $env:VISION_COMPLETIONS_PATH
+} elseif ($primaryVisionRoute -and -not [string]::IsNullOrWhiteSpace([string]$primaryVisionRoute.completionsPath)) {
+    [string]$primaryVisionRoute.completionsPath
+} else { '/chat/completions' }
+$ConfiguredVisionDisabled = if (-not [string]::IsNullOrWhiteSpace($env:VISION_DISABLE)) {
+    $env:VISION_DISABLE
+} elseif ($catalogVisionHasProjection -and $catalogVisionRoutes.Count -eq 0 -and
+    -not $VisionBaseUrlExplicit -and -not $VisionModelExplicit -and -not $VisionFallbacksExplicit) {
+    '1'
+} else { '0' }
 $ConfiguredVisionAnonymous = if ($VisionAllowAnonymous) {
     '1'
 } elseif (-not [string]::IsNullOrWhiteSpace($env:VISION_ALLOW_ANONYMOUS)) {
@@ -252,11 +340,16 @@ function Start-IsolatedBridge {
         $env:BRIDGE_PORT = [string]$Port
         $env:GLORY_API_CONTRACT = 'chat-completions-v1'
         $env:VISION_BASE_URL = $ConfiguredVisionBaseUrl
+        $env:VISION_COMPLETIONS_PATH = $ConfiguredVisionCompletionsPath
         $env:VISION_MODEL = $ConfiguredVisionModel
         $env:VISION_API_KEY = $ConfiguredVisionApiKey
         $env:VISION_ALLOW_ANONYMOUS = $ConfiguredVisionAnonymous
+        $env:VISION_DISABLE = $ConfiguredVisionDisabled
         $env:VISION_FALLBACKS_JSON = $ConfiguredVisionFallbacksJson
         $env:OPENCODE_GO_VISION_API_KEY = $ConfiguredVisionFallbackApiKey
+        foreach ($credentialName in $VisionCredentialEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($credentialName, [string]$VisionCredentialEnvironment[$credentialName], 'Process')
+        }
         if (-not [string]::IsNullOrWhiteSpace($ConfiguredVisionFallbacksJson)) {
             try {
                 $fallbackRows = @($ConfiguredVisionFallbacksJson | ConvertFrom-Json)

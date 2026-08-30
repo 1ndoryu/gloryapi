@@ -54,6 +54,13 @@ describe('Fallback API', () => {
     expect(body.schemaVersion).toBe('glory-routing-v1');
     expect(Array.isArray(body.entries)).toBe(true);
     expect(body.entries.length).toBeGreaterThan(0);
+    // La lista de modelos de visión del bridge se expone por separado de la
+    // cadena de enrutamiento; no es un modelo de respuesta de Auto.
+    expect(Array.isArray(body.visionModels)).toBe(true);
+    expect(body.visionModels.length).toBeGreaterThan(0);
+    expect(body.visionModels[0]).toHaveProperty('routeId');
+    expect(body.visionModels[0]).toHaveProperty('authPlatform');
+    expect(body.visionModels[0]).toHaveProperty('enabled');
     // Should be sorted by priority
     for (let i = 1; i < body.entries.length; i++) {
       expect(body.entries[i].priority).toBeGreaterThanOrEqual(body.entries[i - 1].priority);

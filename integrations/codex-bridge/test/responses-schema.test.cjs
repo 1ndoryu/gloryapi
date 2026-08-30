@@ -49,6 +49,39 @@ test('versioned Responses schema rejects malformed known fields with bounded pat
   assert.deepEqual(result.errors.map((error) => error.path), ['$.stream', '$.input[0].type', '$.tools[0].name']);
 });
 
+test('versioned Responses schema accepts null content on echoed reasoning/tool-call items', () => {
+  const result = validateResponsesRequest({
+    model: 'deepseek-v4-flash',
+    input: [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hola' }] },
+      { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'pensamiento' }], content: null },
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'respuesta' }] },
+      { type: 'message', role: 'assistant', content: null },
+      { type: 'function_call', call_id: 'call_1', name: 'shell_command', arguments: '{}' },
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'sigue' }] },
+    ],
+  });
+  assert.equal(result.ok, true);
+});
+
+// `content: null` is the wire form Codex Desktop echoes for assistant tool-call
+// turns and reasoning items (text lives in `arguments`/`summary`). The bridge
+// must not reject it at the boundary; the translator treats it as an empty list.
+test('versioned Responses schema normalizes a single content part object', () => {
+  const input = [{ type: 'message', role: 'user', content: { type: 'input_text', text: 'hola' } }];
+  const result = validateResponsesRequest({ model: 'deepseek-v4-flash', input });
+  assert.equal(result.ok, true);
+});
+
+test('versioned Responses schema still rejects a bare object content without type', () => {
+  const result = validateResponsesRequest({
+    model: 'deepseek-v4-flash',
+    input: [{ type: 'message', role: 'user', content: { text: 'hola' } }],
+  });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.errors.map((error) => error.code), ['string_or_array_required']);
+});
+
 test('versioned Responses schema bounds item, tool and content counts', () => {
   const result = validateResponsesRequest({
     input: [{ type: 'message', role: 'user', content: Array.from({ length: 3 }, () => ({ type: 'input_text', text: 'x' })) }],

@@ -24,6 +24,8 @@ test('the compiled fallback is versioned and Auto-only; persisted rows are separ
   assert.deepEqual(DEFAULT_MODEL_CATALOG.map((entry) => entry.id), ['auto']);
   assert.equal(PERSISTED_CATALOG.find((entry) => entry.id === 'meta/muse-spark-1.2-contributor').nativeVision, true);
   assert.equal(PERSISTED_CATALOG.some((entry) => entry.id === 'deepseek-v4-pro'), false);
+  assert.ok(DEFAULT_MODEL_CATALOG.every((entry) => entry.acceptsImageInput === true));
+  assert.ok(PERSISTED_CATALOG.every((entry) => entry.acceptsImageInput === true));
   assert.ok(DEFAULT_MODEL_CATALOG.every((entry) => entry.contextWindow === BRIDGE_CONTEXT_WINDOW));
 });
 
@@ -83,6 +85,7 @@ test('BRIDGE_MODEL_CATALOG_JSON overrides entries but always keeps auto', () => 
   assert.equal(catalog[0].id, 'auto');
   assert.ok(catalog.some((entry) => entry.id === 'custom/vision-model' && entry.nativeVision === true));
   assert.equal(hasNativeVision(catalog, 'custom/vision-model'), true);
+  assert.equal(catalog.find((entry) => entry.id === 'custom/vision-model').acceptsImageInput, true);
 });
 
 test('the synchronized revision envelope is accepted and exposes its publication state', () => {

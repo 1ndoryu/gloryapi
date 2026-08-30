@@ -108,6 +108,12 @@ function createBridgeHttpServer({
         namespaces: { status: 'adapted' },
         deferredToolDiscovery: { status: 'adapted' },
         webSearch: { status: 'adapted' },
+        imageInput: {
+          status: 'adapted',
+          reason: visionConfigured
+            ? 'bridge_accepts_input_image_and_uses_mimo_for_text_only_models'
+            : 'bridge_accepts_input_image_but_vision_route_is_not_configured',
+        },
         vision: {
           status: visionConfigured ? 'adapted' : 'unsupported',
           reason: visionConfigured
@@ -271,6 +277,7 @@ function createBridgeHttpServer({
           namespaces: true,
           deferredToolDiscovery: true,
           webSearch: true,
+          imageInput: true,
           vision: visionConfigured,
           nativeVision: visionConfigured,
           visionConfigured,
@@ -293,7 +300,9 @@ function createBridgeHttpServer({
       res.writeHead(200, { 'Content-Type': 'application/json' });
       // Selector de modelos: la lista sale del catálogo versionado
       // (config.catalog.entries), no de un condicional en el servidor. Cada
-      // entrada declara su id wire y si acepta imagen nativa (input_modalities).
+      // entrada declara su id wire y si el bridge acepta imágenes para el cliente.
+      // `nativeVision` solo describe el transporte directo al upstream; los
+      // modelos de texto también usan la adaptación Mimo del bridge.
       const catalogEntries = Array.isArray(config.catalog.entries) ? config.catalog.entries : [];
       const modelList = catalogEntries.map((entry) => {
         const contextWindow = Number.isSafeInteger(entry.contextWindow) && entry.contextWindow > 0
@@ -306,7 +315,7 @@ function createBridgeHttpServer({
           created: 0,
           owned_by: entry.provider === 'auto' ? identity.providerName : entry.provider,
           name: entry.displayName || entry.id,
-          input_modalities: entry.nativeVision === true ? ['text', 'image'] : ['text'],
+          input_modalities: entry.acceptsImageInput !== false ? ['text', 'image'] : ['text'],
           context_window: contextWindow,
           max_context_window: contextWindow,
           effective_context_window_percent: 100,
@@ -356,6 +365,34 @@ function createBridgeHttpServer({
       }
       const schemaResult = validateResponsesRequest(body, { maxItems: 512, maxTools: 128, maxContentParts: 256 });
       if (!schemaResult.ok) {
+        // Structural diagnostic only: never log content values. Captures the
+        // failing input item's type and content shape so a boundary rejection
+        // (e.g. content: null echoed from a previous turn) is debuggable.
+        try {
+          const failingPath = schemaResult.errors[0] && schemaResult.errors[0].path;
+          const indexMatch = failingPath && failingPath.match(/^\$\.input\[(\d+)\]/);
+          const failingItem = indexMatch ? body.input[Number(indexMatch[1])] : null;
+          const contentShape = failingItem && failingItem.content === undefined
+            ? 'undefined'
+            : failingItem && failingItem.content === null
+              ? 'null'
+              : failingItem && typeof failingItem.content === 'string'
+                ? 'string'
+                : failingItem && Array.isArray(failingItem.content)
+                  ? 'array'
+                  : failingItem
+                    ? typeof failingItem.content
+                    : 'no-item';
+          logRequest({
+            ts: new Date().toISOString(),
+            kind: 'schema_rejected',
+            path: failingPath || '',
+            code: schemaResult.errors[0] && schemaResult.errors[0].code,
+            itemType: failingItem ? failingItem.type || '(missing)' : '(none)',
+            itemRole: failingItem ? failingItem.role || '(none)' : '(none)',
+            contentShape,
+          });
+        } catch {}
         writeJsonError(res, 400, 'invalid_request', `invalid Responses request (${schemaResult.errors[0].path}: ${schemaResult.errors[0].code})`);
         return;
       }
@@ -475,6 +512,7 @@ function createBridgeHttpServer({
       state.lifecycleStartedAt = new Date().toISOString();
       state.lifecyclePhase = Object.values(readinessChecks()).every(Boolean) ? 'ready' : 'blocked';
       log(`bridge listening on http://${upstream.host}:${upstream.port} -> ${upstream.baseUrl} (model=${upstream.model}, lifecycle=${state.lifecyclePhase})`);
+      log(`vision routes=${visionRoutes.length} primaryAuth=${vision.apiKey ? 'present' : 'absent'} fallbackAuth=${visionRoutes.slice(1).filter(route => route && route.apiKey).length}`);
       if (config.context.disabled) log('compaction: DISABLED (native Codex owns context continuity)');
     });
   }

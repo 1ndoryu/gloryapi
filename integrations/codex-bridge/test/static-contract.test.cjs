@@ -34,6 +34,7 @@ const canaryHttp = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'ca
 const pluginConfig = fs.readFileSync(path.resolve(root, '..', '..', 'scripts', 'canary', 'plugin-config.cjs'), 'utf8');
   const activationPreflight = read('mode', 'codex-activation-preflight.ps1');
   const upstreamAuth = fs.readFileSync(path.join(root, '..', '..', 'server', 'src', 'scripts', 'bridge-upstream-auth.ts'), 'utf8');
+const visionAuth = fs.readFileSync(path.join(root, '..', '..', 'server', 'src', 'scripts', 'bridge-vision-auth.ts'), 'utf8');
 const responsesFixture = JSON.parse(read('fixtures', 'responses-contract-v1.json'));
 const deterministicUpstream = read('test', 'deterministic-upstream.cjs');
 const canaryScript = fs.readFileSync(path.join(root, '..', '..', 'scripts', 'canary', 'run-codex-canary.cjs'), 'utf8');
@@ -187,6 +188,7 @@ test('the versioned Responses fixture covers lifecycle and tool invariants', () 
 });
 
 test('the model selector is a versioned persisted catalog with an Auto-only fallback', () => {
+  const builder = read('mode', 'build-model-catalog.cjs');
   assert.match(server, /glory-bridge-model-catalog-v2/);
   assert.match(server, /BRIDGE_MODEL_CATALOG_JSON/);
   assert.match(server, /DEFAULT_MODEL_CATALOG/);
@@ -194,9 +196,11 @@ test('the model selector is a versioned persisted catalog with an Auto-only fall
   assert.match(server, /nativeVision/);
   assert.match(server, /type: 'image_url', image_url: \{ url: image\.image_url \}/);
   assert.match(server, /resolveModelSelection\(MODEL_CATALOG, body\.model, DEFAULT_MODEL\)/);
-  // La visión nativa solo se activa para modelos del catálogo marcados como
-  // multimodales; los modelos de texto conservan la adaptación a texto.
-  assert.match(server, /input_modalities: entry\.nativeVision === true \? \['text', 'image'\] : \['text'\]/);
+  // La entrada de imagen es una capacidad del bridge y por eso también se
+  // anuncia para upstreams de texto; nativeVision sigue limitado a Muse.
+  assert.match(server, /input_modalities: entry\.acceptsImageInput !== false \? \['text', 'image'\] : \['text'\]/);
+  assert.match(builder, /entry\.input_modalities = catalogEntry\.acceptsImageInput !== false \? \['text', 'image'\] : \['text'\]/);
+  assert.match(builder, /entry\.supports_image_detail_original = nativeVision/);
 });
 
 test('refreshing the isolated Desktop profile also reloads the bridge catalog', () => {
@@ -381,6 +385,10 @@ test('activation preflight is read-only and detects the real Codex consumer cont
   assert.match(upstreamAuth, /unified_api_key/);
   assert.match(upstreamAuth, /--print/);
   assert.match(upstreamAuth, /bridge-upstream-auth failed/);
+  assert.match(visionAuth, /opencode-go/);
+  assert.match(visionAuth, /opencode-zen/);
+  assert.match(visionAuth, /--platform/);
+  assert.match(visionAuth, /readonly: true/);
 });
 
 test('the stop script verifies process identity before terminating', () => {
@@ -400,6 +408,11 @@ test('the stop script verifies process identity before terminating', () => {
   assert.match(start, /function Test-ExpectedRuntime/);
   assert.match(start, /function Ensure-GloryApiRuntime/);
   assert.match(start, /Ensure-GloryApiRuntime/);
+  assert.match(start, /--print --platform \$Platform/);
+  assert.match(start, /Resolve-VisionCredential/);
+  assert.match(start, /opencode-zen/);
+  assert.match(start, /VISION_FALLBACKS_JSON/);
+  assert.match(start, /custom endpoints remain explicit/);
   assert.match(start, /bridgeLink/);
   assert.match(start, /Resolve-Path/);
   assert.match(start, /BRIDGE_RUNTIME_DIR/);

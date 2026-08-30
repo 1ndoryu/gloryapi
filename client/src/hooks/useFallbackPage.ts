@@ -46,10 +46,24 @@ export interface FallbackRuntime {
   lastCompleted: { platform: string; modelId: string; completedAt: string } | null
 }
 
+export interface BridgeVisionModel {
+  routeId: string
+  id: string
+  provider: string
+  displayName: string
+  baseUrl: string
+  completionsPath: string
+  authPlatform: string
+  contextWindow: number | null
+  priority: number
+  enabled: boolean
+}
+
 export interface FallbackSnapshot {
   schemaVersion: 'glory-routing-v1'
   revision: number
   entries: FallbackEntry[]
+  visionModels?: BridgeVisionModel[]
   runtime?: FallbackRuntime
 }
 
@@ -121,7 +135,8 @@ export interface BridgeCatalogProjection {
   revision: number
   hash: string
   generatedAt: string
-  entries: Array<{ id: string; wireModel: string; pickerId: string | null; provider: string; displayName: string; contextWindow: number | null }>
+  entries: Array<{ id: string; wireModel: string; pickerId: string | null; provider: string; displayName: string; contextWindow: number | null; nativeVision?: boolean; acceptsImageInput?: boolean }>
+  visionModels: BridgeVisionModel[]
   sync: { state: 'synced' | 'stale' | 'missing' | 'invalid'; path: string; checkedAt: string; revision: number | null; hash: string | null; errors: string[] }
 }
 
@@ -239,6 +254,41 @@ export function useFallbackPage() {
     onSuccess: next => queryClient.setQueryData(['configuration'], next),
   })
 
+  const visionMutation = useMutation({
+    mutationFn: (routes: BridgeVisionModel[]) => apiFetch<ConfigurationSnapshot>('/api/configuration/bridge-vision', {
+      method: 'PUT',
+      body: JSON.stringify({
+        expectedRevision: configuration?.revision,
+        routes: routes.map(route => ({ routeId: route.routeId, priority: route.priority, enabled: route.enabled })),
+      }),
+    }),
+    onSuccess: next => {
+      queryClient.setQueryData(['configuration'], next)
+      queryClient.setQueryData<FallbackSnapshot>(['fallback'], current => current ? { ...current, revision: next.revision, visionModels: next.bridge.visionModels } : current)
+    },
+  })
+
+  function updateVisionRoutes(nextRoutes: BridgeVisionModel[]) {
+    if (!configuration || nextRoutes.length === 0 || visionMutation.isPending) return
+    const ordered = nextRoutes.map((route, index) => ({ ...route, priority: index + 1 }))
+    visionMutation.mutate(ordered)
+  }
+
+  function toggleVisionRoute(routeId: string, enabled: boolean) {
+    const routes = configuration?.bridge.visionModels ?? []
+    updateVisionRoutes(routes.map(route => route.routeId === routeId ? { ...route, enabled } : route))
+  }
+
+  function moveVisionRoute(routeId: string, direction: -1 | 1) {
+    const routes = [...(configuration?.bridge.visionModels ?? [])]
+    const index = routes.findIndex(route => route.routeId === routeId)
+    const nextIndex = index + direction
+    if (index < 0 || nextIndex < 0 || nextIndex >= routes.length) return
+    const [route] = routes.splice(index, 1)
+    routes.splice(nextIndex, 0, route)
+    updateVisionRoutes(routes)
+  }
+
   const autoRoute = configuration?.routes.find(route => route.routeId === 'route:auto') ?? null
 
   function toggleAutoMembership(modelDbId: number, included: boolean) {
@@ -331,5 +381,8 @@ export function useFallbackPage() {
     handleAutoDragEnd,
     modelMutation,
     routeMutation,
+    visionMutation,
+    toggleVisionRoute,
+    moveVisionRoute,
   }
 }

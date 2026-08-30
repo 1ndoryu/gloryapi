@@ -20,7 +20,7 @@ function createResponseHandlers({
   const MODEL = config.upstream.model;
   const UPSTREAM_MAX_RESPONSE_BYTES = config.upstream.maxResponseBytes;
   const NUDGE_RETRIES = config.recovery.nudgeRetries;
-  const { sseEvent, assistantMessageFrom, assistantText, assistantToolCalls, hasVisibleAssistantAction,
+  const { sseEvent, assistantMessageFrom, assistantText, assistantReasoning, assistantToolCalls, hasVisibleAssistantAction,
     responseItemsForToolCalls, responseUsageFromChatUsage, emitResponseCompleted, createReasoningForwarder } = responseHelpers;
   const {
     visibleReasoning, realTokens, totalTokens, calibrate, nudgeForToolCalls, auditThenNudge,
@@ -123,7 +123,7 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
   clearInterval(keepAlive);
 
   const message = assistantMessageFrom(resolved.json);
-  const reasoningText = visibleReasoning(message.reasoning_content || '');
+  const reasoningText = visibleReasoning(assistantReasoning(message));
   const text = assistantText(message);
   const toolCalls = assistantToolCalls(message);
   // Reasoning-only output is incomplete; tool-only output is a valid
@@ -216,21 +216,25 @@ async function streamInternalWebLoopToResponses(req, res, chat, toolMap, customT
     }
   }
 
-  const reasoningForwarder = createReasoningForwarder(res, reasoningId);
+  const reasoningForwarder = createReasoningForwarder(res, reasoningId, () => 0);
   reasoningForwarder.add(reasoningText);
   reasoningForwarder.add(nudgeReasoning);
+  const reasoningOutputIndex = reasoningForwarder.hasEmitted() ? reasoningForwarder.outputIndex() : null;
+  const messageOutputIndex = reasoningOutputIndex === null ? 0 : reasoningOutputIndex + 1;
   reasoningForwarder.finish();
 
   if (text) {
     sseEvent(res, 'response.output_item.added', {
       type: 'response.output_item.added',
+      output_index: messageOutputIndex,
       item: { type: 'message', role: 'assistant', id: msgId, content: [{ type: 'output_text', text: '' }] },
     });
     sseEvent(res, 'response.output_text.delta', {
-      type: 'response.output_text.delta', item_id: msgId, output_index: 0, content_index: 0, delta: text,
+      type: 'response.output_text.delta', item_id: msgId, output_index: messageOutputIndex, content_index: 0, delta: text,
     });
     sseEvent(res, 'response.output_item.done', {
       type: 'response.output_item.done',
+      output_index: messageOutputIndex,
       item: { type: 'message', role: 'assistant', id: msgId, content: [{ type: 'output_text', text }] },
     });
   }
@@ -359,8 +363,48 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
   let reasoningText = '';
   let usage = null;
   let msgAdded = false;
+  let bufferedMessageText = '';
   const toolCalls = new Map(); // index -> { id, name, args }
-  const reasoningForwarder = createReasoningForwarder(res, reasoningId);
+  let messageOutputIndex = null;
+  const getMessageOutputIndex = () => {
+    if (messageOutputIndex === null) messageOutputIndex = reasoningForwarder.hasEmitted() ? 1 : 0;
+    return messageOutputIndex;
+  };
+  const getReasoningOutputIndex = () => messageOutputIndex === null ? 0 : 1;
+  const reasoningForwarder = createReasoningForwarder(res, reasoningId, getReasoningOutputIndex);
+  const emitMessageDelta = (contentDelta) => {
+    if (!contentDelta) return;
+    // Keep the message item after the reasoning item. When CommandCode sends
+    // content before its reasoning stream, the delta is held until the
+    // reasoning item has been opened; otherwise the desktop client ignores the
+    // later reasoning summary as an out-of-order output item.
+    if (!msgAdded) {
+      msgAdded = true;
+      sseEvent(res, 'response.output_item.added', {
+        type: 'response.output_item.added',
+        output_index: getMessageOutputIndex(),
+        item: {
+          type: 'message',
+          role: 'assistant',
+          id: msgId,
+          content: [{ type: 'output_text', text: '' }],
+        },
+      });
+    }
+    sseEvent(res, 'response.output_text.delta', {
+      type: 'response.output_text.delta',
+      item_id: msgId,
+      output_index: getMessageOutputIndex(),
+      content_index: 0,
+      delta: contentDelta,
+    });
+  };
+  const flushBufferedMessage = () => {
+    if (bufferedMessageText) {
+      emitMessageDelta(bufferedMessageText);
+      bufferedMessageText = '';
+    }
+  };
   let nextToolIndex = 0;
 
   const reader = upstreamRes.body.getReader();
@@ -389,38 +433,28 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     const choice = (json.choices && json.choices[0]) || {};
     const delta = choice.delta || {};
 
-    if (delta.reasoning_content) {
-      reasoningText += delta.reasoning_content;
-      reasoningForwarder.add(delta.reasoning_content);
+    const reasoningDelta = typeof delta.reasoning_content === 'string'
+      ? delta.reasoning_content
+      : typeof delta.reasoning === 'string'
+        ? delta.reasoning
+        : '';
+    if (reasoningDelta) {
+      reasoningText += reasoningDelta;
+      reasoningForwarder.add(reasoningDelta);
     }
     const message = choice.message || {};
-    if (!delta.reasoning_content && message.reasoning_content) {
-      reasoningText += message.reasoning_content;
-      reasoningForwarder.add(message.reasoning_content);
+    const messageReasoning = typeof message.reasoning_content === 'string'
+      ? message.reasoning_content
+      : typeof message.reasoning === 'string'
+        ? message.reasoning
+        : '';
+    if (!reasoningDelta && messageReasoning) {
+      reasoningText += messageReasoning;
+      reasoningForwarder.add(messageReasoning);
     }
     if (typeof delta.content === 'string' && delta.content) {
-      // Codex requires response.output_item.added (message) BEFORE text deltas,
-      // otherwise it logs "OutputTextDelta without active item".
-      if (!msgAdded) {
-        msgAdded = true;
-        sseEvent(res, 'response.output_item.added', {
-          type: 'response.output_item.added',
-          item: {
-            type: 'message',
-            role: 'assistant',
-            id: msgId,
-            content: [{ type: 'output_text', text: '' }],
-          },
-        });
-      }
       text += delta.content;
-      sseEvent(res, 'response.output_text.delta', {
-        type: 'response.output_text.delta',
-        item_id: msgId,
-        output_index: 0,
-        content_index: 0,
-        delta: delta.content,
-      });
+      bufferedMessageText += delta.content;
     }
     const incomingToolCalls = Array.isArray(delta.tool_calls)
       ? delta.tool_calls
@@ -472,6 +506,9 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     // A disconnected client cannot receive a terminal event. The abort still
     // propagates to fetch, and importantly no response.completed is emitted.
     if (controller.signal.aborted || res.destroyed) return;
+    // The client used to receive the text deltas live; flush what the upstream
+    // managed to produce before the terminal error so the partial answer is not lost.
+    flushBufferedMessage();
     sseEvent(res, 'response.failed', {
       type: 'response.failed',
       response: { id: responseId, error: { type: 'upstream_stream_error', message: safeMessage } },
@@ -481,7 +518,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     return;
   }
 
-  const forwardedReasoning = reasoningForwarder.finish();
+  let forwardedReasoning = false;
 
   // Reasoning-only output is still incomplete. A tool-only output is valid and
   // continues below as a function_call; it must not be mistaken for an empty
@@ -492,12 +529,12 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
       const recoveredMessage = assistantMessageFrom(recovered.json);
       chat.messages = recovered.chat.messages;
       text = assistantText(recoveredMessage);
-      reasoningText = visibleReasoning(recoveredMessage.reasoning_content || '');
-      usage = recovered.json.usage || usage;
-      if (reasoningText) {
-        reasoningForwarder.add(reasoningText);
-        reasoningForwarder.finish();
+      const recoveredReasoning = visibleReasoning(assistantReasoning(recoveredMessage));
+      if (recoveredReasoning) {
+        reasoningText = reasoningText ? `${reasoningText}\n${recoveredReasoning}` : recoveredReasoning;
+        reasoningForwarder.add(recoveredReasoning);
       }
+      usage = recovered.json.usage || usage;
       for (const tc of assistantToolCalls(recoveredMessage)) {
         const key = Number.isInteger(tc.index) ? tc.index : `recovery_${nextToolIndex++}`;
         toolCalls.set(key, {
@@ -507,24 +544,11 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
           args: (tc.function && tc.function.arguments) || '',
         });
       }
-      if (text && !msgAdded) {
-        msgAdded = true;
-        sseEvent(res, 'response.output_item.added', {
-          type: 'response.output_item.added',
-          item: { type: 'message', role: 'assistant', id: msgId, content: [{ type: 'output_text', text: '' }] },
-        });
-        sseEvent(res, 'response.output_text.delta', {
-          type: 'response.output_text.delta',
-          item_id: msgId,
-          output_index: 0,
-          content_index: 0,
-          delta: text,
-        });
-      }
+      if (text) bufferedMessageText = text;
     }
   }
-
   if (!text && toolCalls.size === 0) {
+    forwardedReasoning = reasoningForwarder.finish();
     logRequest({
       ts: new Date().toISOString(),
       kind: 'empty_upstream',
@@ -565,6 +589,7 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     const nudge = await runNudgeWithKeepAlive(res, chat, text);
     const failure = nudgeFailure(nudge, text);
     if (failure) {
+      flushBufferedMessage();
       emitNudgeFailure(res, responseId, chat.__gloryRequestId, failure);
       res.write('data: [DONE]\n\n');
       res.end();
@@ -617,10 +642,21 @@ async function streamChatToResponses(req, res, chat, toolMap, customTools) {
     }
   }
 
+  // A nudge can contain internal reasoning, but only append it before the
+  // message receives an output index; otherwise it would collide with an
+  // already-open message item in the Responses stream.
+  // Nudge reasoning is useful when no message item has been opened yet. Once
+  // text has been streamed, adding a second reasoning delta after the message
+  // would violate the Responses output order, so it remains internal.
+  if (nudgeReasoning && !msgAdded) reasoningForwarder.add(nudgeReasoning);
+  forwardedReasoning = reasoningForwarder.finish();
+  flushBufferedMessage();
+
   // Final message item (accumulated text)
   if (text) {
     sseEvent(res, 'response.output_item.done', {
       type: 'response.output_item.done',
+      output_index: getMessageOutputIndex(),
       item: {
         type: 'message',
         role: 'assistant',
@@ -715,7 +751,7 @@ async function nonStreamingChatToResponses(req, res, chat, toolMap, customTools)
       message = assistantMessageFrom(json);
     }
   }
-  const reasoningText = visibleReasoning(message.reasoning_content || '');
+  const reasoningText = visibleReasoning(assistantReasoning(message));
   const toolCalls = assistantToolCalls(message);
   let hasToolOutput = toolCalls.length > 0;
   const output = [];

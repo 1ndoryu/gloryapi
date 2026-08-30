@@ -6,3 +6,4 @@ export * from './configuration-v2-catalog.js';
 export * from './configuration-v2-provider.js';
 export * from './configuration-v2-document.js';
 export * from './configuration-v2-models.js';
+export * from './configuration-v2-vision.js';

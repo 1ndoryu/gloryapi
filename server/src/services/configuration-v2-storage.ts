@@ -17,6 +17,7 @@ import {
   type ConfigurationRoute,
   type ConfigurationRouteKind,
   type ConfigurationSchema,
+  type BridgeVisionModel,
 } from './configuration-v2-contract.js';
 import {
   allocateDesktopPickerAlias,
@@ -96,6 +97,72 @@ export function ensureMember(db: Database.Database, routeId: string, modelDbId: 
     VALUES (?, ?, ?, ?)
     ON CONFLICT(route_id, model_db_id) DO UPDATE SET priority = excluded.priority, enabled = excluded.enabled
   `).run(routeId, modelDbId, priority, enabled ? 1 : 0);
+}
+
+export function getBridgeVisionModels(): BridgeVisionModel[] {
+  const rows = getDb().prepare(`
+    SELECT route_id, model_id, provider, display_name, base_url,
+           completions_path, auth_platform, context_window, priority, enabled
+    FROM bridge_vision_routes
+    ORDER BY priority ASC, route_id ASC
+  `).all() as Array<{
+    route_id: string;
+    model_id: string;
+    provider: string;
+    display_name: string;
+    base_url: string;
+    completions_path: string;
+    auth_platform: string;
+    context_window: number | null;
+    priority: number;
+    enabled: number;
+  }>;
+
+  return rows.map(row => ({
+    routeId: row.route_id,
+    id: row.model_id,
+    provider: row.provider,
+    displayName: row.display_name,
+    baseUrl: row.base_url,
+    completionsPath: row.completions_path,
+    authPlatform: row.auth_platform,
+    contextWindow: row.context_window,
+    priority: row.priority,
+    enabled: row.enabled === 1,
+  }));
+}
+
+function ensureBridgeVisionRoutes(db: Database.Database): void {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO bridge_vision_routes (
+      route_id, model_id, provider, display_name, base_url,
+      completions_path, auth_platform, context_window, priority, enabled
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insert.run(
+    'vision:opencode-zen:mimo-v2.5-free',
+    'mimo-v2.5-free',
+    'opencode-zen',
+    'MiMo V2.5 Free (OpenCode Zen)',
+    'https://opencode.ai/zen/v1',
+    '/chat/completions',
+    'opencode-zen',
+    BRIDGE_CONTEXT_WINDOW,
+    1,
+    1,
+  );
+  insert.run(
+    'vision:opencode-go:mimo-v2.5',
+    'mimo-v2.5',
+    'opencode-go',
+    'MiMo V2.5 (OpenCode Go)',
+    'https://opencode.ai/zen/go/v1',
+    '/chat/completions',
+    'opencode-go',
+    BRIDGE_CONTEXT_WINDOW,
+    2,
+    1,
+  );
 }
 
 function ensureCatalogEntry(
@@ -247,9 +314,26 @@ export function ensureConfigurationV2(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_route_members_model ON routing_route_members(model_db_id);
     CREATE INDEX IF NOT EXISTS idx_catalog_integration_visible ON client_catalog_entries(integration, visible, sort_order);
+
+    CREATE TABLE IF NOT EXISTS bridge_vision_routes (
+      route_id TEXT PRIMARY KEY,
+      model_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      base_url TEXT NOT NULL,
+      completions_path TEXT NOT NULL DEFAULT '/chat/completions',
+      auth_platform TEXT NOT NULL,
+      context_window INTEGER,
+      priority INTEGER NOT NULL CHECK (priority > 0),
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_bridge_vision_routes_order ON bridge_vision_routes(priority, route_id);
   `);
   ensureRevision(db);
   ensureProviderConfiguration(db);
+  ensureBridgeVisionRoutes(db);
   db.exec(`
     DELETE FROM routing_route_members WHERE model_db_id NOT IN (SELECT id FROM models);
     DELETE FROM client_catalog_entries
@@ -347,7 +431,7 @@ export function ensureConfigurationV2(db: Database.Database): void {
     })();
   }
 
-  const initialState = serializeConfigurationState(db) as { providers: unknown[]; models: unknown[]; routes: unknown[]; catalog: unknown[] };
+  const initialState = serializeConfigurationState(db) as { providers: unknown[]; models: unknown[]; routes: unknown[]; catalog: unknown[]; visionModels: unknown[] };
   db.prepare(`
     INSERT OR IGNORE INTO configuration_snapshots (revision, snapshot_json)
     VALUES (?, ?)

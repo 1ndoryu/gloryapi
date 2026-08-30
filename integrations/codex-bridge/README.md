@@ -34,7 +34,9 @@ apunta a un upstream OpenAI-compatible por defecto; cambiar de proveedor no requ
 el código; los estados de soporte siguen siendo calculados por el bridge y nunca se aceptan desde ese JSON.
 
 `BRIDGE_MODEL_CATALOG_JSON` permite reemplazar el catálogo de modelos del selector sin tocar código.
-Cada entrada es `{ id, pickerId?, provider, displayName, nativeVision, contextWindow }`; `pickerId` es
+Cada entrada es `{ id, pickerId?, provider, displayName, acceptsImageInput?, nativeVision, contextWindow }`;
+`acceptsImageInput` controla la capacidad de entrada del bridge y por defecto es `true`; `nativeVision`
+solo controla el reenvío nativo. `pickerId` es
 opcional y solo sirve como alias compatible con el filtro del renderer de Desktop. El bridge siempre lo
 traduce al `id` real antes de enviar la solicitud. El esquema versionado es
 `glory-bridge-model-catalog-v2` (ver `model-catalog.js`). El bridge siempre conserva la entrada `auto`.
@@ -111,13 +113,28 @@ que GloryAPI enruta.
   Spark 1.2 declara soporte, así que `Alto` llega a CommandCode como
   `reasoning_effort: "high"`; el servidor conserva sus límites por proveedor y
   modelo. TokenHarbor declara que no lo soporta y no recibe ese parámetro.
+- Entrada de imágenes del bridge: todos los modelos publicados anuncian
+  `input_modalities: ["text", "image"]` al cliente porque el bridge acepta el
+  adjunto y puede pasarlo por Mimo aunque el upstream sea de texto. Esto es una
+  capacidad del adaptador, no una afirmación de visión nativa; por eso el botón
+  de adjuntar no desaparece al elegir Auto, DeepSeek o TokenHarbor.
+- Cadena de visión persistida: `http://127.0.0.1:3101/fallback` muestra una
+  lista separada "Modelos de visión del bridge" (independiente de la cadena de
+  enrutamiento) con prioridad y activación. La proyección del catálogo lleva
+  `visionModels` y `visionHash`; `start-bridge.ps1` lee esa cadena al arrancar:
+  la primera ruta activa es la primaria (`VISION_BASE_URL`/`VISION_MODEL`) y el
+  resto se convierte en `VISION_FALLBACKS_JSON`, resolviendo cada credencial por
+  `authPlatform` desde la bóveda DPAPI sin escribir claves. Si todas las rutas
+  están desactivadas, el bridge arranca con visión desactivada y los adjuntos
+  conservan la nota de diagnóstico. Se aplica al reiniciar con `restart-bridge.ps1`.
 - Visión nativa: cuando el modelo elegido está marcado `nativeVision: true` en el
   catálogo (Muse Spark 1.2 Contributor, multimodal), el bridge reenvía el bloque
   `image_url` validado al upstream para que el modelo vea la imagen directamente.
-  El resto de modelos conservan la adaptación lossy a texto (el modelo de visión
-  describe la imagen). Una imagen inválida bajo visión nativa produce una nota de
-  diagnóstico explícita; nunca se descarta en silencio ni se interpreta como
-  "carpeta vacía".
+  El resto de modelos conservan la adaptación lossy a texto: Mimo describe la
+  imagen y esa descripción se inyecta en el turno. `supports_image_detail_original`
+  solo queda activo para Muse. Una imagen inválida bajo visión nativa produce una
+  nota de diagnóstico explícita; nunca se descarta en silencio ni se interpreta
+  como "carpeta vacía".
 - La credencial de CommandCode se guarda con el flujo seguro existente de GloryAPI
   (`api_keys` + DPAPI `CurrentUser`) mediante `POST /api/keys` con
   `platform: "commandcode"`; el bridge nunca conoce ni reenvía esa clave.
@@ -131,8 +148,10 @@ que GloryAPI enruta.
   `VISION_ALLOW_ANONYMOUS=1`. Se pueden configurar rutas alternativas en
   `VISION_FALLBACKS_JSON`; cada entrada usa `baseUrl`, `model`, `completionsPath`
   opcional, `allowAnonymous` y `apiKeyEnv` para que las claves sigan fuera del JSON.
-  El launcher usa por defecto la clave DPAPI local de `opencode-go` como fallback para
-  `mimo-v2.5`, si existe una credencial habilitada.
+  En la configuración por defecto, el launcher usa la clave DPAPI local de `opencode-zen` para
+  `mimo-v2.5-free` cuando existe y conserva `opencode-go` como fallback para `mimo-v2.5`. Si una ruta
+  devuelve 401, el bridge registra solo ruta, estado y bytes, y prueba la siguiente credencial sin
+  exponer el cuerpo remoto.
 - No se habilita CORS para navegadores.
 - El cuerpo se limita a 8 MiB, configurable con `BRIDGE_MAX_BODY_BYTES`.
 - Cada respuesta de backend de búsqueda se limita a 1 MiB, configurable con
@@ -161,10 +180,15 @@ que GloryAPI enruta.
   El `FALLBACK_REASONING` usado solo para satisfacer DeepSeek en mensajes históricos
   se filtra y nunca se devuelve como razonamiento visible al cliente.
 - El `reasoning_content` real del proveedor se adapta a un resumen Responses con
-  `response.reasoning_summary_part.added` y
-  `response.reasoning_summary_text.delta`; no se expone la cadena de pensamiento
-  cruda ni el texto sintético de fallback. La ruta no streaming también incluye
-  el resumen como un item `reasoning`.
+  `response.reasoning_summary_part.added`,
+  `response.reasoning_summary_text.delta` y los eventos terminales
+  `reasoning_summary_text.done`/`reasoning_summary_part.done`/`output_item.done`;
+  no se expone la cadena de pensamiento cruda ni el texto sintético de fallback.
+  El item de razonamiento se finaliza SIEMPRE antes de abrir el item de mensaje:
+  si un proveedor (CommandCode) envía contenido antes del pensamiento, el bridge
+  retiene el texto hasta abrir el item de razonamiento, de modo que Desktop no
+  descarte el bloque por un orden de salida inválido. La ruta no streaming
+  también incluye el resumen como un item `reasoning`.
 - La auditoría de cierre es adaptativa y configurable con
   `BRIDGE_AUDIT_MODE=adaptive|strict|off` (por defecto `adaptive`). `adaptive`
   solo audita turnos ambiguos con herramientas disponibles; `strict` audita cada
@@ -222,13 +246,17 @@ que GloryAPI enruta.
   recuperable `web_tool_limit_recovery_exhausted` para impedir un bucle infinito.
 - Las cachés persistentes tienen TTL y límite de bytes; se escriben con `fsync`/rename y
   no conservan el reasoning sintético.
-- La visión lossy (texto) no se anuncia en `/capabilities` ni en `/v1/models` sin
-  configuración explícita y probe de salud aprobado; cada intento valida todas las
-  respuestas DNS y bloquea rangos privados. La conexión usa el conjunto de direcciones
-  ya validado como `lookup` fijado, conserva SNI para HTTPS y no sigue redirects. La
-  visión nativa (bloques `image_url`) no depende del modelo de visión: solo se activa
-  para modelos del catálogo marcados como multimodales y reutiliza la validación de
-  imagen bounded (MIME + magic bytes + 8 MiB).
+- La capacidad `imageInput` del bridge se publica al cliente para que Desktop
+  permita adjuntar imágenes; `/capabilities` separa esa capacidad adaptada de
+  `visionConfigured`, que indica si Mimo (o un fallback) está listo para generar
+  la descripción. Si la ruta de visión no está configurada, el bridge conserva
+  un diagnóstico explícito en vez de fingir una descripción. Cuando sí está
+  configurada, cada intento valida todas las respuestas DNS y bloquea rangos
+  privados. La conexión usa el conjunto de direcciones ya validado como
+  `lookup` fijado, conserva SNI para HTTPS y no sigue redirects. La visión nativa
+  (bloques `image_url`) solo se activa para modelos del catálogo marcados como
+  multimodales y reutiliza la validación de imagen bounded (MIME + magic bytes +
+  8 MiB).
 - Si una ruta devuelve `429`, el bridge conserva sus reintentos acotados y prueba la
   siguiente ruta configurada. Si todas fallan, el modelo recibe un diagnóstico explícito
   de que la imagen sí llegó pero no pudo describirse; nunca se transforma en “carpeta vacía”.

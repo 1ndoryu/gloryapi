@@ -77,6 +77,27 @@ describe('stream proxy reasoning telemetry', () => {
     })
   })
 
+  it('mirrors CommandCode-style delta.reasoning into reasoning_content for the client', async () => {
+    const res = responseMock()
+    await streamProxyResponse({
+      route: routeWithChunks([
+        { choices: [{ delta: { reasoning: 'thinking trace' } }] },
+        { choices: [{ delta: { content: 'respuesta' } }] },
+      ]),
+      messages: [{ role: 'user', content: 'hola' }],
+      options: {},
+      res,
+      attempt: 0,
+      onSuccess: vi.fn(),
+      onMidStreamError: vi.fn(),
+    })
+
+    const written = res.write.mock.calls.map(([data]) => String(data)).join('')
+    const firstFrame = JSON.parse(written.split('\n\n')[0].slice('data: '.length))
+    expect(firstFrame.choices[0].delta.reasoning_content).toBe('thinking trace')
+    expect(firstFrame.choices[0].delta.reasoning).toBe('thinking trace')
+  })
+
   it('does not let provisional zero usage suppress observed reasoning deltas', async () => {
     const onSuccess = vi.fn()
     await streamProxyResponse({

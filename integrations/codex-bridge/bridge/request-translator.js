@@ -76,6 +76,10 @@ function normalizeOutput(output) {
  * the request or allowing the text-only model to infer that the image was empty.
  */
 async function chatContentParts(content, focusHint, channelNote, nativeVision) {
+  // Some clients send a single content part object instead of an array
+  // (e.g. { type: 'input_text', text }). Normalize it so the iteration below
+  // never throws on a non-iterable.
+  if (content && typeof content === 'object' && !Array.isArray(content)) content = [content];
   const textParts = [];
   const imageJobs = [];
   for (const c of content || []) {

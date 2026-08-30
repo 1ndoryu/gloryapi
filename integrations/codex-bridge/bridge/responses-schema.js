@@ -43,7 +43,11 @@ function validateResponsesRequest(body, {
       if (!item || typeof item !== 'object' || Array.isArray(item)) { add(base, 'object_required'); return; }
       if (typeof item.type !== 'string' || !ITEM_TYPES.has(item.type)) { add(`${base}.type`, 'known_item_type_required'); return; }
       if (item.role !== undefined && !['user', 'assistant', 'system', 'developer'].includes(item.role)) add(`${base}.role`, 'invalid_role');
-      if (item.content !== undefined) {
+      if (item.content !== undefined && item.content !== null) {
+        // `content: null` is valid on the wire: Codex echoes assistant tool-call
+        // turns and reasoning items with null content (the text lives in the
+        // separate `arguments`/`summary` fields). The translator treats null as
+        // an empty part list, matching the real Responses API boundary.
         if (typeof item.content === 'string') checkString(item.content, `${base}.content`);
         else if (Array.isArray(item.content)) {
           if (item.content.length > maxContentParts) add(`${base}.content`, 'content_count_bounds');
@@ -52,6 +56,11 @@ function validateResponsesRequest(body, {
             else if (typeof part.type !== 'string') add(`${base}.content[${partIndex}].type`, 'content_type_required');
             else if (typeof part.text === 'string') checkString(part.text, `${base}.content[${partIndex}].text`);
           });
+        } else if (item.content && typeof item.content === 'object' && typeof item.content.type === 'string') {
+          // Some clients send a single content part object instead of wrapping
+          // it in an array (e.g. { type: 'input_text', text }). Validate it as
+          // a 1-element part list; the translator normalizes it before use.
+          if (typeof item.content.text === 'string') checkString(item.content.text, `${base}.content.text`);
         } else add(`${base}.content`, 'string_or_array_required');
       }
       if (item.type === 'message' && !item.role) add(`${base}.role`, 'role_required');

@@ -350,7 +350,7 @@ async function auditCompletion(chat, authorization, finalText, options = {}) {
     const result = {
       status: decision === 'confirmed' ? 'confirmed' : decision === 'continue' ? 'continue' : 'inconclusive_unconfirmed',
       toolCalls,
-      reasoning: message.reasoning_content || '',
+      reasoning: message.reasoning_content || message.reasoning || '',
       routedVia: json.__routedVia || null,
       text,
       latencyMs: Date.now() - startedAt,
@@ -456,7 +456,7 @@ async function nudgeForToolCalls(chat, authorization, finalText, options = {}) {
         json.choices && json.choices[0] && json.choices[0].message ? json.choices[0].message : {};
       const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
       const text = typeof message.content === 'string' ? message.content : '';
-      const reasoning = message.reasoning_content || '';
+      const reasoning = message.reasoning_content || message.reasoning || '';
       const routedVia = json.__routedVia || null;
       if (toolCalls.length || isConfirmationText(text)) {
         return {

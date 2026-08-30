@@ -17,6 +17,7 @@ test('catalog sync publica un envelope verificado para que el bridge no quede st
     provider: 'auto',
     displayName: 'Auto (router de GloryAPI)',
     nativeVision: false,
+    acceptsImageInput: true,
     supportsReasoning: true,
     contextWindow: 150000,
     routeId: 'route:auto',

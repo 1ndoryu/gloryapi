@@ -62,18 +62,43 @@ async function main() {
     provider: entry.provider || 'auto',
     displayName: entry.displayName,
     nativeVision: entry.nativeVision === true,
+    acceptsImageInput: entry.acceptsImageInput !== false,
     supportsReasoning: entry.supportsReasoning === true,
     contextWindow: 150000,
   }));
   if (!entries.some(entry => entry.id === 'auto')) throw new Error('catalog projection omitted auto');
   const hash = crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');
   if (projection.hash !== hash) throw new Error('catalog projection hash mismatch');
-  // The projection has been fetched from GloryAPI and its hash was verified
-  // against the canonical entries. Mark the local envelope as published so
-  // the bridge does not classify a valid synchronized catalog as stale after
-  // restart.
-  writeAtomic(outputPath, JSON.stringify({ schemaVersion: projection.schemaVersion, state: 'published', revision: projection.revision, hash: projection.hash, entries }, null, 2));
-  process.stdout.write(`bridge catalog synchronized revision=${projection.revision} entries=${entries.length}\n`);
+  const visionModels = Array.isArray(projection.visionModels)
+    ? projection.visionModels.map(route => ({
+        routeId: String(route.routeId || ''),
+        id: String(route.id || ''),
+        provider: String(route.provider || ''),
+        displayName: String(route.displayName || route.id || ''),
+        baseUrl: String(route.baseUrl || ''),
+        completionsPath: String(route.completionsPath || '/chat/completions'),
+        authPlatform: String(route.authPlatform || route.provider || ''),
+        contextWindow: Number.isSafeInteger(route.contextWindow) ? route.contextWindow : 150000,
+        priority: Number.isSafeInteger(route.priority) ? route.priority : 0,
+        enabled: route.enabled === true,
+      }))
+    : [];
+  if (projection.visionHash && crypto.createHash('sha256').update(JSON.stringify(visionModels)).digest('hex') !== projection.visionHash) {
+    throw new Error('catalog projection vision hash mismatch');
+  }
+  // The projection has been fetched from GloryAPI and its hashes were verified
+  // against the canonical entries and vision chain. Credentials are resolved
+  // later by the launcher from the local vault and never enter this file.
+  writeAtomic(outputPath, JSON.stringify({
+    schemaVersion: projection.schemaVersion,
+    state: 'published',
+    revision: projection.revision,
+    hash: projection.hash,
+    visionHash: projection.visionHash || crypto.createHash('sha256').update(JSON.stringify(visionModels)).digest('hex'),
+    entries,
+    visionModels,
+  }, null, 2));
+  process.stdout.write(`bridge catalog synchronized revision=${projection.revision} entries=${entries.length} visionRoutes=${visionModels.length}\n`);
 }
 
 main().catch(error => {

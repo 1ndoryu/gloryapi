@@ -12,6 +12,7 @@ import {
 import { publishRoutingChanged, subscribeToRoutingEvents } from '../services/routing-events.js';
 import { getRoutingRuntimeSnapshot } from '../services/routing-runtime.js';
 import { getRecentRoutingTraces } from '../services/routing-trace.js';
+import { getBridgeVisionModels } from '../services/configuration-v2.js';
 import { requireAdmin } from '../lib/admin-auth.js';
 
 export const fallbackRouter = Router();
@@ -119,7 +120,12 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
     };
   });
 
-  const body = { ...getRoutingSnapshot(entries), entries, runtime: getRoutingRuntimeSnapshot() };
+  const body = {
+    ...getRoutingSnapshot(entries),
+    entries,
+    runtime: getRoutingRuntimeSnapshot(),
+    visionModels: getBridgeVisionModels(),
+  };
   if (snapshotCacheMs > 0) snapshotCache = { db, expiresAt: now + snapshotCacheMs, body };
   res.json(body);
 });

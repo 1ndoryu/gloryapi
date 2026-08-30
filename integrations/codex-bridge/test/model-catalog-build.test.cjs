@@ -68,16 +68,23 @@ test('build-model-catalog clones the real template and exposes the CommandCode p
       'gpt-5.6-terra',
     ]);
     assert.equal(catalog.models[0].display_name, 'Auto (router de GloryAPI)');
+    assert.deepEqual(catalog.models[0].input_modalities, ['text', 'image']);
+    assert.equal(catalog.models[0].supports_image_detail_original, false);
     const muse = catalog.models.find((entry) => entry.slug === 'gpt-5.6-terra');
     assert.deepEqual(muse.input_modalities, ['text', 'image']);
     assert.equal(muse.supports_image_detail_original, true);
     assert.equal(muse.base_instructions, 'Codex system prompt');
     const flash = catalog.models.find((entry) => entry.slug === 'gpt-5.6-auto');
-    assert.deepEqual(flash.input_modalities, ['text']);
+    // The bridge accepts the image, sends it to Mimo, and only then sends
+    // text to this non-vision upstream model.
+    assert.deepEqual(flash.input_modalities, ['text', 'image']);
+    assert.equal(flash.supports_image_detail_original, false);
     assert.equal(flash.base_instructions, 'Codex system prompt');
     assert.equal(muse.supports_reasoning, true);
     assert.deepEqual(muse.supported_reasoning_levels.map((level) => level.effort), ['low', 'high', 'max']);
     const tokenHarbor = catalog.models.find((entry) => entry.slug === 'gpt-5.5');
+    assert.deepEqual(tokenHarbor.input_modalities, ['text', 'image']);
+    assert.equal(tokenHarbor.supports_image_detail_original, false);
     assert.equal(tokenHarbor.supports_reasoning, false);
     assert.deepEqual(tokenHarbor.supported_reasoning_levels, []);
     assert.ok(catalog.models.every((entry) => entry.context_window === 150000));
@@ -100,6 +107,8 @@ test('build-model-catalog falls back to a minimal catalog without a source templ
     assert.equal(catalog.models[0].visibility, 'list');
     assert.equal(catalog.models[0].supported_in_api, true);
     assert.equal(catalog.models[0].supports_reasoning, true);
+    assert.deepEqual(catalog.models[0].input_modalities, ['text', 'image']);
+    assert.equal(catalog.models[0].supports_image_detail_original, false);
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }

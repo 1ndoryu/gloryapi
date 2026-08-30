@@ -39,7 +39,10 @@ function minimalTemplate() {
     default_verbosity: 'low',
     apply_patch_tool_type: 'freeform',
     web_search_tool_type: 'text',
-    input_modalities: ['text'],
+    // The bridge accepts images and adapts them through Mimo even when Auto
+    // eventually routes to a text-only provider. `supports_image_detail_original`
+    // remains false because this fallback template is not a native-vision claim.
+    input_modalities: ['text', 'image'],
     supports_image_detail_original: false,
     truncation_policy: { mode: 'tokens', limit: 10000 },
     supports_parallel_tool_calls: true,
@@ -112,6 +115,10 @@ function loadCatalogOverride(catalogPath) {
       pickerId: row.pickerId ? String(row.pickerId).trim() : null,
       provider: String(row.provider || 'auto').trim(),
       displayName: String(row.displayName || row.id || '').trim(),
+      // This is the client-facing bridge capability. It defaults to true so
+      // Desktop does not hide the attachment control for text-only upstreams;
+      // nativeVision below remains the only switch for direct image forwarding.
+      acceptsImageInput: row.acceptsImageInput !== false,
       nativeVision: row.nativeVision === true,
       supportsReasoning: row.supportsReasoning === true,
       // The bridge catalog has one operational compaction ceiling for every
@@ -155,7 +162,11 @@ function cloneEntry(template, catalogEntry, index) {
   entry.slug = catalogEntry.pickerId || (catalogEntry.id === AUTO_MODEL_ID ? AUTO_PICKER_ID : catalogEntry.id);
   entry.display_name = catalogEntry.displayName;
   entry.description = DESCRIPTIONS[catalogEntry.id] || catalogEntry.displayName;
-  entry.input_modalities = nativeVision ? ['text', 'image'] : ['text'];
+  // Codex Desktop gates the attachment control with input_modalities. The
+  // bridge can accept every image entry and send it to Mimo for description;
+  // only nativeVision controls whether the original image reaches the selected
+  // upstream model directly.
+  entry.input_modalities = catalogEntry.acceptsImageInput !== false ? ['text', 'image'] : ['text'];
   entry.supports_image_detail_original = nativeVision;
   entry.supports_reasoning = catalogEntry.supportsReasoning === true;
   if (catalogEntry.supportsReasoning) {

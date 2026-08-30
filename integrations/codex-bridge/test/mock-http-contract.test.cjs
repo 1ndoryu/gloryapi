@@ -128,6 +128,9 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   assert.deepEqual(modelsBody.models, modelsBody.data);
   assert.equal(modelsBody.models[0].owned_by, 'gloryapi');
   assert.equal(modelsBody.models[0].slug, modelsBody.models[0].id);
+  // `/v1/models` describes the bridge-facing contract: Auto accepts an image
+  // even though the selected upstream may be text-only and Mimo will describe it.
+  assert.ok(modelsBody.models.every((entry) => entry.input_modalities.includes('image')));
   assert.ok(modelsBody.models.every((entry) => entry.context_window === 150000));
   assert.ok(modelsBody.models.every((entry) => entry.max_context_window === 150000));
   assert.ok(modelsBody.models.every((entry) => entry.auto_compact_token_limit === 150000));
@@ -161,6 +164,7 @@ test('mock upstream validates health, auth, limits and the internal web loop', a
   assert.equal(capabilitiesBody.lifecycle.acceptingRequests, true);
   assert.deepEqual(capabilitiesBody.lifecycle.transitions, ['starting', 'ready', 'blocked', 'draining', 'stopped']);
   assert.equal(capabilitiesBody.capabilities.customTools, true);
+  assert.equal(capabilitiesBody.capabilities.imageInput, true);
   assert.equal(capabilitiesBody.capabilities.vision, false);
   assert.equal(capabilitiesBody.upstream, undefined);
 

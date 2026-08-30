@@ -30,6 +30,15 @@ export function normalizeChoices(data: ChatCompletionResponse): void {
         .join('')
     }
 
+    // Mirror reasoning across field names. Some providers (Anthropic-style,
+    // e.g. CommandCode) return `reasoning`; DeepSeek-style clients expect
+    // `reasoning_content`. Additive: the original field is preserved.
+    if (typeof msg.reasoning === 'string' && msg.reasoning_content === undefined) {
+      msg.reasoning_content = msg.reasoning
+    } else if (typeof msg.reasoning_content === 'string' && msg.reasoning === undefined) {
+      msg.reasoning = msg.reasoning_content
+    }
+
     const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0
     if (!hasToolCalls && (msg.content === '' || msg.content == null)) {
       const fold = (typeof msg.reasoning_content === 'string' && msg.reasoning_content.length > 0)

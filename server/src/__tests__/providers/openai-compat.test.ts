@@ -291,6 +291,26 @@ describe('OpenAICompatProvider', () => {
     expect(result.choices[0].message.content).toBe('preferred');
   });
 
+  it('mirrors bare reasoning into reasoning_content (CommandCode style)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        id: 'id', object: 'chat.completion', created: 1, model: 'm',
+        choices: [{
+          index: 0,
+          message: { role: 'assistant', content: 'answer', reasoning: 'thinking trace' },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    } as unknown as Response);
+
+    const result = await provider.chatCompletion('k', [{ role: 'user', content: 'hi' }], 'm');
+    expect(result.choices[0].message.content).toBe('answer');
+    expect(result.choices[0].message.reasoning_content).toBe('thinking trace');
+    expect(result.choices[0].message.reasoning).toBe('thinking trace');
+  });
+
   it('does NOT fold reasoning_content when tool_calls are present', async () => {
     vi.spyOn(global, 'fetch').mockResolvedValueOnce({
       ok: true,

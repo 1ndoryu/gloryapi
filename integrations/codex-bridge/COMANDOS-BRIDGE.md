@@ -74,8 +74,9 @@ Usa otra base/ruta de runtime solo si se necesita una instalación paralela:
 
 La visión no depende del modelo de texto de GloryAPI. El bridge envía cada imagen al proveedor de
 visión configurado y entrega la descripción al modelo principal como texto. Por defecto prueba
-`mimo-v2.5-free` y, si devuelve `429`, salta a `mimo-v2.5` de OpenCode Go usando automáticamente la
-clave `opencode-go` guardada en la bóveda DPAPI local. También se puede cambiar con
+`mimo-v2.5-free` en OpenCode Zen usando automáticamente una clave `opencode-zen` de la bóveda DPAPI
+cuando existe; si la ruta primaria devuelve `401`/`429`, salta de forma acotada a `mimo-v2.5` de
+OpenCode Go usando la clave `opencode-go`. También se puede cambiar con
 `-VisionBaseUrl` y `-VisionModel`; no pongas claves en el script ni en este documento.
 
 Para añadir rutas alternativas, define `VISION_FALLBACKS_JSON` en el entorno antes de iniciar el bridge.
@@ -91,6 +92,13 @@ Si el proveedor principal responde `429`, se reintenta de forma acotada y se pru
 alternativas. Si todas fallan, la conversación continúa con un aviso que distingue “imagen recibida
 sin descripción” de “imagen ausente”; no se inventa que una carpeta o visualización está vacía.
 
+Además, `http://127.0.0.1:3101/fallback` muestra una lista separada "Modelos de visión del bridge"
+(no es parte de la cadena Auto) para reordenar y activar/desactivar esas rutas. El launcher la lee
+del catálogo sincronizado en el siguiente reinicio: la primera ruta activa es la primaria y el resto
+se convierte en fallbacks automáticos con su credencial de la bóveda DPAPI por `authPlatform`. Si
+desactivas todas, el bridge arranca con visión desactivada y los adjuntos conservan la nota de
+diagnóstico. Aplica con `restart-bridge.ps1`.
+
 ## Seleccionar proveedor y modelo (CommandCode, Muse, DeepSeek)
 
 El selector es el picker de modelos de la ventana ChatGPT del bridge. Desktop lee el archivo
@@ -99,7 +107,10 @@ expone el mismo catálogo para clientes compatibles. El catálogo está versiona
 `glory-bridge-model-catalog-v2` (`bridge/model-catalog.js`). Algunas versiones de Desktop filtran los
 IDs de proveedores personalizados; por eso el archivo local usa alias `pickerId` reconocibles por
 Desktop, pero el bridge los traduce al ID real antes de llamar a GloryAPI. La lista visible procede de
-la configuración V2; no hay una lista paralela del bridge.
+la configuración V2; no hay una lista paralela del bridge. Todos los modelos publicados por el bridge
+llevan `input_modalities = ["text", "image"]` porque el adaptador acepta el adjunto y usa Mimo para
+describirlo cuando el modelo elegido no tiene visión nativa. `supports_image_detail_original` solo es
+`true` para Muse.
 
 En Enrutamiento hay una sola lista de modelos:
 
@@ -126,7 +137,10 @@ proveedor: no salta silenciosamente a un proveedor gratuito. Si falta la clave, 
 o el proveedor falla, la respuesta es un error estructurado visible, no un cierre de turno falso.
 
 Muse Spark 1.2 tiene visión nativa: con ese modelo, las imágenes se reenvían como `image_url` para
-que el modelo las vea directamente. Con el resto de modelos se conserva la descripción por texto.
+que el modelo las vea directamente. Con Auto y el resto de modelos, el bridge recibe el adjunto, llama
+a Mimo y entrega la descripción como texto al modelo seleccionado; por eso también se pueden adjuntar
+imágenes con modelos que no tienen visión. Si cambiaste el catálogo, cierra la ventana bridge y vuelve
+a abrirla con `-RefreshConfig` para regenerar `C:\Users\Owner\.codex-gloryapi\models.json`.
 
 El selector `Esfuerzo` también se aplica por modelo. Las rutas DeepSeek V4 Flash de Andoryyu,
 OpenCode Zen, OpenCode Go y CommandCode, además de Muse de CommandCode, declaran razonamiento en la

@@ -12,6 +12,7 @@ import {
   updateConfigurationModel,
   updateConfigurationProvider,
   updateConfigurationRoute,
+  updateBridgeVisionModels,
 } from '../services/configuration-v2.js';
 
 export const configurationRouter = Router();
@@ -34,6 +35,15 @@ const routeSchema = z.object({
   enabled: z.boolean().optional(),
   visible: z.boolean().optional(),
   members: z.array(memberSchema).min(1).max(512),
+}).strict();
+const bridgeVisionRouteSchema = z.object({
+  routeId: z.string().trim().regex(/^[a-z][a-z0-9:._-]{1,127}$/),
+  priority: z.number().int().positive(),
+  enabled: z.boolean(),
+}).strict();
+const bridgeVisionSchema = z.object({
+  expectedRevision: revisionSchema,
+  routes: z.array(bridgeVisionRouteSchema).min(1).max(32),
 }).strict();
 const modelSchema = z.object({
   expectedRevision: revisionSchema,
@@ -125,6 +135,19 @@ function handleConfigurationError(error: unknown, res: Response): void {
 
 configurationRouter.get('/', (_req, res) => {
   res.json(getConfigurationSnapshot());
+});
+
+configurationRouter.put('/bridge-vision', (req, res) => {
+  const parsed = bridgeVisionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.errors.map(error => error.message).join(', ') } });
+    return;
+  }
+  try {
+    res.json(updateBridgeVisionModels({ ...parsed.data, actor: 'dashboard', source: 'configuration-vision-api' }));
+  } catch (error) {
+    handleConfigurationError(error, res);
+  }
 });
 
 configurationRouter.put('/routes/:routeId', (req, res) => {

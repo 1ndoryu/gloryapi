@@ -1,0 +1,7 @@
+npm error Lifecycle script `dev` failed with error:
+npm error code 1
+npm error path C:\Users\Owner\OneDrive\Documentos\area-trabajo\gloryapi\client
+npm error workspace @gloryapi/client@0.0.0
+npm error location C:\Users\Owner\OneDrive\Documentos\area-trabajo\gloryapi\client
+npm error command failed
+npm error command C:\Windows\system32\cmd.exe /d /s /c vite --port 5175 --strictPort

@@ -5,6 +5,13 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Siguiente bloque ejecutable
 
+- **18A-2 — Autenticación de visión Mimo en el bridge** *(activa; pendiente de reintento funcional)*:
+  la imagen llega correctamente, pero la ruta primaria anónima devolvió `HTTP 401`. El launcher ahora
+  usa la credencial DPAPI de OpenCode Zen para `mimo-v2.5-free` por defecto, conserva OpenCode Go como
+  fallback autenticado y deja trazas metadata-only que distinguen ambas rutas. El bridge live está
+  `ready`, con `primaryAuth=present` y `fallbackAuth=1`; siguiente paso: reabrir Desktop con
+  `-RefreshConfig` y repetir el adjunto.
+
 La corrección de coherencia del selector y las capacidades quedó validada
 localmente. La UI usa una sola lista de modelos,
 sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
@@ -60,6 +67,16 @@ sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
   configuración canónica; `body.model` se resuelve contra el catálogo versionado
   `glory-bridge-model-catalog-v2`.
 - Muse Spark 1.2 usa visión nativa (bloques `image_url`); el resto conserva la adaptación a texto.
+  La entrada de imagen del bridge se publica separada como `acceptsImageInput`, por lo que Desktop
+  permite adjuntos para todos los modelos y Mimo adapta los no nativos.
+- Pensamiento visible en el bridge: el item de razonamiento se finaliza siempre antes del item de
+  mensaje, incluso cuando el proveedor (CommandCode) envía contenido antes del pensamiento; el
+  stream retiene el texto hasta abrir el item `reasoning` y cierra el resumen con los eventos
+  terminales. Regresión cubierta en `test/reasoning-stream-order.test.cjs`.
+- Cadena de visión persistida: `/fallback` muestra una lista separada de modelos de visión del
+  bridge (prioridad + activación), persistida en `bridge_vision_routes` y expuesta en la
+  proyección del catálogo (`visionModels`/`visionHash`); el launcher la convierte en
+  `VISION_BASE_URL`/`VISION_MODEL` + fallbacks con credenciales DPAPI por `authPlatform`.
 - El web loop interno tiene un presupuesto configurable (`BRIDGE_WEB_TOOL_ROUNDS`) y, al agotarlo,
   elimina la herramienta web y solicita una síntesis final con los resultados ya obtenidos; una nueva
   petición web en esa síntesis falla de forma recuperable para no permitir ciclos infinitos.
@@ -103,6 +120,8 @@ sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
   `C:\Users\Owner\.codex` y el home aislado es `C:\Users\Owner\.codex-gloryapi`; el segundo
   no copia `auth.json`, SQLite ni conversaciones del primero.
 - Manual operativo: `integrations/codex-bridge/COMANDOS-BRIDGE.md`.
+- Evidencia 18A-2: helper de visión Zen/Go validado sin exponer claves; bridge `:4100` health/readiness/capabilities PASS; catálogo aislado 7/7 entradas anuncia `text,image` y solo Muse conserva visión nativa; suites bridge 176/176 y server 310/310 PASS. No se cerró todavía porque falta la inferencia real de Mimo tras el reintento del usuario.
+- Pensamiento CommandCode + cadena de visión (2026-08-25): `npm run build:server` PASS, `tsc -b` del cliente PASS, suite del bridge (incluido `reasoning-stream-order.test.cjs` nuevo) PASS y server 55/55 en los archivos afectados PASS. Detalle en `Agente/completados/tareas-2026-08-25.md`.
 
 Fuente de detalle: `PLAN-GLORYAPI.md`. Evidencia histórica: `Agente/completados/` y
 `Agente/documentacion/migracion/`.

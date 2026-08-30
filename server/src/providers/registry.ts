@@ -220,6 +220,12 @@ export function getRegistrySnapshot(): RegistrySnapshot {
   for (const platform of ARCHIVED_PROVIDER_PLATFORMS) {
     const credentialCount = keyCountMap.get(platform) ?? 0;
     if (credentialCount === 0) continue;
+    // A platform can be both a runtime-configured active provider AND a legacy
+    // archived slug (e.g. NVIDIA re-added and activated after archiving). The
+    // live configuration wins: keep the active entry and do not append the
+    // archived stand-in, so downstream lookups (capabilityByPlatform, model
+    // capability inheritance) see a single, non-fail-closed definition.
+    if (providers.some(provider => provider.platform === platform)) continue;
     providers.push({
       platform,
       displayName: archivedDisplayName(platform),

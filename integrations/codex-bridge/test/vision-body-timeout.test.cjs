@@ -221,7 +221,11 @@ test('vision falls back to the next configured route after a provider limit', as
   const calls = [];
   let primaryAttempts = 0;
   global.fetch = async (endpoint, options) => {
-    calls.push({ endpoint, body: JSON.parse(options.body) });
+    calls.push({
+      endpoint,
+      body: JSON.parse(options.body),
+      authorization: options.headers && (options.headers.Authorization || options.headers.authorization),
+    });
     if (endpoint.startsWith('https://primary.example')) {
       primaryAttempts += 1;
       return new Response(JSON.stringify({ error: { type: 'rate_limit' } }), {
@@ -246,12 +250,13 @@ test('vision falls back to the next configured route after a provider limit', as
         timeoutMs: 1000,
         maxResponseBytes: 1024,
         cacheFile,
+        apiKey: 'primary-test',
         fallbacks: [{
           id: 'secondary',
           baseUrl: 'https://secondary.example/v1',
           completionsPath: '/chat/completions',
           model: 'secondary-vision',
-          apiKey: 'test-only',
+          apiKey: 'secondary-test',
         }],
       },
     },
@@ -267,6 +272,12 @@ test('vision falls back to the next configured route after a provider limit', as
   const result = await adapter.describeImageResult('data:image/png;base64,iVBORw0KGgo=', 'fallback');
   assert.deepEqual(result, { text: 'descripción de respaldo', failure: null });
   assert.equal(primaryAttempts, 3, 'the primary route keeps its bounded retries');
+  assert.deepEqual(calls.slice(0, 3).map((call) => call.authorization), [
+    'Bearer primary-test',
+    'Bearer primary-test',
+    'Bearer primary-test',
+  ]);
+  assert.equal(calls.at(-1).authorization, 'Bearer secondary-test');
   assert.equal(calls.at(-1).body.model, 'secondary-vision');
   assert.equal(calls.at(-1).body.messages[0].content[1].type, 'image_url');
 });

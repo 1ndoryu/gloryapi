@@ -29,5 +29,15 @@ export function serializeConfigurationState(db: Database.Database): unknown {
            visible, sort_order AS sortOrder
     FROM client_catalog_entries ORDER BY integration, external_slug
   `).all();
-  return { providers, models, routes, catalog };
+  const visionModels = db.prepare(`
+    SELECT route_id AS routeId, model_id AS id, provider,
+           display_name AS displayName, base_url AS baseUrl,
+           completions_path AS completionsPath, auth_platform AS authPlatform,
+           context_window AS contextWindow, priority, enabled
+    FROM bridge_vision_routes ORDER BY priority ASC, route_id ASC
+  `).all().map((route) => ({
+    ...(route as Record<string, unknown>),
+    enabled: (route as { enabled: number }).enabled === 1,
+  }));
+  return { providers, models, routes, catalog, visionModels };
 }

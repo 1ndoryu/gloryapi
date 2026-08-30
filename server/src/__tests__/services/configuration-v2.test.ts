@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { getDb, initDb } from '../../db/index.js';
 import {
   ConfigurationRevisionConflictError,
+  ConfigurationValidationError,
   DESKTOP_PICKER_ALIAS_VALUES,
   createConfigurationModel,
   ensureConfigurationV2,
@@ -10,6 +11,7 @@ import {
   getRouteModelIds,
   materializeConfigurationModels,
   rollbackConfiguration,
+  updateBridgeVisionModels,
   updateConfigurationProvider,
   updateConfigurationModel,
   updateConfigurationRoute,
@@ -96,6 +98,42 @@ describe('configuration-v2', () => {
       actor: 'test',
       source: 'test',
     })).toThrow(/no declara control de razonamiento/);
+  });
+
+  it('persists a separate bridge vision chain with priority, enablement and revision', () => {
+    const before = getConfigurationSnapshot();
+    const vision = before.bridge.visionModels;
+    expect(vision).toHaveLength(2);
+    expect(vision.map(route => route.priority)).toEqual([1, 2]);
+    expect(vision.every(route => route.enabled)).toBe(true);
+    expect(vision[0].authPlatform).toBe('opencode-zen');
+    expect(vision[1].authPlatform).toBe('opencode-go');
+
+    const reversed = [...vision].reverse().map((route, index) => ({ routeId: route.routeId, priority: index + 1, enabled: route.enabled }));
+    const after = updateBridgeVisionModels({ expectedRevision: before.revision, routes: reversed, actor: 'test', source: 'test' });
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.bridge.visionModels.map(route => route.routeId)).toEqual(reversed.map(route => route.routeId));
+
+    const disabled = updateBridgeVisionModels({
+      expectedRevision: after.revision,
+      routes: after.bridge.visionModels.map((route, index) => ({ routeId: route.routeId, priority: index + 1, enabled: index === 1 })),
+      actor: 'test',
+      source: 'test',
+    });
+    expect(disabled.bridge.visionModels.filter(route => route.enabled)).toHaveLength(1);
+    // El estado deshabilitado conserva la prioridad posicional; el launcher
+    // filtra enabled y ordena por priority al resolver el primary/fallbacks.
+    expect(disabled.bridge.visionModels.find(route => route.enabled)?.priority).toBe(2);
+  });
+
+  it('rejects stale, incomplete or duplicate bridge vision chain writes', () => {
+    const before = getConfigurationSnapshot();
+    const vision = before.bridge.visionModels;
+    const payload = vision.map((route, index) => ({ routeId: route.routeId, priority: index + 1, enabled: true }));
+    expect(() => updateBridgeVisionModels({ expectedRevision: 99, routes: payload })).toThrow(ConfigurationRevisionConflictError);
+    expect(() => updateBridgeVisionModels({ routes: payload.slice(0, -1) })).toThrow(ConfigurationValidationError);
+    expect(() => updateBridgeVisionModels({ routes: [...payload, { ...payload[0], priority: payload.length + 1 }] })).toThrow(ConfigurationValidationError);
+    expect(() => updateBridgeVisionModels({ routes: payload.map(route => ({ ...route, priority: 7 })) })).toThrow(ConfigurationValidationError);
   });
 
   it('rejects stale writes instead of silently overwriting the current configuration', () => {

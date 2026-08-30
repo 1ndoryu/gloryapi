@@ -16,8 +16,12 @@
  *   - pickerId:     optional Desktop-safe id used only by the model picker.
  *   - provider:    owning provider slug (or 'auto' for the router default).
  *   - displayName: human-readable Spanish label for the model picker.
+ *   - acceptsImageInput: true when the bridge accepts input_image and can
+ *                        adapt it through the configured vision route. This is
+ *                        a client-facing capability and is independent from
+ *                        nativeVision.
  *   - nativeVision: true when the model accepts image_url blocks natively.
- *                  When false the bridge keeps the lossy text adaptation.
+ *                  When false the bridge uses the lossy text adaptation.
  *   - supportsReasoning: true when the model/provider accepts the effort
  *                        control. The translator uses this as a local
  *                        fail-closed guard before sending reasoning_effort.
@@ -49,6 +53,7 @@ const DEFAULT_MODEL_CATALOG = [
     provider: 'auto',
     wireModel: 'auto',
     displayName: 'Auto (router de GloryAPI)',
+    acceptsImageInput: true,
     nativeVision: false,
     supportsReasoning: true,
     contextWindow: BRIDGE_CONTEXT_WINDOW,
@@ -74,6 +79,10 @@ function normalizeEntry(raw, index) {
     pickerId,
     provider,
     displayName,
+    // Image input is handled by the bridge adapter even when the selected
+    // upstream model has no native vision. Keep this opt-out only for an
+    // explicitly incompatible external catalog entry.
+    acceptsImageInput: raw.acceptsImageInput !== false,
     nativeVision: raw.nativeVision === true,
     supportsReasoning: raw.supportsReasoning === true || raw.reasoning === true,
     contextWindow,
@@ -116,6 +125,7 @@ function parseModelCatalogDetailed(raw) {
       wireModel: AUTO_MODEL_ID,
       provider: 'auto',
       displayName: 'Auto (router de GloryAPI)',
+      acceptsImageInput: true,
       nativeVision: false,
       supportsReasoning: true,
       contextWindow: BRIDGE_CONTEXT_WINDOW,
@@ -139,6 +149,8 @@ function parseModelCatalog(raw) {
  *
  * - missing / Auto picker ids -> the canonical `auto` route.
  * - known catalog id -> that exact wire id + its nativeVision flag.
+ *   `acceptsImageInput` remains a bridge/client capability, not an upstream
+ *   claim, so it is intentionally not used to enable native forwarding.
  * - unknown id        -> pass through unchanged (GloryAPI returns the
  *   structured model_not_found error) with fail-closed lossy vision: never
  *   forward images natively to a model whose vision is unverified.

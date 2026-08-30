@@ -28,6 +28,27 @@ function assistantText(message) {
   return message && typeof message.content === 'string' ? message.content : '';
 }
 
+function reasoningTextFromValue(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value.map(item => reasoningTextFromValue(item)).filter(Boolean).join('');
+  }
+  if (value && typeof value === 'object') {
+    if (typeof value.text === 'string') return value.text;
+    if (typeof value.content === 'string') return value.content;
+  }
+  return '';
+}
+
+function assistantReasoning(message) {
+  if (!message) return '';
+  for (const key of ['reasoning_content', 'reasoning', 'reasoning_details']) {
+    const text = reasoningTextFromValue(message[key]);
+    if (text) return text;
+  }
+  return '';
+}
+
 function assistantToolCalls(message) {
   return message && Array.isArray(message.tool_calls) ? message.tool_calls : [];
 }
@@ -131,42 +152,61 @@ function emitResponseCompleted(res, responseId, usage, hasToolCalls, routedVia, 
 }
 
 // Keep reasoning streaming for real model output, but hold a prefix long
-// enough to detect the exact synthetic fallback. This prevents both a whole
-// fallback and a fragmented fallback from becoming visible in the app.
-function createReasoningForwarder(res, reasoningId) {
+// enough to detect the exact synthetic fallback. Responses clients also need
+// the terminal summary/item events; without them Desktop can receive deltas
+// yet never render a completed thinking block.
+function createReasoningForwarder(res, reasoningId, outputIndex = 0) {
   let pending = '';
   let emitted = false;
+  let finished = false;
+  let summaryText = '';
+  let activeOutputIndex = null;
+  const resolvedOutputIndex = () => {
+    if (activeOutputIndex === null) {
+      activeOutputIndex = typeof outputIndex === 'function' ? outputIndex() : outputIndex;
+    }
+    return activeOutputIndex;
+  };
+
   const emit = (text) => {
+    if (finished) return;
     const visible = visibleReasoning(text);
     if (!visible) return;
     if (!emitted) {
       emitted = true;
       sseEvent(res, 'response.output_item.added', {
         type: 'response.output_item.added',
-        item: { type: 'reasoning', id: reasoningId, summary: [{ type: 'summary_text', text: '' }] },
+        output_index: resolvedOutputIndex(),
+        item: {
+          type: 'reasoning',
+          id: reasoningId,
+          status: 'in_progress',
+          summary: [{ type: 'summary_text', text: '' }],
+        },
       });
       sseEvent(res, 'response.reasoning_summary_part.added', {
         type: 'response.reasoning_summary_part.added',
         item_id: reasoningId,
-        output_index: 0,
+        output_index: resolvedOutputIndex(),
         summary_index: 0,
         part: { type: 'summary_text', text: '' },
       });
     }
-    // DeepSeek calls this field reasoning_content, but Responses clients only
-    // render the safe summary stream. The old reasoning_text event was
-    // ignored by Codex Desktop, making an otherwise live turn look stalled.
+    // DeepSeek/CommandCode may call this field reasoning_content or reasoning,
+    // but Responses clients render the portable summary event contract.
     sseEvent(res, 'response.reasoning_summary_text.delta', {
       type: 'response.reasoning_summary_text.delta',
       item_id: reasoningId,
-      output_index: 0,
+      output_index: resolvedOutputIndex(),
       summary_index: 0,
       delta: visible,
     });
+    summaryText += summaryText ? ` ${visible}` : visible;
   };
+
   return {
     add(chunk) {
-      if (!chunk) return;
+      if (finished || !chunk) return;
       pending += chunk;
       const normalized = normalizeReasoningText(pending);
       const fallback = normalizeReasoningText(FALLBACK_REASONING);
@@ -175,9 +215,43 @@ function createReasoningForwarder(res, reasoningId) {
       pending = '';
     },
     finish() {
+      if (finished) return emitted;
       emit(pending);
       pending = '';
+      if (emitted) {
+        sseEvent(res, 'response.reasoning_summary_text.done', {
+          type: 'response.reasoning_summary_text.done',
+          item_id: reasoningId,
+          output_index: resolvedOutputIndex(),
+          summary_index: 0,
+          text: summaryText,
+        });
+        sseEvent(res, 'response.reasoning_summary_part.done', {
+          type: 'response.reasoning_summary_part.done',
+          item_id: reasoningId,
+          output_index: resolvedOutputIndex(),
+          summary_index: 0,
+          part: { type: 'summary_text', text: summaryText },
+        });
+        sseEvent(res, 'response.output_item.done', {
+          type: 'response.output_item.done',
+          output_index: resolvedOutputIndex(),
+          item: {
+            type: 'reasoning',
+            id: reasoningId,
+            status: 'completed',
+            summary: [{ type: 'summary_text', text: summaryText }],
+          },
+        });
+      }
+      finished = true;
       return emitted;
+    },
+    hasEmitted() {
+      return emitted;
+    },
+    outputIndex() {
+      return activeOutputIndex;
     },
   };
 }
@@ -222,6 +296,7 @@ function lookupToolCall(wireName, toolMap, customTools) {
     assistantMessageFrom,
     assistantText,
     assistantToolCalls,
+    assistantReasoning,
     hasVisibleAssistantAction,
     responseItemsForToolCalls,
     responseUsageFromChatUsage,
