@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select as SelectDropdown, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { ConfiguredModel, ConfigurationFieldDefinition } from '@/hooks/useFallbackPage'
 
 type EditableValue = string | number | boolean | null
@@ -64,9 +65,14 @@ export function ModelConfigDialog({
               return (
                 <div key={field.key} className="space-y-1.5">
                   <Label htmlFor={`modelo-${field.key}`}>{field.label}</Label>
-                  <select id={`modelo-${field.key}`} className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm" value={value == null ? '' : String(value)} onChange={event => update(key, event.target.value)}>
-                    {(field.options ?? []).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
+                  <SelectDropdown value={value == null ? '' : String(value)} onValueChange={next => update(key, next)}>
+                    <SelectTrigger id={`modelo-${field.key}`} className="w-full" size="sm">
+                      <SelectValue placeholder="Seleccionar…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(field.options ?? []).map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                    </SelectContent>
+                  </SelectDropdown>
                   <p className="text-xs text-muted-foreground">{field.description}{field.requiresRestart ? ' Requiere reabrir ChatGPT Bridge.' : ''}</p>
                 </div>
               )

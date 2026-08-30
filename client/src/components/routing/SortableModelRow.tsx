@@ -1,5 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import type { CSSProperties } from 'react'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import type { ConfiguredModel, FallbackEntry } from '@/hooks/useFallbackPage'
@@ -27,7 +28,7 @@ export function SortableModelRow({
   const pinnedRouteId = model.routeIds.find(routeId => routeId !== 'route:auto')
   const keyMissing = entry ? entry.keyCount === 0 : false
   return (
-    <div ref={setNodeRef} data-sortable-row="true" style={{ transform: CSS.Transform.toString(transform), transition }} className={`group flex items-center gap-3 px-4 py-3 bg-card ${isDragging ? 'opacity-50' : ''} ${!model.enabled ? 'opacity-50' : ''}`}>
+    <div ref={setNodeRef} data-sortable-row="true" style={{ '--sortable-transform': CSS.Transform.toString(transform), '--sortable-transition': transition } as CSSProperties} className={`group flex items-center gap-3 px-4 py-3 bg-card ${isDragging ? 'opacity-50' : ''} ${!model.enabled ? 'opacity-50' : ''}`}>
       <button {...attributes} {...listeners} disabled={!autoMember} className={autoMember ? 'cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground transition-colors' : 'text-transparent'} aria-label={autoMember ? 'Arrastrar para reordenar Auto' : 'Modelo fuera de Auto'}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" /><circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" /><circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" /></svg>
       </button>

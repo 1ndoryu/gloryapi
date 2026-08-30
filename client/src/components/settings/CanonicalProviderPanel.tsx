@@ -4,6 +4,7 @@ import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select as SelectDropdown, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { ConfigurationFieldDefinition, ConfigurationProvider, ConfigurationSnapshot } from '@/hooks/useFallbackPage'
 
 type ProviderDraft = Omit<ConfigurationProvider, 'capabilities' | 'transport' | 'failurePolicy'> & {
@@ -28,7 +29,9 @@ function fieldValue(draft: ProviderDraft, key: string): unknown {
   return undefined
 }
 
-export function CanonicalProviderPanel() {
+/* [por que] El componente solo debe renderizar; la lógica de carga, borradores y guardado
+ * (estado + efectos + mutación) vive en un hook dedicado para que el panel quede plano. */
+function useCanonicalProviderPanel() {
   const queryClient = useQueryClient()
   const { data, isLoading, isError } = useQuery<ConfigurationSnapshot>({ queryKey: ['configuration'], queryFn: () => apiFetch('/api/configuration') })
   const [drafts, setDrafts] = useState<Record<string, ProviderDraft>>({})
@@ -45,6 +48,11 @@ export function CanonicalProviderPanel() {
       setDrafts(Object.fromEntries(snapshot.providers.map(provider => [provider.platform, structuredClone(provider)])))
     },
   })
+  return { data, isLoading, isError, drafts, setDrafts, mutation }
+}
+
+export function CanonicalProviderPanel() {
+  const { data, isLoading, isError, drafts, setDrafts, mutation } = useCanonicalProviderPanel()
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Cargando registro central de proveedores…</p>
   if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar el registro central de proveedores.</p>
@@ -60,7 +68,7 @@ export function CanonicalProviderPanel() {
           {fields.map((field: ConfigurationFieldDefinition) => {
             const value = fieldValue(draft, field.key)
             if (field.type === 'boolean') return <label key={field.key} className="flex items-start gap-2 text-sm"><input type="checkbox" checked={Boolean(value)} onChange={event => setDrafts(current => ({ ...current, [provider.platform]: updateDraftValue(draft, field.key, event.target.checked) }))} /><span><span className="block">{field.label}</span><span className="block text-xs text-muted-foreground">{field.description}</span></span></label>
-            if (field.type === 'enum') return <div key={field.key} className="space-y-1.5"><Label htmlFor={`${provider.platform}-${field.key}`}>{field.label}</Label><select id={`${provider.platform}-${field.key}`} className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm" value={String(value ?? '')} onChange={event => setDrafts(current => ({ ...current, [provider.platform]: updateDraftValue(draft, field.key, event.target.value) }))}>{(field.options ?? []).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><p className="text-xs text-muted-foreground">{field.description}</p></div>
+            if (field.type === 'enum') return <div key={field.key} className="space-y-1.5"><Label htmlFor={`${provider.platform}-${field.key}`}>{field.label}</Label><SelectDropdown value={String(value ?? '')} onValueChange={next => setDrafts(current => ({ ...current, [provider.platform]: updateDraftValue(draft, field.key, next) }))}><SelectTrigger id={`${provider.platform}-${field.key}`} className="w-full" size="sm"><SelectValue placeholder="Seleccionar…" /></SelectTrigger><SelectContent>{(field.options ?? []).map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></SelectDropdown><p className="text-xs text-muted-foreground">{field.description}</p></div>
             if (field.type === 'json-map') return <div key={field.key} className="space-y-1.5 sm:col-span-2"><Label htmlFor={`${provider.platform}-${field.key}`}>{field.label}</Label><textarea id={`${provider.platform}-${field.key}`} className="min-h-24 w-full rounded-lg border border-input bg-transparent px-2 py-1.5 font-mono text-xs" value={value && typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value ?? '{}')} onChange={event => { let next: unknown = event.target.value; try { next = JSON.parse(event.target.value) } catch { /* La API devuelve el error de JSON al guardar; no se descarta el borrador local. */ } setDrafts(current => ({ ...current, [provider.platform]: updateDraftValue(draft, field.key, next) })) }} /><p className="text-xs text-muted-foreground">{field.description}</p></div>
             const numeric = field.type === 'integer' || field.type === 'duration-ms'
             return <div key={field.key} className="space-y-1.5"><Label htmlFor={`${provider.platform}-${field.key}`}>{field.label}</Label><Input id={`${provider.platform}-${field.key}`} type={numeric ? 'number' : 'text'} min={field.min} max={field.max} value={value == null ? '' : String(value)} onChange={event => { const raw = event.target.value; const next = numeric ? (raw === '' ? null : Number(raw)) : raw; setDrafts(current => ({ ...current, [provider.platform]: updateDraftValue(draft, field.key, next) })) }} /><p className="text-xs text-muted-foreground">{field.description}</p></div>
