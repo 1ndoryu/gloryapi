@@ -2,6 +2,8 @@
  * interna por contrato, persistencia, catálogo y operaciones. */
 export * from './configuration-v2-contract.js';
 export * from './configuration-v2-storage.js';
+export * from './configuration-v2-queries.js';
+export { serializeConfigurationState } from './configuration-v2-snapshot.js';
 export * from './configuration-v2-catalog.js';
 export * from './configuration-v2-provider.js';
 export * from './configuration-v2-document.js';

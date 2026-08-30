@@ -12,12 +12,14 @@ import {
   type ConfigurationSnapshot,
 } from './configuration-v2-contract.js';
 import {
-  currentConfigurationRevision,
-  getBridgeVisionModels,
   getConfigurationModels,
   getConfigurationProviders,
   getConfigurationRoutes,
   getConfigurationSchema,
+} from './configuration-v2-queries.js';
+import {
+  currentConfigurationRevision,
+  getBridgeVisionModels,
   getRevision,
   writeRevision,
 } from './configuration-v2-storage.js';

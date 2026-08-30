@@ -5,7 +5,7 @@ import {
   type ConfigurationSnapshot,
 } from './configuration-v2-contract.js';
 import { getConfigurationSnapshot } from './configuration-v2-catalog.js';
-import { getRevision, getBridgeVisionModels, writeRevision } from './configuration-v2-storage.js';
+import { getRevision, writeRevision } from './configuration-v2-storage.js';
 
 export interface BridgeVisionRouteUpdate {
   routeId: string;
@@ -39,7 +39,6 @@ function validateVisionUpdates(input: BridgeVisionRouteUpdate[]): BridgeVisionRo
   return normalized;
 }
 
-export { getBridgeVisionModels } from './configuration-v2-storage.js';
 
 export function updateBridgeVisionModels(input: {
   expectedRevision?: number;

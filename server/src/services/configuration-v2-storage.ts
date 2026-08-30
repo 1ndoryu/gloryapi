@@ -1,22 +1,18 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDb } from '../db/index.js';
-import { ensureProviderConfiguration, getConfiguredProviders } from './provider-configuration.js';
+import { ensureProviderConfiguration } from './provider-configuration.js';
 import { serializeConfigurationState } from './configuration-v2-snapshot.js';
 import { ensureKnownModelCapabilityDefaults } from './configuration-v2-capabilities.js';
+import { ensureConfigurationSchema, ensureFallbackTriggers } from './configuration-v2-schema.js';
 import {
   AUTO_ROUTE_ID,
   BRIDGE_CONTEXT_WINDOW,
   BRIDGE_INTEGRATION,
   CONFIGURATION_REVISION_KEY,
-  CONFIGURATION_SCHEMA,
   normalizeBridgeContextWindow,
   safeRouteId,
-  type ConfigurationModel,
-  type ConfigurationProvider,
-  type ConfigurationRoute,
   type ConfigurationRouteKind,
-  type ConfigurationSchema,
   type BridgeVisionModel,
 } from './configuration-v2-contract.js';
 import {
@@ -50,7 +46,6 @@ function ensureRevision(db: Database.Database): void {
   `).run(CONFIGURATION_REVISION_KEY);
 }
 
-export { serializeConfigurationState } from './configuration-v2-snapshot.js';
 
 export function writeRevision(
   db: Database.Database,
@@ -245,92 +240,7 @@ function normalizeBridgeContextWindows(db: Database.Database): { models: number;
 export function ensureConfigurationV2(db: Database.Database): void {
   ensureModelCapabilityColumns(db);
   ensureKnownModelCapabilityDefaults(db);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS routing_routes (
-      route_id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      kind TEXT NOT NULL CHECK (kind IN ('auto', 'pinned', 'policy')),
-      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-      visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS routing_route_members (
-      route_id TEXT NOT NULL REFERENCES routing_routes(route_id) ON DELETE CASCADE,
-      model_db_id INTEGER NOT NULL REFERENCES models(id) ON DELETE RESTRICT,
-      priority INTEGER NOT NULL CHECK (priority > 0),
-      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-      PRIMARY KEY (route_id, model_db_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS client_catalog_entries (
-      integration TEXT NOT NULL,
-      external_slug TEXT NOT NULL,
-      route_id TEXT NOT NULL REFERENCES routing_routes(route_id) ON DELETE RESTRICT,
-      model_db_id INTEGER REFERENCES models(id) ON DELETE RESTRICT,
-      picker_id TEXT,
-      display_name TEXT NOT NULL,
-      native_vision INTEGER NOT NULL DEFAULT 0 CHECK (native_vision IN (0, 1)),
-      supports_reasoning INTEGER NOT NULL DEFAULT 0 CHECK (supports_reasoning IN (0, 1)),
-      context_window INTEGER,
-      visible INTEGER NOT NULL DEFAULT 1 CHECK (visible IN (0, 1)),
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (integration, external_slug),
-      UNIQUE (integration, picker_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS configuration_revisions (
-      revision INTEGER PRIMARY KEY,
-      hash TEXT NOT NULL,
-      actor TEXT NOT NULL,
-      source TEXT NOT NULL,
-      summary TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS configuration_audit (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      revision INTEGER NOT NULL,
-      actor TEXT NOT NULL,
-      source TEXT NOT NULL,
-      diff_json TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS configuration_snapshots (
-      revision INTEGER PRIMARY KEY,
-      snapshot_json TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS configuration_idempotency (
-      idempotency_key TEXT PRIMARY KEY,
-      request_hash TEXT NOT NULL,
-      result_json TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      completed_at TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_route_members_model ON routing_route_members(model_db_id);
-    CREATE INDEX IF NOT EXISTS idx_catalog_integration_visible ON client_catalog_entries(integration, visible, sort_order);
-
-    CREATE TABLE IF NOT EXISTS bridge_vision_routes (
-      route_id TEXT PRIMARY KEY,
-      model_id TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      display_name TEXT NOT NULL,
-      base_url TEXT NOT NULL,
-      completions_path TEXT NOT NULL DEFAULT '/chat/completions',
-      auth_platform TEXT NOT NULL,
-      context_window INTEGER,
-      priority INTEGER NOT NULL CHECK (priority > 0),
-      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_bridge_vision_routes_order ON bridge_vision_routes(priority, route_id);
-  `);
+  ensureConfigurationSchema(db);
   ensureRevision(db);
   ensureProviderConfiguration(db);
   ensureBridgeVisionRoutes(db);
@@ -387,29 +297,7 @@ export function ensureConfigurationV2(db: Database.Database): void {
     return reconcileDesktopPickerAliases(db);
   })();
 
-  db.exec(`
-    DROP TRIGGER IF EXISTS routing_v2_sync_fallback_update;
-    DROP TRIGGER IF EXISTS routing_v2_sync_fallback_insert;
-    CREATE TRIGGER IF NOT EXISTS routing_v2_sync_fallback_update
-    AFTER UPDATE OF priority, enabled ON fallback_config
-    BEGIN
-      UPDATE routing_route_members
-      SET priority = NEW.priority, enabled = NEW.enabled
-      WHERE route_id = 'route:auto' AND model_db_id = NEW.model_db_id;
-      INSERT OR REPLACE INTO routing_route_members (route_id, model_db_id, priority, enabled)
-      SELECT 'route:auto', NEW.model_db_id, NEW.priority, NEW.enabled
-      WHERE NOT EXISTS (
-        SELECT 1 FROM routing_route_members WHERE route_id = 'route:auto' AND model_db_id = NEW.model_db_id
-      );
-    END;
-    CREATE TRIGGER IF NOT EXISTS routing_v2_sync_fallback_insert
-    AFTER INSERT ON fallback_config
-    BEGIN
-      INSERT OR REPLACE INTO routing_route_members (route_id, model_db_id, priority, enabled)
-      SELECT 'route:auto', NEW.model_db_id, NEW.priority, NEW.enabled
-      WHERE EXISTS (SELECT 1 FROM routing_routes WHERE route_id = 'route:auto');
-    END;
-  `);
+  ensureFallbackTriggers(db);
 
   if (pickerAliasMigration.length > 0 || contextWindowMigration.models > 0 || contextWindowMigration.catalogEntries > 0) {
     const currentRevision = getRevision(db);
@@ -492,71 +380,6 @@ export function getRouteModelIds(routeId: string, options: { includeDisabled?: b
 export function getRoutingModel(modelDbId: number): RoutingModelSnapshot | undefined {
   getRouteModelIds('');
   return routingSnapshot?.models.get(modelDbId);
-}
-
-export function resolveClientCatalogEntry(externalSlug: string): { routeId: string; modelDbId: number | null } | undefined {
-  const row = getDb().prepare(`
-    SELECT route_id, model_db_id FROM client_catalog_entries
-    WHERE integration = ? AND external_slug = ? AND visible = 1
-  `).get(BRIDGE_INTEGRATION, externalSlug) as { route_id: string; model_db_id: number | null } | undefined;
-  return row ? { routeId: row.route_id, modelDbId: row.model_db_id } : undefined;
-}
-
-export function getConfigurationRoutes(): ConfigurationRoute[] {
-  const db = getDb();
-  const routes = db.prepare('SELECT route_id, name, kind, enabled, visible FROM routing_routes ORDER BY route_id').all() as Array<{ route_id: string; name: string; kind: ConfigurationRouteKind; enabled: number; visible: number }>;
-  return routes.map(route => ({
-    routeId: route.route_id,
-    name: route.name,
-    kind: route.kind,
-    enabled: route.enabled === 1,
-    visible: route.visible === 1,
-    members: db.prepare('SELECT model_db_id, priority, enabled FROM routing_route_members WHERE route_id = ? ORDER BY priority ASC').all(route.route_id).map(row => ({
-      modelDbId: (row as { model_db_id: number }).model_db_id,
-      priority: (row as { priority: number }).priority,
-      enabled: (row as { enabled: number }).enabled === 1,
-    })),
-  }));
-}
-
-export function getConfigurationModels(): ConfigurationModel[] {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT m.id, m.platform, m.model_id, m.display_name, m.enabled,
-           m.context_window, m.native_vision, m.supports_reasoning,
-           GROUP_CONCAT(rm.route_id) AS route_ids,
-           MAX(CASE WHEN c.integration = ? AND c.visible = 1 THEN 1 ELSE 0 END) AS bridge_visible,
-           MAX(CASE WHEN c.integration = ? THEN c.picker_id ELSE NULL END) AS picker_id
-    FROM models m
-    LEFT JOIN routing_route_members rm ON rm.model_db_id = m.id
-    LEFT JOIN client_catalog_entries c ON c.model_db_id = m.id
-    GROUP BY m.id ORDER BY m.platform ASC, m.display_name ASC
-  `).all(BRIDGE_INTEGRATION, BRIDGE_INTEGRATION) as Array<{
-    id: number; platform: string; model_id: string; display_name: string; enabled: number;
-    context_window: number | null; native_vision: number; supports_reasoning: number;
-    route_ids: string | null; bridge_visible: number; picker_id: string | null;
-  }>;
-  return rows.map(row => ({
-    modelDbId: row.id,
-    platform: row.platform,
-    modelId: row.model_id,
-    displayName: row.display_name,
-    enabled: row.enabled === 1,
-    contextWindow: row.context_window,
-    nativeVision: row.native_vision === 1,
-    supportsReasoning: row.supports_reasoning === 1,
-    routeIds: row.route_ids ? row.route_ids.split(',') : [],
-    bridgeVisible: row.bridge_visible === 1,
-    pickerId: row.picker_id,
-  }));
-}
-
-export function getConfigurationProviders(): ConfigurationProvider[] {
-  return getConfiguredProviders(getDb());
-}
-
-export function getConfigurationSchema(): ConfigurationSchema {
-  return CONFIGURATION_SCHEMA;
 }
 
 export { AUTO_ROUTE_ID, BRIDGE_INTEGRATION, safeRouteId };
