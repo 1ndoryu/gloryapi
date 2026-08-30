@@ -8,7 +8,7 @@ import {
   getProviderModelDrafts,
   replaceProviderModelDrafts,
   setProviderEnabled,
-} from '../../providers/registry.js';
+} from '../../providers/registry/index.js';
 import { activateProviderDraft, recordProviderVerification } from '../../providers/catalog/registry-lifecycle.js';
 import { getProviderTemplates } from '../../providers/catalog/templates.js';
 import type { CapabilityProfile, Platform, ProviderAdapterKind } from '@gloryapi/shared/types.js';

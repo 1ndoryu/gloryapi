@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { initDb } from '../../db/index.js';
-import { getRegistrySnapshot } from '../../providers/registry.js';
+import { getRegistrySnapshot } from '../../providers/registry/index.js';
 import { updateModelSettings, updateProviderSettings } from '../../settings/registry.js';
 import { createConfigurationProvider } from '../../services/configuration-v2-provider.js';
 import { validateRouteCapabilities } from '../../services/capabilities.js';

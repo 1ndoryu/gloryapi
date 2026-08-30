@@ -9,7 +9,7 @@ import type {
   SettingsSnapshot,
   SettingValue,
 } from '@gloryapi/shared/types.js';
-import { KNOWN_PROVIDER_PLATFORMS } from '../providers/registry.js';
+import { KNOWN_PROVIDER_PLATFORMS } from '../providers/registry/index.js';
 import {
   assertKnownProviderPlatform,
   buildProviderSettingsSnapshot,

@@ -49,9 +49,11 @@
           "integrations/codex-bridge/bridge",
           "integrations/codex-bridge/test",
           "server/src/__tests__/routes",
+          "server/src/__tests__/providers",
           "server/src/lib",
           "server/src/routes",
-          "server/src/services"
+          "server/src/services",
+          "server/src/providers"
         ],
         "portableBoundaries": {
           "dom": ["/client/src/", "/client/"],

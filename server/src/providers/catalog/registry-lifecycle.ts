@@ -1,8 +1,8 @@
 import { getDb } from '../../db/index.js'
-import { ACTIVE_PROVIDER_DEFINITIONS, isActiveProviderPlatform } from '../registry.js'
+import { ACTIVE_PROVIDER_DEFINITIONS, isActiveProviderPlatform } from '../registry/index.js'
 import { getConfiguredProviderFromDb } from '../../services/provider-configuration.js'
 import { materializeConfigurationModels, updateConfigurationProvider } from '../../services/configuration-v2.js'
-import { getProviderModelDrafts } from '../registry.js'
+import { getProviderModelDrafts } from '../registry/index.js'
 
 export type ProviderVerification = 'health' | 'chat' | 'capabilities'
 

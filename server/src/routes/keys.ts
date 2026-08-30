@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { maskKey } from '../lib/crypto.js';
 import { credentialVault, DPAPI_ENCRYPTION_SCHEME, resolveStoredCredential } from '../lib/dpapi-vault.js';
-import { ACTIVE_PROVIDER_PLATFORMS, ARCHIVED_PROVIDER_PLATFORMS } from '../providers/registry.js';
+import { ACTIVE_PROVIDER_PLATFORMS, ARCHIVED_PROVIDER_PLATFORMS } from '../providers/registry/index.js';
 import { requireAdmin } from '../lib/admin-auth.js';
 import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 

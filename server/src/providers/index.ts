@@ -4,7 +4,7 @@ import { GoogleProvider } from './google.js';
 import { OpenAICompatProvider, replaceNullAssistantContent, ensureReasoningContent } from './openai-compat.js';
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
-import { ACTIVE_PROVIDER_DEFINITIONS, isActiveProviderPlatform } from './registry.js';
+import { ACTIVE_PROVIDER_DEFINITIONS, isActiveProviderPlatform } from './registry/index.js';
 import { getDb } from '../db/index.js';
 import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 

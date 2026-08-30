@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select as SelectDropdown, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import type { ConfiguredModel, ConfigurationFieldDefinition } from '@/hooks/useFallbackPage'
+import type { ConfiguredModel, ConfigurationFieldDefinition } from '@/hooks/useFallbackPage.types'
 
 type EditableValue = string | number | boolean | null
 type EditableModel = Record<string, EditableValue>

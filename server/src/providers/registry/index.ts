@@ -3,9 +3,9 @@ export {
   ACTIVE_PROVIDER_PLATFORMS,
   ARCHIVED_PROVIDER_PLATFORMS,
   KNOWN_PROVIDER_PLATFORMS,
-} from './registry/provider-definitions.js';
+} from './provider-definitions.js';
 
-export { getRegistrySnapshot } from './registry/registry-snapshot.js';
+export { getRegistrySnapshot } from './registry-snapshot.js';
 
 export {
   isActiveProviderPlatform,
@@ -14,9 +14,9 @@ export {
   replaceProviderModelDrafts,
   saveProviderDraft,
   setProviderEnabled,
-} from './registry/registry-core.js';
+} from './registry-core.js';
 
 export type {
   ProviderDraftInput,
   ProviderModelDraftInput,
-} from './registry/registry-core.js';
+} from './registry-core.js';

@@ -3,7 +3,7 @@ import { CSS } from '@dnd-kit/utilities'
 import type { CSSProperties } from 'react'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
-import type { ConfiguredModel, FallbackEntry } from '@/hooks/useFallbackPage'
+import type { ConfiguredModel, FallbackEntry } from '@/hooks/useFallbackPage.types'
 
 export function SortableModelRow({
   model,

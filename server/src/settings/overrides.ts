@@ -8,7 +8,7 @@ import type {
   ProviderLifecycle,
   ProviderSettingsOverrides,
 } from '@gloryapi/shared/types.js';
-import { getRegistrySnapshot, KNOWN_PROVIDER_PLATFORMS } from '../providers/registry.js';
+import { getRegistrySnapshot, KNOWN_PROVIDER_PLATFORMS } from '../providers/registry/index.js';
 import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 
 /* [por que] Vive aqui (no en registry.ts) para evitar el ciclo de imports

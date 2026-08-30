@@ -65,19 +65,33 @@ export interface BridgeCatalogProjection {
   sync?: BridgeCatalogSyncStatus;
 }
 
-export interface ConfigurationModel {
+export interface ConfigurationModelIdentity {
   modelDbId: number;
   platform: string;
   modelId: string;
   displayName: string;
+  pickerId: string | null;
+}
+
+export interface ConfigurationModelRuntime {
   enabled: boolean;
   contextWindow: number | null;
   nativeVision: boolean;
   supportsReasoning: boolean;
+}
+
+export interface ConfigurationModelRouting {
   routeIds: string[];
   bridgeVisible: boolean;
-  pickerId: string | null;
 }
+
+/* [ISP] La composición preserva la superficie completa del estado de un modelo
+ * configurado (identidad + runtime + routing) dividiendo la interface en partes
+ * cohesivas de pocos campos para respetar el SPI sin romper la API. */
+export interface ConfigurationModel
+  extends ConfigurationModelIdentity,
+    ConfigurationModelRuntime,
+    ConfigurationModelRouting {}
 
 export interface ConfigurationProvider extends ConfiguredProvider {}
 

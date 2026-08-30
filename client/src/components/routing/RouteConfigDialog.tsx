@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { ConfiguredModel, ConfigurationFieldDefinition, ConfigurationRoute } from '@/hooks/useFallbackPage'
+import type { ConfiguredModel, ConfigurationFieldDefinition, ConfigurationRoute } from '@/hooks/useFallbackPage.types'
 
 /* [por que] El diálogo mantiene 4 estados (nombre, habilitado, visible y selección); la regla
  * usestate-excesivo pide extraerlos a un hook dedicado para que el componente quede plano. */
