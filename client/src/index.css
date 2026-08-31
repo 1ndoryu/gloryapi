@@ -7,6 +7,10 @@
 @custom-variant dark (&:is(.dark *));
 
 [data-sortable-row] {
+    /* [308A-6] dnd-kit inyecta estas variables inline al arrastrar;
+     * los defaults coinciden con el fallback original (visual-neutral). */
+    --sortable-transform: none;
+    --sortable-transition: none;
     transform: var(--sortable-transform, none);
     transition: var(--sortable-transition, none);
 }
