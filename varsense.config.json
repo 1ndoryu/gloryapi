@@ -1,0 +1,74 @@
+{
+  "variableFiles": [
+    "client/src/index.css"
+  ],
+  "includePatterns": [
+    "client/**/*.css",
+    "client/**/*.ts",
+    "client/**/*.tsx",
+    "server/**/*.ts",
+    "shared/**/*.ts",
+    "integrations/**/*.js",
+    "integrations/**/*.cjs"
+  ],
+  "excludePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/server/dist/**",
+    "**/.quality-tools/**",
+    "**/.quality-reports/**",
+    "**/.sentinel/**"
+  ],
+  "scanAllFiles": false,
+  "hardcodedDetection": {
+    "enabled": true,
+    "severity": "warning",
+    "properties": {
+      "color": true,
+      "background": true,
+      "background-color": true,
+      "border-color": true,
+      "border-radius": true,
+      "font-size": true,
+      "font-family": true,
+      "box-shadow": true
+    },
+    "allowedValues": [
+      "0",
+      "0px",
+      "auto",
+      "inherit",
+      "initial",
+      "unset",
+      "none",
+      "100%",
+      "50%",
+      "transparent",
+      "currentColor"
+    ]
+  },
+  "inlineDetection": {
+    "enabled": true,
+    "severity": "information"
+  },
+  "tokenDetection": {
+    "duplicate": {
+      "enabled": true,
+      "severity": "warning"
+    },
+    "unused": {
+      "enabled": true,
+      "severity": "hint"
+    }
+  },
+  "bannedProperties": {
+    "enabled": false,
+    "severity": "warning",
+    "properties": []
+  },
+  "orphanClassDetection": {
+    "minClassLength": 3,
+    "excludeClassPatterns": []
+  }
+}
