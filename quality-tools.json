@@ -4,8 +4,8 @@
   "tools": {
     "sentinel": {
       "repository": "https://github.com/1ndoryu/glory-sentinel.git",
-      "sourcePath": "../glory-sentinel",
-      "provisionPath": ".quality-tools/sentinel/versions/0.7.5",
+      "sourcePath": "../.quality-tools/sentinel",
+      "provisionPath": "../.quality-tools/sentinel",
       "commit": "643353d7e9683aabe7dc6ce67d025981b4d90b29",
       "version": "0.7.5",
       "outputSchemaVersion": "1",
