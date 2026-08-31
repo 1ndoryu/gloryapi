@@ -25,6 +25,6 @@
     "recover:profile": "npm run build:server && node server/dist/scripts/verify-recovery-profile.js"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.2.4"
   }
 }
