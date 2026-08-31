@@ -153,30 +153,4 @@
     }
 }
 
-.token-platform-google { background-color: #4285f4; }
-.token-platform-groq { background-color: #f55036; }
-.token-platform-cerebras { background-color: #8b5cf6; }
-.token-platform-sambanova { background-color: #14b8a6; }
-.token-platform-nvidia { background-color: #76b900; }
-.token-platform-mistral { background-color: #f59e0b; }
-.token-platform-openrouter { background-color: #ec4899; }
-.token-platform-github { background-color: #6e7b8b; }
-.token-platform-cohere { background-color: #d946ef; }
-.token-platform-cloudflare { background-color: #f38020; }
-.token-platform-zhipu { background-color: #06b6d4; }
-.token-platform-ollama { background-color: #000; }
-.token-platform-kilo { background-color: #7c3aed; }
-.token-platform-pollinations { background-color: #a855f7; }
-.token-platform-llm7 { background-color: #0ea5e9; }
-.token-platform-huggingface { background-color: #ff9d00; }
-.token-platform-opencode-zen { background-color: #10b981; }
-.token-platform-opencode-go { background-color: #059669; }
-.token-platform-commandcode { background-color: #6366f1; }
-.token-platform-siliconflow { background-color: #3b82f6; }
-.token-platform-bazaarlink { background-color: #a78bfa; }
-.token-platform-hyperbolic { background-color: #f97316; }
-.token-platform-scaleway { background-color: #8b5cf6; }
-.token-platform-morph { background-color: #ec4899; }
-.token-platform-publicai { background-color: #22c55e; }
-.token-platform-sensenova { background-color: #0ea5e9; }
-.token-platform-default { background-color: #94a3b8; }
+
