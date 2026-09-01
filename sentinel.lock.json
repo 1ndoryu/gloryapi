@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-14T03:00:00.000Z",
+  "generatedAt": "2026-09-01T06:00:55.806Z",
   "runtime": {
     "status": "global-runtime",
     "version": "0.7.1",
@@ -10,12 +10,20 @@
   },
   "analyzers": {
     "sentinel": {
-      "version": "0.7.5",
+      "version": "0.7.6",
       "protocolVersion": 1,
-      "commit": "643353d7e9683aabe7dc6ce67d025981b4d90b29",
-      "sha256": "b204e946ccd72ab6ce28c6153912b83f71cee17b95f06418b7edbc57f1272302",
+      "commit": "fbb580fde50db48c6c3647d7bf1a7886b19a7427",
+      "sha256": "34dc7739cc13e937b63e91a4d6a7739c82b4bca6841758d323b7fec311b2e370",
       "patchSha256": null,
-      "capabilities": ["analyze", "check", "guard", "doctor", "status", "task", "recover"]
+      "capabilities": [
+        "analyze",
+        "check",
+        "guard",
+        "doctor",
+        "status",
+        "task",
+        "recover"
+      ]
     }
   }
 }
