@@ -1,29 +1,20 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-09-01T09:29:58.028Z",
+  "generatedAt": "2026-09-11T03:18:32.561Z",
   "runtime": {
-    "status": "global-runtime",
-    "version": "0.7.1",
-    "commit": "7d18a755f12751ae9fd1ac67827f5a6dad8be631",
-    "artifactSha256": "85ba836d4f0f3ae70a7c9c3da378b8cf540f33fd43dc9f78eeb35352f9202b86",
+    "status": "project-adapter",
+    "version": "1.0.0-local",
+    "commit": "repo-scripts",
+    "artifactSha256": null,
     "identitySha256": "3ad54a78ccec530199dceeed2aaa0cb8cf4772d8ee3002ccf317f71afdd616aa"
   },
   "analyzers": {
     "sentinel": {
-      "version": "0.7.7",
+      "version": "0.7.9",
       "protocolVersion": 1,
-      "commit": "0559576136038741c8c7beb06b9c80b2f73a9ab9",
-      "sha256": "bd77c92d87aa917e587ee3735e9ed0933481acd272b9f10e2eb797bfdc8d9c8f",
-      "patchSha256": null,
-      "capabilities": [
-        "analyze",
-        "check",
-        "guard",
-        "doctor",
-        "status",
-        "task",
-        "recover"
-      ]
+      "commit": "a3f5607e94eb92bfebbc197ef3836648e176a00e",
+      "sha256": "0e08b17d718a26904a06f580cdf886dc0228b9cda90eb2bd8e12b94572e7c74c",
+      "patchSha256": null
     }
   }
 }
