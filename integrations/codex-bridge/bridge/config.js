@@ -233,6 +233,25 @@ const config = Object.freeze({
       'Recuperación obligatoria: la respuesta anterior no produjo texto final ni una llamada de herramienta. ' +
       'Continúa ahora. Si necesitas actuar, invoca una herramienta en este turno; si ya terminaste, responde ' +
       'con un resultado breve y visible. No devuelvas solo razonamiento interno.',
+    // Anti-loop master prompt (039A-1d): appended to every upstream request
+    // with tools, next to the execution directive. Starts with 'Supervisor'
+    // so it relays as a high-priority user message if it ever flows through
+    // the history-mapping promotion. Override text with
+    // BRIDGE_LOOP_DIRECTIVE, disable entirely with BRIDGE_LOOP_DIRECTIVE=0.
+    loopDirective:
+      env.BRIDGE_LOOP_DIRECTIVE === '0'
+        ? ''
+        : firstEnv(
+            env,
+            ['BRIDGE_LOOP_DIRECTIVE'],
+            'Supervisor — protocolo anti-bucle: 1) Si una herramienta falla 3 veces con el mismo error, ' +
+              'DETENTE: escribe un diagnóstico de 3 líneas y cambia de hipótesis antes de otro intento; ' +
+              'prohibidos los reintentos cosméticos del mismo comando. 2) Nunca re-anuncies una fase ya ' +
+              'anunciada: cada mensaje de avance debe citar evidencia nueva (outputs, archivos, diffs). ' +
+              '3) Ante un error de formato o parseo, inspecciona el artefacto UNA vez (bytes, encoding, ' +
+              '--help) y fija el lector; no pruebes variantes a ciegas. 4) Trocea campañas grandes: un ' +
+              'subobjetivo por vez, con lista de pendientes visible que solo avanza.',
+          ),
   },
   logging: {
     file: env.BRIDGE_REQUEST_LOG || path.join(runtimeRoot, 'bridge.requests.log'),

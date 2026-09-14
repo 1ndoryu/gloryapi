@@ -1,7 +1,7 @@
 import type { Platform } from '@gloryapi/shared/types.js';
 import type { BaseProvider } from './base.js';
 import { GoogleProvider } from './google.js';
-import { OpenAICompatProvider, replaceNullAssistantContent, ensureReasoningContent } from './openai-compat.js';
+import { OpenAICompatProvider, replaceNullAssistantContent, ensureReasoningContent, stripEmptyReasoning, fillMissingToolReasoning } from './openai-compat.js';
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
 import { ACTIVE_PROVIDER_DEFINITIONS, isActiveProviderPlatform } from './registry/index.js';
@@ -192,6 +192,8 @@ register(new OpenAICompatProvider({
 // Distinct from opencode-zen (free pool). Requires an API key with Go plan.
 // Same gateway as zen: DeepSeek in thinking mode rejects assistant turns
 // without `reasoning_content` (400) — fill missing reasoning with ''.
+// Muse Spark models are served ONLY through the Responses API, so they pin
+// the `responses` endpoint kind here (and in the persisted provider row).
 register(new OpenAICompatProvider({
   platform: 'opencode-go',
   name: activeDefinition('opencode-go').displayName,
@@ -202,6 +204,9 @@ register(new OpenAICompatProvider({
   modelReasoningLimits: {
     'mimo': 'high',
     'minimax': 'high',
+  },
+  endpointKinds: {
+    'muse': 'responses',
   },
 }));
 
@@ -357,7 +362,11 @@ export function getProvider(platform: Platform, options: { allowDraft?: boolean 
   const messageProfile = configured.transport.messageProfile;
   const prepareMessages = messageProfile === 'deepseek-thinking'
     ? (m: import('@gloryapi/shared/types.js').ChatMessage[]) => ensureReasoningContent(replaceNullAssistantContent(m))
-    : messageProfile === 'null-assistant' ? replaceNullAssistantContent : undefined;
+    : messageProfile === 'strip-empty-reasoning'
+      ? (m: import('@gloryapi/shared/types.js').ChatMessage[]) => stripEmptyReasoning(m)
+      : messageProfile === 'fill-tool-reasoning'
+        ? (m: import('@gloryapi/shared/types.js').ChatMessage[]) => fillMissingToolReasoning(replaceNullAssistantContent(m))
+      : messageProfile === 'null-assistant' ? replaceNullAssistantContent : undefined;
   const extraHeaders = configured.transport.extraHeadersProfile === 'openrouter'
     ? { 'HTTP-Referer': 'http://localhost:3101', 'X-Title': 'GloryAPI' }
     : undefined;
@@ -374,6 +383,7 @@ export function getProvider(platform: Platform, options: { allowDraft?: boolean 
     bufferUntilContent: configured.transport.bufferUntilContent,
     bufferUntilDone: configured.transport.bufferUntilDone,
     includeStreamUsage: configured.transport.includeStreamUsage,
+    endpointKinds: configured.transport.endpointKinds,
   });
   providers.set(platform, dynamic);
   return dynamic;

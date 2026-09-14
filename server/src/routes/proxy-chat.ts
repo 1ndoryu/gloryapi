@@ -143,11 +143,15 @@ export async function chatCompletionsHandler(req: Request, res: Response): Promi
         const exhaustedBySchemaMismatch = lastErrorKind === 'schema_mismatch';
         const exhaustedByModelDowngrade = lastErrorKind === 'model_downgrade';
         const lastClassification = classifyProxyError(lastError);
+        const exhaustedByQuota = !exhaustedBySchemaMismatch && !exhaustedByModelDowngrade
+          && lastClassification.code === 'quota_exhausted';
         const publicError = exhaustedBySchemaMismatch
           ? { message: 'All compatible models rejected this request.', type: 'provider_error', code: 'schema_incompatible' }
           : exhaustedByModelDowngrade
             ? publicProxyError(lastClassification)
-            : { message: 'All candidate models are temporarily unavailable.', type: 'rate_limit_error', code: lastClassification.code };
+            : exhaustedByQuota
+              ? { message: 'Daily quota exhausted for the requested model.', type: 'rate_limit_error', code: 'quota_exhausted' }
+              : { message: 'All candidate models are temporarily unavailable.', type: 'rate_limit_error', code: lastClassification.code };
         res.status(exhaustedBySchemaMismatch || exhaustedByModelDowngrade ? 502 : 429).json({ error: publicError });
       } else {
         res.status(503).json({
@@ -273,7 +277,13 @@ export async function chatCompletionsHandler(req: Request, res: Response): Promi
             // rate_limited (429) en un pool con cuota diaria (opencode-zen)
             // suele significar cuota agotada: escalar el cooldown a horas en
             // vez de los ~5 min de un fallo transitorio (503, timeout).
-            const cooldownMs = errorClassification.code === 'rate_limited'
+            // quota_exhausted distingue la señal explícita de cuota (402 o
+            // mensaje daily/quota/insufficient): usa quotaCooldownMs del
+            // proveedor (p. ej. 24h en apinex) y deja el 429 genérico con el
+            // cooldown corto. Sin quotaCooldownMs hereda rateLimitCooldownMs.
+            const cooldownMs = errorClassification.code === 'quota_exhausted'
+              ? (policy?.quotaCooldownMs ?? policy?.rateLimitCooldownMs ?? policy?.cooldownMs ?? 120_000)
+              : errorClassification.code === 'rate_limited'
               ? (policy?.rateLimitCooldownMs ?? policy?.cooldownMs ?? 120_000)
               : (policy?.cooldownMs ?? 120_000);
             setCooldown(route.platform, route.modelId, route.keyId, cooldownMs);
@@ -306,15 +316,19 @@ export async function chatCompletionsHandler(req: Request, res: Response): Promi
   const exhaustedBySchemaMismatch = lastErrorKind === 'schema_mismatch';
   const exhaustedByModelDowngrade = lastErrorKind === 'model_downgrade';
   const exhaustedClassification = lastError ? classifyProxyError(lastError) : null;
+  const exhaustedByQuota = !exhaustedBySchemaMismatch && !exhaustedByModelDowngrade
+    && exhaustedClassification?.code === 'quota_exhausted';
   res.status(exhaustedBySchemaMismatch || exhaustedByModelDowngrade ? 502 : 429).json({
     error: exhaustedBySchemaMismatch
       ? { message: 'All compatible models rejected this request.', type: 'provider_error', code: 'schema_incompatible' }
       : exhaustedByModelDowngrade && exhaustedClassification
         ? publicProxyError(exhaustedClassification)
-        : {
-            message: 'All candidate models are temporarily unavailable.',
-            type: 'rate_limit_error',
-            code: exhaustedClassification?.code ?? 'rate_limited',
-          },
+        : exhaustedByQuota
+          ? { message: 'Daily quota exhausted for the requested model.', type: 'rate_limit_error', code: 'quota_exhausted' }
+          : {
+              message: 'All candidate models are temporarily unavailable.',
+              type: 'rate_limit_error',
+              code: exhaustedClassification?.code ?? 'rate_limited',
+            },
   });
 }

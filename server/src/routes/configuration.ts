@@ -5,7 +5,7 @@ import { requireAdmin } from '../lib/admin-auth.js';
 import {
   ConfigurationRevisionConflictError,
   ConfigurationValidationError,
-  DESKTOP_PICKER_ALIAS_VALUES,
+  PICKER_ID_PATTERN,
   createConfigurationModel,
   createConfigurationProvider,
   getConfigurationSnapshot,
@@ -22,7 +22,7 @@ configurationRouter.use((req: Request, res: Response, next) => {
 
 const revisionSchema = z.number().int().nonnegative().optional();
 const idempotencyKeySchema = z.string().regex(/^[A-Za-z0-9._:-]{1,128}$/).optional();
-const pickerIdSchema = z.string().refine(value => DESKTOP_PICKER_ALIAS_VALUES.includes(value), 'pickerId is not compatible with Codex Desktop');
+const pickerIdSchema = z.string().regex(PICKER_ID_PATTERN, 'pickerId must match /^[A-Za-z0-9._:/-]{1,128}$/');
 const memberSchema = z.object({
   modelDbId: z.number().int().positive(),
   priority: z.number().int().positive(),
@@ -78,7 +78,7 @@ const providerCapabilitiesSchema = z.object({
   maxContextWindow: z.number().int().positive().max(2_000_000).nullable().optional(),
 }).strict();
 const providerTransportSchema = z.object({
-  messageProfile: z.enum(['none', 'null-assistant', 'deepseek-thinking']).optional(),
+  messageProfile: z.enum(['none', 'null-assistant', 'deepseek-thinking', 'strip-empty-reasoning', 'fill-tool-reasoning']).optional(),
   includeStreamUsage: z.boolean().optional(),
   bufferUntilContent: z.boolean().optional(),
   bufferUntilDone: z.boolean().optional(),
@@ -90,6 +90,7 @@ const providerTransportSchema = z.object({
 const providerPolicySchema = z.object({
   cooldownMs: z.number().int().min(0).max(86_400_000).optional(),
   rateLimitCooldownMs: z.number().int().min(0).max(604_800_000).optional(),
+  quotaCooldownMs: z.number().int().min(0).max(604_800_000).optional(),
   recordPenalty: z.boolean().optional(),
   recordProviderFailure: z.boolean().optional(),
 }).strict();

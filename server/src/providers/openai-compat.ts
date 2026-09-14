@@ -10,8 +10,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ensureReasoningContent as addReasoningContent,
+  fillMissingToolReasoning as fillToolReasoning,
   normalizeChoices,
   replaceNullAssistantContent as normalizeNullAssistantContent,
+  stripEmptyReasoning as dropEmptyReasoning,
 } from './openai-message-normalization.js';
 import { getProviderErrorMessage } from './error-response.js';
 import { assertEffectiveModel, createModelIdentityError, extractEffectiveModel } from './compat/model-identity.js';
@@ -19,6 +21,32 @@ import { getEffectiveProviderModelSettings } from '../settings/registry.js';
 import { getDb } from '../db/index.js';
 import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
 import { streamOpenAICompatStream } from './compat/openai-stream.js';
+import { clampResponsesEffort, translateChatRequestToResponses } from './responses/translate-request.js';
+import { extractReasoningItems, translateResponsesResponse } from './responses/translate-response.js';
+import { translateResponsesStream } from './responses/translate-stream.js';
+import { lookupResponsesReasoning, storeResponsesReasoning } from './responses/reasoning-cache.js';
+
+function responsesReplayBytes(items: Array<{ encrypted_content: string }> | undefined): number {
+  if (!items) return 0;
+  return items.reduce((sum, item) => sum + Buffer.byteLength(item.encrypted_content, 'utf8'), 0);
+}
+
+function isResponsesStateError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const text = JSON.stringify(err).toLowerCase();
+  return text.includes('unknown parameter') && (text.includes('store') || text.includes('include') || text.includes('reasoning'))
+    || (text.includes('store') && text.includes('unexpected'))
+    || (text.includes('include') && text.includes('unexpected'));
+}
+
+/** Fail-open for a malformed replay: if the gateway rejects the replayed
+ * `reasoning` item itself (e.g. a newly required field), retry once without
+ * any replayed state instead of failing a request that used to succeed. */
+function isResponsesReplayError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const text = JSON.stringify(err).toLowerCase();
+  return text.includes('invalid_request') && (text.includes('reasoning') || text.includes('encrypted_content') || text.includes('summary'));
+}
 
 export function replaceNullAssistantContent(messages: ChatMessage[]): ChatMessage[] {
   return normalizeNullAssistantContent(messages);
@@ -26,6 +54,14 @@ export function replaceNullAssistantContent(messages: ChatMessage[]): ChatMessag
 
 export function ensureReasoningContent(messages: ChatMessage[]): ChatMessage[] {
   return addReasoningContent(messages);
+}
+
+export function stripEmptyReasoning(messages: ChatMessage[]): ChatMessage[] {
+  return dropEmptyReasoning(messages);
+}
+
+export function fillMissingToolReasoning(messages: ChatMessage[]): ChatMessage[] {
+  return fillToolReasoning(messages);
 }
 
 const FAILED_REQUESTS_LOG = process.env.GLORYAPI_FAILED_REQUESTS_LOG
@@ -90,6 +126,11 @@ export class OpenAICompatProvider extends BaseProvider {
   private readonly bufferUntilDone: boolean;
   /** Ask providers that support it for the terminal usage SSE frame. */
   private readonly includeStreamUsage: boolean;
+  /** Per-model transport override: substring-matched against the model id
+   * (case-insensitive). Models whose upstream only serves the Responses API
+   * (e.g. Muse Spark on OpenCode Go) pin `responses` here; everything else
+   * keeps the OpenAI chat-completions contract. */
+  private readonly endpointKinds: Map<string, 'chat' | 'responses'>;
 
   constructor(opts: {
     platform: Platform;
@@ -105,6 +146,7 @@ export class OpenAICompatProvider extends BaseProvider {
     bufferUntilContent?: boolean;
     bufferUntilDone?: boolean;
     includeStreamUsage?: boolean;
+    endpointKinds?: Record<string, 'chat' | 'responses'>;
   }) {
     super();
     this.platform = opts.platform;
@@ -120,6 +162,17 @@ export class OpenAICompatProvider extends BaseProvider {
     this.bufferUntilContent = opts.bufferUntilContent ?? false;
     this.bufferUntilDone = opts.bufferUntilDone ?? false;
     this.includeStreamUsage = opts.includeStreamUsage ?? false;
+    this.endpointKinds = new Map(Object.entries(opts.endpointKinds ?? {}));
+  }
+
+  private endpointKindFor(modelId?: string): 'chat' | 'responses' {
+    if (modelId) {
+      const lower = modelId.toLowerCase();
+      for (const [pattern, kind] of this.endpointKinds) {
+        if (lower.includes(pattern.toLowerCase())) return kind;
+      }
+    }
+    return 'chat';
   }
 
   private effectiveTransport(modelId?: string): { baseUrl: string; timeoutMs: number; modelAlias: string | null } {
@@ -215,26 +268,65 @@ export class OpenAICompatProvider extends BaseProvider {
     const requestMessages = this.prepareMessages ? this.prepareMessages(messages) : messages;
     const transport = this.effectiveTransport(modelId);
     const upstreamModel = this.upstreamModelId(modelId, transport);
-    const res = await this.fetchWithTimeout(`${transport.baseUrl}/chat/completions`, {
+    const useResponses = this.endpointKindFor(modelId) === 'responses';
+    const url = useResponses ? `${transport.baseUrl}/responses` : `${transport.baseUrl}/chat/completions`;
+    const previousReasoning = useResponses ? lookupResponsesReasoning(requestMessages, upstreamModel) : undefined;
+    const responsesEffort = options?.reasoning_effort
+      ? clampResponsesEffort(options.reasoning_effort, modelId, this.modelReasoningLimits, this.maxReasoningEffort)
+      : undefined;
+    const buildResponsesBody = (omitState: boolean): string => JSON.stringify(translateChatRequestToResponses({
+      model: upstreamModel,
+      messages: requestMessages,
+      options,
+      reasoningEffort: responsesEffort,
+      ...(omitState ? { omitState: true } : previousReasoning ? { previousReasoning } : {}),
+    }));
+    const body = useResponses
+      ? buildResponsesBody(false)
+      : JSON.stringify({
+          model: upstreamModel,
+          messages: requestMessages,
+          temperature: options?.temperature,
+          max_tokens: options?.max_tokens,
+          top_p: options?.top_p,
+          tools: options?.tools,
+          tool_choice: options?.tool_choice,
+          parallel_tool_calls: options?.parallel_tool_calls,
+          ...(options?.reasoning_effort ? { reasoning_effort: this.clampReasoningEffort(options.reasoning_effort, modelId) } : {}),
+        });
+    const headers = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      ...this.extraHeaders,
+      ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
+    };
+    let res = await this.fetchWithTimeout(url, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        ...this.extraHeaders,
-        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
-      },
-      body: JSON.stringify({
-        model: upstreamModel,
-        messages: requestMessages,
-        temperature: options?.temperature,
-        max_tokens: options?.max_tokens,
-        top_p: options?.top_p,
-        tools: options?.tools,
-        tool_choice: options?.tool_choice,
-        parallel_tool_calls: options?.parallel_tool_calls,
-        ...(options?.reasoning_effort ? { reasoning_effort: this.clampReasoningEffort(options.reasoning_effort, modelId) } : {}),
-      }),
+      headers,
+      body,
     }, transport.timeoutMs, options?.signal);
+
+    // Fail-open: gateways that do not know `store`/`include` answer 400
+    // `unknown parameter`. Retry once without the stateless-reasoning state
+    // instead of failing a usable model.
+    if (useResponses && !res.ok && res.status === 400) {
+      const probe: unknown = await res.clone().json().catch(() => null);
+      if (isResponsesStateError(probe)) {
+        if (process.env.GLORYAPI_DEBUG_RESPONSES === '1') console.info(`[${this.name}] responses state fallback (omit store/include)`);
+        res = await this.fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: buildResponsesBody(true),
+        }, transport.timeoutMs, options?.signal);
+      } else if (previousReasoning?.length && isResponsesReplayError(probe)) {
+        if (process.env.GLORYAPI_DEBUG_RESPONSES === '1') console.info(`[${this.name}] responses replay fallback (omit replay)`);
+        res = await this.fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: buildResponsesBody(true),
+        }, transport.timeoutMs, options?.signal);
+      }
+    }
 
     if (!res.ok) {
       const err: unknown = await res.json().catch(() => null);
@@ -245,6 +337,26 @@ export class OpenAICompatProvider extends BaseProvider {
       const msg = `${this.name} API error ${res.status}: ${getProviderErrorMessage(err, res.statusText)}`;
       logFailedRequest(this.platform, res.status, { model: upstreamModel, messages: requestMessages, options }, msg);
       throw new Error(msg);
+    }
+
+    if (useResponses) {
+      const raw = await res.json() as Record<string, unknown>;
+      if (raw.status === 'failed') {
+        const error = (raw.error ?? {}) as Record<string, unknown>;
+        const msg = `${this.name} API error: ${typeof error.message === 'string' ? error.message : 'response failed'}`;
+        logFailedRequest(this.platform, 500, { model: upstreamModel, messages: requestMessages, options }, msg);
+        throw new Error(msg);
+      }
+      const newReasoning = extractReasoningItems(raw);
+      if (newReasoning.length > 0) storeResponsesReasoning(requestMessages, upstreamModel, newReasoning);
+      if (process.env.GLORYAPI_DEBUG_RESPONSES === '1') {
+        console.info(`[${this.name}] responses replay hit=${previousReasoning?.length ? 1 : 0} prevBytes=${responsesReplayBytes(previousReasoning)} newItems=${newReasoning.length}`);
+      }
+      const data = translateResponsesResponse(raw, upstreamModel);
+      assertEffectiveModel(data, upstreamModel, Boolean(options?.tools?.length));
+      normalizeChoices(data);
+      data._routed_via = { platform: this.platform, model: modelId };
+      return data;
     }
 
     const data = await res.json() as ChatCompletionResponse;
@@ -263,28 +375,65 @@ export class OpenAICompatProvider extends BaseProvider {
     const requestMessages = this.prepareMessages ? this.prepareMessages(messages) : messages;
     const transport = this.effectiveTransport(modelId);
     const upstreamModel = this.upstreamModelId(modelId, transport);
-    const res = await this.fetchWithTimeout(`${transport.baseUrl}/chat/completions`, {
+    const useResponses = this.endpointKindFor(modelId) === 'responses';
+    const url = useResponses ? `${transport.baseUrl}/responses` : `${transport.baseUrl}/chat/completions`;
+    const previousReasoning = useResponses ? lookupResponsesReasoning(requestMessages, upstreamModel) : undefined;
+    const responsesEffort = options?.reasoning_effort
+      ? clampResponsesEffort(options.reasoning_effort, modelId, this.modelReasoningLimits, this.maxReasoningEffort)
+      : undefined;
+    const buildResponsesBody = (omitState: boolean): string => JSON.stringify(translateChatRequestToResponses({
+      model: upstreamModel,
+      messages: requestMessages,
+      options,
+      stream: true,
+      reasoningEffort: responsesEffort,
+      ...(omitState ? { omitState: true } : previousReasoning ? { previousReasoning } : {}),
+    }));
+    const body = useResponses
+      ? buildResponsesBody(false)
+      : JSON.stringify({
+          model: upstreamModel,
+          messages: requestMessages,
+          temperature: options?.temperature,
+          max_tokens: options?.max_tokens,
+          top_p: options?.top_p,
+          tools: options?.tools,
+          tool_choice: options?.tool_choice,
+          parallel_tool_calls: options?.parallel_tool_calls,
+          ...(options?.reasoning_effort ? { reasoning_effort: this.clampReasoningEffort(options.reasoning_effort, modelId) } : {}),
+          ...(this.includeStreamUsage ? { stream_options: { include_usage: true } } : {}),
+          stream: true,
+        });
+    const headers = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      ...this.extraHeaders,
+      ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
+    };
+    let res = await this.fetchWithTimeout(url, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        ...this.extraHeaders,
-        ...(options?.requestId ? { 'X-Glory-Request-Id': options.requestId } : {}),
-      },
-      body: JSON.stringify({
-        model: upstreamModel,
-        messages: requestMessages,
-        temperature: options?.temperature,
-        max_tokens: options?.max_tokens,
-        top_p: options?.top_p,
-        tools: options?.tools,
-        tool_choice: options?.tool_choice,
-        parallel_tool_calls: options?.parallel_tool_calls,
-        ...(options?.reasoning_effort ? { reasoning_effort: this.clampReasoningEffort(options.reasoning_effort, modelId) } : {}),
-        ...(this.includeStreamUsage ? { stream_options: { include_usage: true } } : {}),
-        stream: true,
-      }),
+      headers,
+      body,
     }, transport.timeoutMs, options?.signal);
+
+    if (useResponses && !res.ok && res.status === 400) {
+      const probe: unknown = await res.clone().json().catch(() => null);
+      if (isResponsesStateError(probe)) {
+        if (process.env.GLORYAPI_DEBUG_RESPONSES === '1') console.info(`[${this.name}] responses state fallback (omit store/include)`);
+        res = await this.fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: buildResponsesBody(true),
+        }, transport.timeoutMs, options?.signal);
+      } else if (previousReasoning?.length && isResponsesReplayError(probe)) {
+        if (process.env.GLORYAPI_DEBUG_RESPONSES === '1') console.info(`[${this.name}] responses replay fallback (omit replay)`);
+        res = await this.fetchWithTimeout(url, {
+          method: 'POST',
+          headers,
+          body: buildResponsesBody(true),
+        }, transport.timeoutMs, options?.signal);
+      }
+    }
 
     if (!res.ok) {
       const err: unknown = await res.json().catch(() => null);
@@ -295,6 +444,22 @@ export class OpenAICompatProvider extends BaseProvider {
       const msg = `${this.name} API error ${res.status}: ${getProviderErrorMessage(err, res.statusText)}`;
       logFailedRequest(this.platform, res.status, { model: upstreamModel, messages: requestMessages, options }, msg);
       throw new Error(msg);
+    }
+
+    if (useResponses) {
+      const collector: { reasoningItems?: import('./responses/reasoning-cache.js').ResponsesReasoningItem[] } = {};
+      yield* translateResponsesStream({
+        response: res,
+        providerName: this.name,
+        upstreamModel,
+        options,
+        collector,
+      });
+      if (collector.reasoningItems?.length) storeResponsesReasoning(requestMessages, upstreamModel, collector.reasoningItems);
+      if (process.env.GLORYAPI_DEBUG_RESPONSES === '1') {
+        console.info(`[${this.name}] responses replay hit=${previousReasoning?.length ? 1 : 0} prevBytes=${responsesReplayBytes(previousReasoning)} newItems=${collector.reasoningItems?.length ?? 0}`);
+      }
+      return;
     }
 
     yield* streamOpenAICompatStream({

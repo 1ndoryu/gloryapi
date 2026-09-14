@@ -42,6 +42,7 @@ export function recordRoutingTraceAttempt(
     || reason === 'schema_incompatible'
     || reason === 'schema_mismatch'
     || reason === 'rate_limited'
+    || reason === 'quota_exhausted'
     || reason === 'request_timeout'
     || reason === 'cold_start_timeout'
     || reason === 'stream_truncated'

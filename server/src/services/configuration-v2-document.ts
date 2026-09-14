@@ -2,7 +2,7 @@ import { getDb } from '../db/index.js';
 import { ConfigurationRevisionConflictError, ConfigurationValidationError, normalizeBridgeContextWindow, type ConfigurationSnapshot } from './configuration-v2-contract.js';
 import { abandonIdempotency, claimIdempotency, completeIdempotency, normalizeIdempotencyKey } from './configuration-v2-idempotency.js';
 import { getConfigurationSnapshot } from './configuration-v2-catalog.js';
-import { reconcileDesktopPickerAliases } from './configuration-v2-picker.js';
+import { reconcileBridgePickerIds } from './configuration-v2-picker.js';
 import { serializeConfigurationState } from './configuration-v2-snapshot.js';
 import { currentConfigurationRevision, getRevision, writeRevision } from './configuration-v2-storage.js';
 import { validateProviderEndpoint } from './configuration-v2-provider.js';
@@ -184,7 +184,7 @@ export function applyConfigurationDocument(
       const entry = record(value, 'catalog entry');
       catalogInsert.run(entry.integration ?? 'codex-bridge', entry.externalSlug ?? entry.external_slug, entry.routeId ?? entry.route_id, entry.modelDbId ?? entry.model_db_id ?? null, entry.pickerId ?? entry.picker_id ?? null, entry.displayName ?? entry.display_name ?? entry.externalSlug ?? entry.external_slug, entry.nativeVision === true || entry.native_vision === 1 ? 1 : 0, entry.supportsReasoning === true || entry.supports_reasoning === 1 ? 1 : 0, normalizeDocumentContextWindow(entry.contextWindow ?? entry.context_window), entry.visible === false || entry.visible === 0 ? 0 : 1, Number(entry.sortOrder ?? entry.sort_order ?? 0));
     }
-    reconcileDesktopPickerAliases(db);
+    reconcileBridgePickerIds(db);
     const autoMembers = db.prepare("SELECT model_db_id, priority, enabled FROM routing_route_members WHERE route_id = 'route:auto' ORDER BY priority").all() as Array<{ model_db_id: number; priority: number; enabled: number }>;
     db.prepare('DELETE FROM fallback_config').run();
     const fallbackInsert = db.prepare('INSERT INTO fallback_config (model_db_id, priority, enabled) VALUES (?, ?, ?)');

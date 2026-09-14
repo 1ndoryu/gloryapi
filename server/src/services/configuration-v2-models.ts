@@ -2,7 +2,7 @@ import { getDb } from '../db/index.js';
 import { AUTO_ROUTE_ID, BRIDGE_INTEGRATION, ConfigurationRevisionConflictError, ConfigurationValidationError, normalizeBridgeContextWindow, safeRouteId, type ConfigurationRouteKind, type ConfigurationSnapshot } from './configuration-v2-contract.js';
 import { abandonIdempotency, claimIdempotency, completeIdempotency, normalizeIdempotencyKey } from './configuration-v2-idempotency.js';
 import { getConfigurationSnapshot } from './configuration-v2-catalog.js';
-import { allocateDesktopPickerAlias, requireDesktopPickerAlias } from './configuration-v2-picker.js';
+import { allocatePickerId, requirePickerId } from './configuration-v2-picker.js';
 import { ensureMember, ensureRoute, getRevision, writeRevision } from './configuration-v2-storage.js';
 
 function assertReasoningCapability(db: ReturnType<typeof getDb>, platform: string, supportsReasoning: boolean): void {
@@ -109,13 +109,13 @@ export function updateConfigurationModel(
     const currentRevision = getRevision(db);
     if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) throw new ConfigurationRevisionConflictError(currentRevision);
     const current = db.prepare(`
-      SELECT m.id, m.platform, m.display_name, m.enabled, m.context_window, m.native_vision, m.supports_reasoning, m.capabilities_explicit,
+      SELECT m.id, m.platform, m.model_id, m.display_name, m.enabled, m.context_window, m.native_vision, m.supports_reasoning, m.capabilities_explicit,
              MAX(CASE WHEN c.integration = ? AND c.visible = 1 THEN 1 ELSE 0 END) AS bridge_visible,
              MAX(CASE WHEN c.integration = ? THEN c.picker_id ELSE NULL END) AS picker_id
       FROM models m LEFT JOIN client_catalog_entries c ON c.model_db_id = m.id
       WHERE m.id = ? GROUP BY m.id
     `).get(BRIDGE_INTEGRATION, BRIDGE_INTEGRATION, modelDbId) as {
-      id: number; platform: string; display_name: string; enabled: number; context_window: number | null; native_vision: number; supports_reasoning: number; capabilities_explicit: number; bridge_visible: number; picker_id: string | null;
+      id: number; platform: string; model_id: string; display_name: string; enabled: number; context_window: number | null; native_vision: number; supports_reasoning: number; capabilities_explicit: number; bridge_visible: number; picker_id: string | null;
     } | undefined;
     if (!current) throw new ConfigurationValidationError(`Model '${modelDbId}' does not exist`);
     const next = {
@@ -132,15 +132,15 @@ export function updateConfigurationModel(
         ? current.picker_id
         : input.pickerId === null
           ? null
-          : requireDesktopPickerAlias(input.pickerId),
+          : requirePickerId(input.pickerId),
     };
     if (!next.displayName.trim()) throw new ConfigurationValidationError('displayName cannot be empty');
     assertReasoningCapability(db, current.platform, next.supportsReasoning === 1);
     if (next.bridgeVisible && !next.pickerId) {
-      next.pickerId = allocateDesktopPickerAlias(db, modelDbId);
+      next.pickerId = allocatePickerId(db, modelDbId, current.model_id);
     }
     if (next.bridgeVisible && !next.pickerId) {
-      throw new ConfigurationValidationError('No compatible Codex Desktop picker alias is available; hide another model or assign a free alias');
+      throw new ConfigurationValidationError('No free bridge picker id is available; hide another model or assign one explicitly');
     }
     if (next.pickerId) {
       const owner = db.prepare(`
@@ -239,11 +239,11 @@ export function createConfigurationModel(input: {
     ensureRoute(db, routeId, displayName, 'pinned', true);
     ensureMember(db, routeId, modelDbId, 1, true);
     const pickerId = input.pickerId === undefined
-      ? allocateDesktopPickerAlias(db)
-      : requireDesktopPickerAlias(input.pickerId);
+      ? allocatePickerId(db, undefined, modelId)
+      : requirePickerId(input.pickerId);
     const bridgeVisible = input.bridgeVisible === undefined ? pickerId !== null : input.bridgeVisible;
     if (bridgeVisible && !pickerId) {
-      throw new ConfigurationValidationError('No compatible Codex Desktop picker alias is available; create the model with bridgeVisible=false or free an alias');
+      throw new ConfigurationValidationError('No free bridge picker id is available; create the model with bridgeVisible=false or assign one explicitly');
     }
     if (pickerId) {
       const owner = db.prepare('SELECT model_db_id FROM client_catalog_entries WHERE integration = ? AND picker_id = ?')
@@ -331,7 +331,7 @@ export function materializeConfigurationModels(
       const routeId = safeRouteId(normalizedPlatform, model.modelId);
       ensureRoute(db, routeId, model.displayName, 'pinned', true);
       ensureMember(db, routeId, modelDbId, 1, true);
-      const pickerId = allocateDesktopPickerAlias(db);
+      const pickerId = allocatePickerId(db, undefined, model.modelId);
       insertCatalog.run(
         BRIDGE_INTEGRATION,
         `${normalizedPlatform}/${model.modelId}`,

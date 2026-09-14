@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAICompatProvider, replaceNullAssistantContent } from '../../providers/openai-compat.js';
+import { OpenAICompatProvider, replaceNullAssistantContent, stripEmptyReasoning, fillMissingToolReasoning } from '../../providers/openai-compat.js';
 
 describe('OpenAICompatProvider - content normalization', () => {
   let provider: OpenAICompatProvider;
@@ -27,6 +27,51 @@ describe('OpenAICompatProvider - content normalization', () => {
     expect(normalized[0].reasoning_content).toBe('thinking trace');
     expect(normalized[0].tool_calls?.[0].function.name).toBe('lookup');
     expect(normalized[1].content).toBe('hi');
+  });
+
+  it('stripEmptyReasoning drops empty reasoning fields that strict gateways reject (039A-1g)', () => {
+    const normalized = stripEmptyReasoning([
+      { role: 'assistant', content: 'answer', reasoning_content: '' },
+      { role: 'assistant', content: 'answer', reasoning_content: 'real trace', reasoning: '' },
+      { role: 'user', content: 'hi' },
+    ]);
+
+    expect('reasoning_content' in normalized[0]).toBe(false);
+    expect(normalized[0].content).toBe('answer');
+    expect(normalized[1].reasoning_content).toBe('real trace');
+    expect('reasoning' in normalized[1]).toBe(false);
+    expect(normalized[2].content).toBe('hi');
+  });
+
+  it('stripEmptyReasoning drops foreign reasoning on tool-call turns (gateway-issued carrier rule)', () => {
+    const toolCall = { id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{}' } };
+    const normalized = stripEmptyReasoning([
+      { role: 'assistant', content: 'looking up', reasoning_content: 'foreign trace', tool_calls: [toolCall] },
+    ]);
+
+    expect('reasoning_content' in normalized[0]).toBe(false);
+    expect(normalized[0].tool_calls).toHaveLength(1);
+    expect(normalized[0].content).toBe('looking up');
+  });
+
+  it('fillMissingToolReasoning marks empty tool-call reasoning so DeepSeek thinking accepts cross-model histories (089A-4)', () => {
+    const toolCall = (id: string) => ({ id, type: 'function', function: { name: 'lookup', arguments: '{}' } });
+    const normalized = fillMissingToolReasoning([
+      { role: 'assistant', content: '', reasoning_content: '', tool_calls: [toolCall('call_1')] },
+      { role: 'assistant', content: '', tool_calls: [toolCall('call_2'), toolCall('call_3')] },
+      { role: 'assistant', content: '', reasoning_content: 'real trace', tool_calls: [toolCall('call_4')] },
+      { role: 'assistant', content: '', reasoning: 'bare trace', tool_calls: [toolCall('call_5')] },
+      { role: 'assistant', content: 'plain answer', reasoning_content: '' },
+      { role: 'user', content: 'hi' },
+    ]);
+
+    expect(normalized[0].reasoning_content).toMatch(/^\[cross-model continuation/);
+    expect(normalized[1].reasoning_content).toMatch(/^\[cross-model continuation/);
+    expect(normalized[2].reasoning_content).toBe('real trace');
+    expect(normalized[3].reasoning_content).toBe('bare trace');
+    expect(normalized[3].reasoning).toBe('bare trace');
+    expect(normalized[4].reasoning_content).toBe('');
+    expect(normalized[5].content).toBe('hi');
   });
 
   it('folds reasoning_content into content when content is empty (Z.ai glm-4.5-flash style)', async () => {

@@ -53,7 +53,10 @@ export function createApp() {
       callback(null, !origin || allowedCorsOrigins.has(origin));
     },
   }));
-  app.use(express.json({ limit: '1mb' }));
+  // Local-only proxy: accept large agentic payloads (long histories + dozens
+  // of tool schemas exceed the 1mb default; see 039A-1f). Upstream provider
+  // context limits still apply — this only stops Express from 413'ing first.
+  app.use(express.json({ limit: '10mb' }));
 
   // API routes
   app.use('/api/keys', keysRouter);

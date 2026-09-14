@@ -39,8 +39,16 @@ const assistantMessageSchema = z.object({
   tool_calls: z.array(toolCallSchema).optional(),
   reasoning_content: z.string().optional(),
   reasoning: z.string().optional(),
-}).refine(msg => hasNonEmptyContent(msg.content) || (msg.tool_calls?.length ?? 0) > 0, {
-  message: 'assistant messages must include non-empty content or tool_calls',
+}).refine(msg => {
+  if (hasNonEmptyContent(msg.content)) return true;
+  if ((msg.tool_calls?.length ?? 0) > 0) return true;
+  // Assistant turns carrying only thinking text (DeepSeek-style clients send
+  // `content: ''` with `reasoning_content` filled) are valid even with no
+  // visible content; a bare empty content (e.g. `content: []`) is not.
+  return (typeof msg.reasoning_content === 'string' && msg.reasoning_content.length > 0)
+    || (typeof msg.reasoning === 'string' && msg.reasoning.length > 0);
+}, {
+  message: 'assistant messages must include non-empty content, reasoning, or tool_calls',
 })
 
 const toolMessageSchema = z.object({
@@ -67,6 +75,83 @@ const toolChoiceSchema = z.union([
     function: z.object({ name: z.string().min(1) }),
   }),
 ])
+
+/**
+ * Repair malformed-but-recoverable request fields before the strict schema
+ * rejects the whole call. Observed from real Copilot-style clients:
+ *   - a function tool whose `function.name` is an empty string;
+ *   - an assistant `tool_calls` entry with an empty `id` or `function.name`;
+ *   - a `tool` message with an empty `tool_call_id` (or referencing a call
+ *     that was dropped);
+ *   - a `tool_choice` object with an empty `function.name`.
+ * A tool/call that cannot be named is unusable anyway, so dropping it (and
+ * its orphaned `tool` result) keeps the conversation coherent instead of
+ * rejecting the whole request with a 400.
+ */
+export function sanitizeChatRequest(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return body;
+  const record = body as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...record };
+
+  if (Array.isArray(record.tools)) {
+    const kept = (record.tools as unknown[]).filter(tool => {
+      if (!tool || typeof tool !== 'object' || Array.isArray(tool)) return false;
+      const candidate = tool as { type?: unknown; function?: { name?: unknown } };
+      if (candidate.type !== 'function' || !candidate.function || typeof candidate.function !== 'object') return false;
+      return typeof candidate.function.name === 'string' && candidate.function.name.trim().length > 0;
+    });
+    result.tools = kept.length > 0 ? kept : undefined;
+  }
+
+  if (record.tool_choice && typeof record.tool_choice === 'object' && !Array.isArray(record.tool_choice)) {
+    const choice = record.tool_choice as Record<string, unknown>;
+    const fn = choice.function as Record<string, unknown> | undefined;
+    const name = fn && typeof fn === 'object' ? fn.name : '';
+    if (choice.type === 'function' && (typeof name !== 'string' || !String(name).trim())) {
+      result.tool_choice = 'auto';
+    }
+  }
+
+  if (Array.isArray(record.messages)) {
+    const droppedCallIds = new Set<string>();
+    const messages: unknown[] = [];
+    for (const message of record.messages as unknown[]) {
+      if (!message || typeof message !== 'object' || Array.isArray(message)) {
+        messages.push(message);
+        continue;
+      }
+      const msg = message as Record<string, unknown>;
+      if (msg.role === 'assistant' && Array.isArray(msg.tool_calls)) {
+        const keptCalls: unknown[] = [];
+        for (const call of msg.tool_calls as unknown[]) {
+          if (!call || typeof call !== 'object' || Array.isArray(call)) continue;
+          const candidate = call as { id?: unknown; function?: { name?: unknown } };
+          const id = typeof candidate.id === 'string' ? candidate.id : '';
+          const name = candidate.function && typeof candidate.function === 'object' ? candidate.function.name : '';
+          if (id.trim() && typeof name === 'string' && name.trim()) {
+            keptCalls.push(call);
+          } else if (id.trim()) {
+            droppedCallIds.add(id);
+          } else {
+            // Empty-id calls are dropped; their tool results (also with empty
+            // ids) are removed below.
+            droppedCallIds.add('');
+          }
+        }
+        messages.push({ ...msg, tool_calls: keptCalls.length > 0 ? keptCalls : undefined });
+        continue;
+      }
+      if (msg.role === 'tool') {
+        const callId = typeof msg.tool_call_id === 'string' ? msg.tool_call_id : '';
+        if (!callId.trim() || droppedCallIds.has(callId)) continue;
+      }
+      messages.push(message);
+    }
+    result.messages = messages;
+  }
+
+  return result;
+}
 
 export const chatCompletionSchema = z.object({
   messages: z.array(z.union([

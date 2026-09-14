@@ -5,6 +5,7 @@
 import type { Request, Response } from 'express';
 import {
   chatCompletionSchema,
+  sanitizeChatRequest,
   isToolSchemaCompatibilityError as classifyToolSchemaError,
   toCanonicalChatRequest,
   type CanonicalChatRequest,
@@ -115,6 +116,10 @@ export function prepareChatRequest(req: Request, res: Response): {
     });
     return null;
   }
+
+  // Repair malformed-but-recoverable fields (empty tool names, broken tool
+  // call ids) before the strict schema rejects the whole request.
+  req.body = sanitizeChatRequest(req.body);
 
   // Validate request
   const parsed = chatCompletionSchema.safeParse(req.body);

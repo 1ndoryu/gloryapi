@@ -25,6 +25,17 @@ async function main() {
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
+  // No silent deaths (039A-1e): :3101 once died without a trace in the log.
+  // Leave evidence and exit non-zero so the supervisor scripts can restart it.
+  process.on('uncaughtException', (error) => {
+    console.error('[fatal] uncaughtException:', error);
+    try { closeRoutingEventSubscribers(); } catch { /* best effort */ }
+    server.close(() => process.exit(1));
+    setTimeout(() => process.exit(1), 5000).unref();
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[fatal] unhandledRejection:', reason);
+  });
 }
 
 main().catch(console.error);

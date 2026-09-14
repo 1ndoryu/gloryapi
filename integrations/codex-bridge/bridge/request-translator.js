@@ -37,6 +37,7 @@ function createRequestTranslator({ config, describeImage, describeImageResult, e
   const FALLBACK_REASONING = config.reasoning.fallback;
   const NUDGE_RETRIES = config.recovery.nudgeRetries;
   const EXECUTION_DIRECTIVE = config.recovery.executionDirective;
+  const LOOP_DIRECTIVE = config.recovery.loopDirective || '';
   const toolProfile = resolveToolProfile(config.tools.profile);
   const toolSearchMode = config.tools.toolSearchMode || (toolProfile.name === 'generic' ? 'client' : 'direct');
   const TOOL_SEARCH_DIRECTIVE = config.recovery.toolSearchDirective ||
@@ -828,6 +829,14 @@ async function translateRequest(body) {
   // un payload inválido vacío (que debe seguir siendo 400 invalid_request).
   if (chat.messages.length > 0 && chat.tools && chat.tools.length && NUDGE_RETRIES > 0) {
     chat.messages.push({ role: 'system', content: EXECUTION_DIRECTIVE });
+  }
+  // Anti-loop master prompt (039A-1d): own trailing system message, next to
+  // the execution directive (never mutates Codex's system). Gated only on
+  // its own text — independent of NUDGE_RETRIES — so stub configs without it
+  // simply skip it. The empty-payload guard above still applies: no
+  // conversation is created from an invalid empty body.
+  if (chat.messages.length > 0 && chat.tools && chat.tools.length && LOOP_DIRECTIVE) {
+    chat.messages.push({ role: 'system', content: LOOP_DIRECTIVE });
   }
 
   return { chat, toolMap, customTools };

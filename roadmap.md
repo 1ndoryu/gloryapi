@@ -5,12 +5,71 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
 
 ## Siguiente bloque ejecutable
 
+- **039A-1 — Replay de razonamiento Muse en VS Code** *(activa; implementación lista, pendiente de validación funcional en VS Code)*:
+  el transporte `responses` ahora envía siempre `store:false` + `include:["reasoning.encrypted_content"]`,
+  captura el item `reasoning` en stream y no-stream por canal lateral y lo reinyecta en el turno
+  continuado por prefijo de historial (caché solo-memoria LRU 100/TTL 30 min/32 KB, metadata-only).
+  Plan en `Agente/planes/plan-muse-replay-vscode-2026-09-03.md`; runtime `:3101` reiniciado el
+  2026-09-03 desde `dist` reconstruido (pid nuevo, `GLORYAPI_DEBUG_RESPONSES=1`, log en
+  `C:\tmp\glory-3101-039A-1.log`); 039A-1b corrigió el 400 `missing required field summary` del
+  replay y 039A-1c la coerción de floats integrales en args de tools (bucle `15000.0 vs u64` visto en
+  sesión Desktop con Terra=Muse-Go). 039A-1d añadió prompt maestro anti-bucle al bridge
+  (`BRIDGE_LOOP_DIRECTIVE`, off con `=0`; bridge `:4100` reiniciado). Decisión registrada: Muse no
+  se usa en VS Code (allí DeepSeek); su camino es CLI + ChatGPT Desktop.
 - **18A-2 — Autenticación de visión Mimo en el bridge** *(activa; pendiente de reintento funcional)*:
   la imagen llega correctamente, pero la ruta primaria anónima devolvió `HTTP 401`. El launcher ahora
-  usa la credencial DPAPI de OpenCode Zen para `mimo-v2.5-free` por defecto, conserva OpenCode Go como
+  usa la credencial DPAPI de OpenCode Zen para `mimo-v2.5-free` por defecto,   conserva OpenCode Go como
   fallback autenticado y deja trazas metadata-only que distinguen ambas rutas. El bridge live está
   `ready`, con `primaryAuth=present` y `fallbackAuth=1`; siguiente paso: reabrir Desktop con
   `-RefreshConfig` y repetir el adjunto.
+- **089A-1 — APInex DeepSeek V4 Pro con cooldown de cuota separable** *(activa; `:3101` reiniciado el 2026-09-10 — DB ya efectiva; pendiente E2E: probe + `bridge sync` + reinicio `:4100`)*:
+  nuevo código `quota_exhausted` separado de `rate_limited` (`402`/mensajes de cupo gastado) y
+  `failurePolicy.quotaCooldownMs` por proveedor (hereda `rateLimitCooldownMs` → `cooldownMs`);
+  proveedor `apinex` (`https://apinex.bond/v1`, `deepseek-thinking`, `quotaCooldownMs:86400000`) y
+  modelo `free/deepseek-v4-pro-0813` solo-explícito (fuera de Auto, ruta fijada, key id 28 en DPAPI)
+  ya escritos en DB (rev 131); el `:3101` vivo aún no los ve — siguiente paso autorizado: reiniciar
+  `:3101`, probe E2E `:3101` + `bridge sync` + reinicio `:4100`. Suite 351/351 y `tsc` limpios.
+- **089A-2 — VyceAI GPT Luna (`gpt-5.6-new`)** *(cerrada por 089A-3: proveedor y modelo deshabilitados, key borrada)*:
+  probe directo `200` en 26s con contenido plano (`reasoning_tokens:0`, sin traza); el catálogo de la
+  key no trae ningún id `luna` y pedir un id inexistente deja la conexión colgada (Vyce no devuelve
+  404: usar siempre timeout). Proveedor `vyceai` (`https://vyceai.com/v1`, perfil `none`,
+  `reasoning:false`, `quotaCooldownMs:86400000`) y modelo `vyceai/gpt-5.6-new` ("GPT Luna (VyceAI)",
+  solo-explícito, key id 29 en DPAPI) en DB rev 133; efectivo tras reinicio `:3101`.
+  Evaluación 2026-09-08: identidad 1/5 — se declara "GPT-5, created by OpenAI", NO Luna (el resto de
+  probes de identidad dio 500); razonamiento 2/2 correctas con justificación (cajas mixtas, bat-ball
+  $0.05 con álgebra) pero sin traza observable (`reasoning_tokens:0`); seguridad SIN VEREDICTO (los
+  probes SAF devolvieron 500, no refusals); fiabilidad mala — racha de `500 internal_error` tras
+  ~121s en todo (incluso trivial) que persistía 15 min después. No fiable para uso real hoy;
+  re-probar en otro momento. No usar `C:\tmp` para scripts que deban sobrevivir: algo los borra.
+- **089A-3 — Baja de VyceAI + CommandCode flash a 4.1** *(efectiva tras el reinicio `:3101` del 2026-09-10)*:
+  VyceAI dado de baja (modelo 174458 y proveedor deshabilitados, key 29 borrada) por identidad
+  falsa y racha de 500s. CommandCode: upstream trae `deepseek/deepseek-v4.1-flash`; probe directo OK
+  (391 correcto en 2.4s) salvo pregunta de identidad (contenido vacío; su campo oculto `reasoning`
+  divaga "ChatGPT/GPT-4.1/o3" —_setting reportado, las respuestas normales sí sirven). Alta 174459
+  (`supportsReasoning:1`, picker propio), baja 109624, Auto conserva prioridades con 4.1 en P3 y el
+  picker `gpt-5.6-auto` intacto. OpenCode Go/Zen NO tienen 4.1 (siguen en `deepseek-v4-flash`;
+  `deepseek-flash` exige header `x-opencode-session`): se dejan como están.
+- **089A-4 — Compat cross-modelo: `fill-tool-reasoning` en CommandCode** *(cerrada 2026-09-10; en producción en `:3101` reiniciado)*:
+  el 400 `request_invalid` ("reasoning_content must be passed back") de VS Code era historial de luna
+  (8 turnos tool con `reasoning_content:""`, incluido el msg 17 con 3 calls en paralelo) cayendo en
+  `cc41` tras reordenar el usuario Auto a cc41-first (rev 164, 07:37:11). Bisección con el body real de
+  `failed_requests.log`: tramos ≤15 msgs → 200, +msg17 → 400, msg17 con marcador → 200 todo el
+  historial; sin `reasoning_effort` también 400. Nuevo `messageProfile 'fill-tool-reasoning'` que
+  rellena reasoning ausente/vacío SOLO en turnos con tool_calls con marcador honesto
+  `[cross-model continuation: ...]` (trazas reales intactas, espejo si hay un solo campo); asignado a
+  `commandcode` (rev 165). Verificado en vivo: replay verbatim del historial → 200; cc41/luna/auto
+  frescos 200. Suite 352/352 + `tsc` limpio. Nota: el orden Auto actual (cc41 P1) lo puso el usuario
+   en dashboard, no el sistema; no tocar.
+- **109A-1 — Alta Experiential Labs `deepseek-v4.1-flash` como `174460`** *(cerrada 2026-09-10,
+  rev 166)*: upstream `/models` lista 321 modelos e incluye `deepseek-v4.1-flash` (además de
+  `deepseek-v4-flash*`, `deepseek-v4-pro*`). Alta vía `POST /api/configuration/models`
+  (solo-explícita, `addToAuto:false`): display `DeepSeek V4.1 Flash (Experiential Labs)`, ctx 150000,
+  `nativeVision:1` (verificado: acepta `image_url` y responde), `supportsReasoning:1` (usage trae
+  `reasoning_tokens` aunque el texto de thinking no se expone), picker `deepseek-v4.1-flash` visible.
+  Verificado vía `:3101`: non-stream `17*23` → `391` con `reasoning_tokens:17`; stream → `stop`
+  (`Hi there friend`). Ojo: con `max_tokens` bajo devuelve `content:null`+`finish:length` (el thinking
+  consume el presupuesto) y se autoidentifica como "ChatGPT/OpenAI". Transporte EL conserva
+  `strip-empty-reasoning`. No se tocó el orden Auto.
 
 La corrección de coherencia del selector y las capacidades quedó validada
 localmente. La UI usa una sola lista de modelos,

@@ -104,9 +104,10 @@ diagnóstico. Aplica con `restart-bridge.ps1`.
 El selector es el picker de modelos de la ventana ChatGPT del bridge. Desktop lee el archivo
 `model_catalog_json` de `C:\Users\Owner\.codex-gloryapi\config.toml`; el endpoint `/v1/models`
 expone el mismo catálogo para clientes compatibles. El catálogo está versionado como
-`glory-bridge-model-catalog-v2` (`bridge/model-catalog.js`). Algunas versiones de Desktop filtran los
-IDs de proveedores personalizados; por eso el archivo local usa alias `pickerId` reconocibles por
-Desktop, pero el bridge los traduce al ID real antes de llamar a GloryAPI. La lista visible procede de
+`glory-bridge-model-catalog-v2` (`bridge/model-catalog.js`). Los IDs del selector son libres:
+cada modelo publica su propio slug como `pickerId` y el bridge lo traduce al ID real antes de llamar
+a GloryAPI. En versiones de Desktop que filtren IDs no reconocidos, un modelo puede no aparecer en su
+picker aunque el bridge lo sirva bien por `/v1/models` y por ID explícito. La lista visible procede de
 la configuración V2; no hay una lista paralela del bridge. Todos los modelos publicados por el bridge
 llevan `input_modalities = ["text", "image"]` porque el adaptador acepta el adjunto y usa Mimo para
 describirlo cuando el modelo elegido no tiene visión nativa. `supports_image_detail_original` solo es

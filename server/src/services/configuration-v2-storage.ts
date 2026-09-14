@@ -16,9 +16,9 @@ import {
   type BridgeVisionModel,
 } from './configuration-v2-contract.js';
 import {
-  allocateDesktopPickerAlias,
-  isDesktopPickerAlias,
-  reconcileDesktopPickerAliases,
+  allocatePickerId,
+  isPickerId,
+  reconcileBridgePickerIds,
 } from './configuration-v2-picker.js';
 
 export interface RoutingModelSnapshot {
@@ -180,9 +180,9 @@ function ensureCatalogEntry(
     'SELECT external_slug, picker_id FROM client_catalog_entries WHERE integration = ? AND model_db_id = ? LIMIT 1',
   ).get(BRIDGE_INTEGRATION, model.id) as { external_slug: string; picker_id: string | null } | undefined;
   const stableExternalSlug = existing?.external_slug || externalSlug;
-  const pickerId = isDesktopPickerAlias(existing?.picker_id)
+  const pickerId = isPickerId(existing?.picker_id)
     ? existing.picker_id
-    : allocateDesktopPickerAlias(db, model.id);
+    : allocatePickerId(db, model.id, model.model_id);
   db.prepare(`
     INSERT INTO client_catalog_entries (
       integration, external_slug, route_id, model_db_id, picker_id, display_name,
@@ -294,7 +294,7 @@ export function ensureConfigurationV2(db: Database.Database): void {
         route_id = excluded.route_id, picker_id = excluded.picker_id,
         display_name = excluded.display_name, visible = 1
     `).run(BRIDGE_INTEGRATION, AUTO_ROUTE_ID, BRIDGE_CONTEXT_WINDOW);
-    return reconcileDesktopPickerAliases(db);
+    return reconcileBridgePickerIds(db);
   })();
 
   ensureFallbackTriggers(db);

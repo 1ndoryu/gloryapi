@@ -22,7 +22,7 @@ export function validateProviderEndpoint(endpoint: string): string {
 }
 
 function validateTransportOptions(input: Partial<ProviderTransportOptions>): ProviderTransportOptions {
-  const allowedProfiles = new Set(['none', 'null-assistant', 'deepseek-thinking']);
+  const allowedProfiles = new Set(['none', 'null-assistant', 'deepseek-thinking', 'strip-empty-reasoning', 'fill-tool-reasoning']);
   const efforts = new Set(['low', 'medium', 'high', 'max']);
   if (input.messageProfile !== undefined && !allowedProfiles.has(input.messageProfile)) throw new ConfigurationValidationError('Unsupported messageProfile');
   if (input.maxReasoningEffort !== undefined && !efforts.has(input.maxReasoningEffort)) throw new ConfigurationValidationError('Unsupported maxReasoningEffort');
@@ -55,9 +55,11 @@ function validateFailurePolicy(input: Partial<ProviderFailurePolicy>): ProviderF
   };
   const cooldownMs = bounded(input.cooldownMs, 'cooldownMs', 86400000) ?? 300000;
   const rateLimitCooldownMs = bounded(input.rateLimitCooldownMs, 'rateLimitCooldownMs', 604800000);
+  const quotaCooldownMs = bounded(input.quotaCooldownMs, 'quotaCooldownMs', 604800000);
   return {
     cooldownMs,
     ...(rateLimitCooldownMs === undefined ? {} : { rateLimitCooldownMs }),
+    ...(quotaCooldownMs === undefined ? {} : { quotaCooldownMs }),
     recordPenalty: input.recordPenalty ?? false,
     recordProviderFailure: input.recordProviderFailure ?? true,
   };

@@ -17,6 +17,7 @@ export type ProxyErrorCode =
   | 'authentication_failed'
   | 'schema_incompatible'
   | 'rate_limited'
+  | 'quota_exhausted'
   | 'request_timeout'
   | 'cold_start_timeout'
   | 'stream_truncated'
@@ -117,6 +118,26 @@ export function classifyProxyError(
 
   if (status === 401 || status === 403 || message.includes('invalid api key') || message.includes('unauthorized')) {
     return classification('authentication', 'authentication_failed', true, 502, 'Provider authentication failed.');
+  }
+
+  /* Cuota agotada (diaria/mensual/de cuenta) frente a 429 transitorio
+   * (límite por minuto, "too many requests"). La distinción es por patrones
+   * de mensaje configurables en el sentido de que cada proveedor ajusta su
+   * `quotaCooldownMs`; el código nuevo permite excluir el modelo por horas
+   * sin exiliar 24h ante un simple pico de tráfico. 402 siempre es cuota. */
+  const looksLikeQuotaExhaustion = status === 402
+    || message.includes('quota')
+    || message.includes('insufficient')
+    || message.includes('out of credit')
+    || message.includes('allowance')
+    || message.includes('exhausted') || message.includes('exhaustion')
+    || message.includes('depleted') || message.includes('depletion')
+    || message.includes('daily') || message.includes('monthly')
+    || message.includes('allocation') || message.includes('budget')
+    || message.includes('usage limit') || message.includes('plan limit')
+    || message.includes('tokens per day') || message.includes('per-day');
+  if (looksLikeQuotaExhaustion) {
+    return classification('rate_limit', 'quota_exhausted', true, 429, 'Provider daily quota exhausted.');
   }
 
   if (status === 402 || status === 429 || message.includes('rate limit') || message.includes('too many requests')

@@ -3,7 +3,6 @@ import { getDb, initDb } from '../../db/index.js';
 import {
   ConfigurationRevisionConflictError,
   ConfigurationValidationError,
-  DESKTOP_PICKER_ALIAS_VALUES,
   createConfigurationModel,
   ensureConfigurationV2,
   exportConfigurationDocument,
@@ -36,11 +35,15 @@ describe('configuration-v2', () => {
     const pickerIds = snapshot.bridge.entries.filter(entry => entry.id !== 'auto').map(entry => entry.pickerId);
     expect(pickerIds).toHaveLength(6);
     expect(new Set(pickerIds).size).toBe(6);
-    expect(pickerIds.every(pickerId => pickerId !== null && DESKTOP_PICKER_ALIAS_VALUES.includes(pickerId))).toBe(true);
+    // Los ids del selector son libres: solo forma válida y unicidad, sin
+    // exigir ranuras compatibles con ChatGPT Desktop.
+    expect(pickerIds.every(pickerId => pickerId !== null && /^[A-Za-z0-9._:/-]{1,128}$/.test(pickerId))).toBe(true);
     expect(pickerIds.some(pickerId => pickerId?.startsWith('gpt-bridge-'))).toBe(false);
-    expect(pickerIds).toContain('gpt-5.4-mini');
-    expect(pickerIds).not.toContain('gpt-5.6-sol-wm');
-    expect(pickerIds).toContain('gpt-5.6-auto');
+    // Sin ranuras Desktop: cada modelo publica su propio slug y las
+    // colisiones se sufijan (-2, …).
+    expect(pickerIds).toContain('deepseek-v4-flash');
+    expect(pickerIds).toContain('deepseek-v4-flash-2');
+    expect(pickerIds).toContain('meta/muse-spark-1.2-contributor');
     expect(pickerIds).not.toContain('gpt-5.6-sol');
   });
 
@@ -142,7 +145,7 @@ describe('configuration-v2', () => {
     expect(() => updateConfigurationModel(model.modelDbId, { expectedRevision: 99, enabled: false })).toThrow(ConfigurationRevisionConflictError);
   });
 
-  it('migrates legacy hashed picker ids once and keeps the repaired catalog stable', () => {
+  it('keeps existing picker ids stable instead of forcing Desktop aliases', () => {
     const db = getDb();
     const rows = db.prepare("SELECT model_db_id FROM client_catalog_entries WHERE integration = 'codex-bridge' AND model_db_id IS NOT NULL ORDER BY sort_order, model_db_id").all() as Array<{ model_db_id: number }>;
     const update = db.prepare("UPDATE client_catalog_entries SET picker_id = ? WHERE integration = 'codex-bridge' AND model_db_id = ?");
@@ -152,21 +155,24 @@ describe('configuration-v2', () => {
     ensureConfigurationV2(db);
     const repaired = getConfigurationSnapshot();
     const repairedIds = repaired.bridge.entries.filter(entry => entry.id !== 'auto').map(entry => entry.pickerId);
-    expect(repairedIds).toEqual(DESKTOP_PICKER_ALIAS_VALUES);
-    expect(repaired.revision).toBe(beforeRevision + 1);
+    // Los ids legacy ya son válidos como ids libres: se conservan y no hay
+    // revisión nueva.
+    expect(repairedIds).toEqual(rows.map((_, index) => `gpt-bridge-legacy-${index}`));
+    expect(repaired.revision).toBe(beforeRevision);
 
     ensureConfigurationV2(db);
-    expect(getConfigurationSnapshot().revision).toBe(repaired.revision);
+    expect(getConfigurationSnapshot().revision).toBe(beforeRevision);
   });
 
-  it('exposes picker aliases in the model schema and rejects alias collisions', () => {
+  it('exposes a free-form picker id in the model schema and rejects collisions', () => {
     const snapshot = getConfigurationSnapshot();
     const pickerField = snapshot.schema.fields.find(field => field.scope === 'model' && field.key === 'pickerId');
-    expect(pickerField?.options?.map(option => option.value)).toEqual(DESKTOP_PICKER_ALIAS_VALUES);
+    expect(pickerField?.type).toBe('text');
+    expect(pickerField?.options).toBeUndefined();
     const [first, second] = snapshot.models;
     expect(() => updateConfigurationModel(second.modelDbId, {
       expectedRevision: snapshot.revision,
-      pickerId: first.pickerId,
+      pickerId: first.pickerId!,
       actor: 'test',
       source: 'test',
     })).toThrow(/already assigned/);
@@ -227,7 +233,7 @@ describe('configuration-v2', () => {
     expect(getRouteModelIds('route:auto')).toHaveLength(4);
   });
 
-  it('materializes provider model selections once and keeps a pinned route when picker slots are exhausted', () => {
+  it('materializes provider model selections with a free picker id and a pinned route', () => {
     const before = getConfigurationSnapshot();
     const selection = {
       modelId: 'example/selected',
@@ -242,12 +248,32 @@ describe('configuration-v2', () => {
     expect(repeated.revision).toBe(after.revision);
     const model = repeated.models.find(candidate => candidate.platform === 'example-provider' && candidate.modelId === selection.modelId)!;
     expect(model).toBeTruthy();
-    expect(model.bridgeVisible).toBe(false);
-    expect(model.pickerId).toBeNull();
+    expect(model.bridgeVisible).toBe(true);
+    expect(model.pickerId).toBe('example/selected');
     const pinnedRoute = model.routeIds.find(routeId => routeId !== 'route:auto');
     expect(pinnedRoute).toBeTruthy();
     expect(getRouteModelIds(pinnedRoute!)).toEqual([model.modelDbId]);
-    expect(repeated.bridge.entries.find(candidate => candidate.id === 'example-provider/example/selected')).toBeUndefined();
+    expect(repeated.bridge.entries.find(candidate => candidate.id === 'example-provider/example/selected')?.pickerId).toBe('example/selected');
+  });
+
+  it('accepts free picker ids and rejects malformed ones', () => {
+    const created = createConfigurationModel({
+      platform: 'free-provider',
+      modelId: 'free/model',
+      displayName: 'Free model',
+      pickerId: 'my-custom-picker',
+      actor: 'test',
+      source: 'test',
+    });
+    expect(created.models.find(model => model.platform === 'free-provider' && model.modelId === 'free/model')?.pickerId).toBe('my-custom-picker');
+    expect(() => createConfigurationModel({
+      platform: 'free-provider',
+      modelId: 'other/model',
+      displayName: 'Other model',
+      pickerId: 'con espacios y ñ',
+      actor: 'test',
+      source: 'test',
+    })).toThrow(/pickerId must match/);
   });
 
   it('exports and rolls back a complete revision without resurrecting post-snapshot models', () => {

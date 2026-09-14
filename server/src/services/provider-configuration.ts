@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { CapabilityProfile, ProviderAdapterKind, ProviderLifecycle } from '@gloryapi/shared/types.js';
 
-export type ProviderMessageProfile = 'none' | 'null-assistant' | 'deepseek-thinking';
+export type ProviderMessageProfile = 'none' | 'null-assistant' | 'deepseek-thinking' | 'strip-empty-reasoning' | 'fill-tool-reasoning';
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'max';
 
 export interface ProviderTransportOptions {
@@ -13,11 +13,19 @@ export interface ProviderTransportOptions {
   modelAliases: Record<string, string>;
   modelReasoningLimits: Record<string, ReasoningEffort>;
   extraHeadersProfile: 'none' | 'openrouter';
+  /** Per-model wire protocol override (substring-matched against the model
+   * id). `responses` routes the model through the OpenAI Responses API
+   * (`/responses`), which OpenCode Go requires for Muse Spark; everything
+   * else keeps the chat-completions contract. */
+  endpointKinds?: Record<string, 'chat' | 'responses'>;
 }
 
 export interface ProviderFailurePolicy {
   cooldownMs: number;
   rateLimitCooldownMs?: number;
+  /** Exclusión tras agotar cuota (diaria/mensual). Por proveedor y opcional:
+   * si no se define, hereda rateLimitCooldownMs y luego cooldownMs. */
+  quotaCooldownMs?: number;
   recordPenalty: boolean;
   recordProviderFailure: boolean;
 }
@@ -66,6 +74,11 @@ const DEEPSEEK_THINKING_TRANSPORT: ProviderTransportOptions = {
   modelReasoningLimits: { mimo: 'high', minimax: 'high' },
   extraHeadersProfile: 'none',
 };
+
+/** OpenCode Go serves Muse Spark (and Grok / GPT-5.6 Luna) exclusively through
+ * its Responses API endpoint; DeepSeek and the GLM/Kimi family stay on the
+ * chat-completions contract. Per-model override, substring-matched. */
+const OPENCODE_GO_ENDPOINT_KINDS: Record<string, 'chat' | 'responses'> = { muse: 'responses' };
 
 const DEFAULT_FAILURE_POLICY: ProviderFailurePolicy = {
   cooldownMs: 300000,
@@ -131,7 +144,7 @@ const BOOTSTRAP_PROVIDERS: Array<Omit<ConfiguredProvider, 'enabled'>> = [
     authScheme: 'bearer',
     timeoutMs: 120000,
     capabilities: { ...DEFAULT_CAPABILITIES },
-    transport: { ...DEEPSEEK_THINKING_TRANSPORT },
+    transport: { ...DEEPSEEK_THINKING_TRANSPORT, endpointKinds: OPENCODE_GO_ENDPOINT_KINDS },
     failurePolicy: { cooldownMs: 0, recordPenalty: false, recordProviderFailure: false },
   },
   {
@@ -190,7 +203,7 @@ function normalizeTransport(value: unknown): ProviderTransportOptions {
     ? candidate.maxReasoningEffort as ReasoningEffort
     : 'high';
   return {
-    messageProfile: candidate.messageProfile === 'null-assistant' || candidate.messageProfile === 'deepseek-thinking'
+    messageProfile: candidate.messageProfile === 'null-assistant' || candidate.messageProfile === 'deepseek-thinking' || candidate.messageProfile === 'strip-empty-reasoning' || candidate.messageProfile === 'fill-tool-reasoning'
       ? candidate.messageProfile
       : 'none',
     includeStreamUsage: candidate.includeStreamUsage === true,
@@ -202,6 +215,13 @@ function normalizeTransport(value: unknown): ProviderTransportOptions {
       ? candidate.modelReasoningLimits as Record<string, ReasoningEffort>
       : {},
     extraHeadersProfile: candidate.extraHeadersProfile === 'openrouter' ? 'openrouter' : 'none',
+    endpointKinds: candidate.endpointKinds && typeof candidate.endpointKinds === 'object'
+      ? Object.fromEntries(
+          Object.entries(candidate.endpointKinds as Record<string, unknown>)
+            .filter(([, kind]) => kind === 'chat' || kind === 'responses')
+            .map(([model, kind]) => [model, kind as 'chat' | 'responses']),
+        )
+      : undefined,
   };
 }
 
@@ -214,9 +234,13 @@ function normalizeFailurePolicy(value: unknown): ProviderFailurePolicy {
   const rateLimitCooldownMs = typeof candidate.rateLimitCooldownMs === 'number' && Number.isInteger(candidate.rateLimitCooldownMs) && candidate.rateLimitCooldownMs >= 0
     ? candidate.rateLimitCooldownMs
     : undefined;
+  const quotaCooldownMs = typeof candidate.quotaCooldownMs === 'number' && Number.isInteger(candidate.quotaCooldownMs) && candidate.quotaCooldownMs >= 0
+    ? candidate.quotaCooldownMs
+    : undefined;
   return {
     cooldownMs,
     ...(rateLimitCooldownMs === undefined ? {} : { rateLimitCooldownMs }),
+    ...(quotaCooldownMs === undefined ? {} : { quotaCooldownMs }),
     recordPenalty: candidate.recordPenalty === true,
     recordProviderFailure: candidate.recordProviderFailure !== false,
   };
@@ -278,6 +302,10 @@ export function ensureProviderConfiguration(db: Database.Database): void {
         current[key] = bootstrap.transport[key as 'bufferUntilContent' | 'bufferUntilDone'];
         changed = true;
       }
+    }
+    if (!Object.hasOwn(current, 'endpointKinds') && bootstrap.transport.endpointKinds) {
+      current.endpointKinds = bootstrap.transport.endpointKinds;
+      changed = true;
     }
     if (changed) db.prepare('UPDATE configuration_providers SET transport_json = ?, updated_at = datetime(\'now\') WHERE platform = ?').run(json(current), row.platform);
   }

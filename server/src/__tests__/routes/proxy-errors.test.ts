@@ -26,8 +26,30 @@ describe('proxy error taxonomy', () => {
     expect(result.safeMessage.length).toBeGreaterThan(0);
   });
 
-  it('classifies provider schema mismatch separately from generic request rejection', () => {
-    expect(classifyProxyError(new Error('400 Bad Request: unknown field thought_signature')).code)
+  it('separates quota exhaustion from transient rate limits', () => {
+    // Señal explícita de cuota → quota_exhausted (cooldown largo configurable).
+    expect(classifyProxyError(new Error('402 Payment Required: quota exceeded')).code)
+      .toBe('quota_exhausted');
+    expect(classifyProxyError(new Error('429 daily quota exceeded, resets in 24h')).code)
+      .toBe('quota_exhausted');
+    expect(classifyProxyError(new Error('429 insufficient credits for free tier')).code)
+      .toBe('quota_exhausted');
+    const quota = classifyProxyError(new Error('429 monthly allocation depleted'));
+    expect(quota.code).toBe('quota_exhausted');
+    expect(quota.retryable).toBe(true);
+    expect(quota.cooldownEligible).toBe(true);
+    expect(quota.status).toBe(429);
+    // 429 genérico (pico por minuto) sigue siendo rate_limited (cooldown corto).
+    expect(classifyProxyError(new Error('429 Too Many Requests, slow down')).code)
+      .toBe('rate_limited');
+    expect(classifyProxyError(new Error('429 rate limit reached for requests per minute')).code)
+      .toBe('rate_limited');
+    // Auth sigue ganando ante 401 aunque el texto mencione cuota.
+    expect(classifyProxyError(new Error('401 invalid api key, check quota page')).code)
+      .toBe('authentication_failed');
+  });
+
+  it('classifies provider schema mismatch separately from generic request rejection', () => {    expect(classifyProxyError(new Error('400 Bad Request: unknown field thought_signature')).code)
       .toBe('schema_incompatible');
     expect(classifyProxyError(new Error('400 Bad Request: content is required')).code)
       .toBe('request_invalid');
