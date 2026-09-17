@@ -48,7 +48,22 @@ if (Test-GloryApiHealth) {
     exit 0
 }
 if (-not (Test-Path -LiteralPath $ServerFile)) {
-    throw 'Falta server/dist/index.js; ejecuta npm run build:server antes de iniciar GloryAPI.'
+    # [17-09-2026] Auto-reparación: si una limpieza borró node_modules (total o
+    # parcial) o server/dist, reconstruir solo antes de arrancar para que el
+    # acceso del escritorio abra siempre sin intervención manual.
+    $tscShim = Join-Path $ProjectRoot 'node_modules\.bin\tsc.cmd'
+    if (-not (Test-Path -LiteralPath $tscShim -PathType Leaf)) {
+        Write-Host 'node_modules ausente o incompleto: reinstalando dependencias...'
+        & npm.cmd install --ignore-scripts --no-audit --no-fund --prefix $ProjectRoot
+        if ($LASTEXITCODE -ne 0) { throw "npm install falló con código $LASTEXITCODE." }
+    }
+    Write-Host 'server/dist ausente: reconstruyendo (npm run build:server)...'
+    & npm.cmd run build:server --prefix $ProjectRoot
+    if ($LASTEXITCODE -ne 0) { throw "npm run build:server falló con código $LASTEXITCODE." }
+    if (-not (Test-Path -LiteralPath $ServerFile)) {
+        throw 'La reconstrucción terminó pero sigue faltando server/dist/index.js.'
+    }
+    Write-Host 'Servidor reconstruido.'
 }
 $occupant = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 if ($occupant) { throw "El puerto $Port está ocupado por otro servicio; se rechaza iniciar GloryAPI." }
