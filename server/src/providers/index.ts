@@ -1,7 +1,8 @@
 import type { Platform } from '@gloryapi/shared/types.js';
 import type { BaseProvider } from './base.js';
 import { GoogleProvider } from './google.js';
-import { OpenAICompatProvider, replaceNullAssistantContent, ensureReasoningContent, stripEmptyReasoning, fillMissingToolReasoning } from './openai-compat.js';
+import { OpenAICompatProvider } from './openai-compat.js';
+import { replaceNullAssistantContent, ensureReasoningContent, stripEmptyReasoning, fillMissingToolReasoning } from './openai-message-normalization.js';
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
 import { ACTIVE_PROVIDER_DEFINITIONS, isActiveProviderPlatform } from './registry/index.js';

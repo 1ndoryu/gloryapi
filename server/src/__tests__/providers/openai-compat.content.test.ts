@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OpenAICompatProvider, replaceNullAssistantContent, stripEmptyReasoning, fillMissingToolReasoning } from '../../providers/openai-compat.js';
+import { OpenAICompatProvider } from '../../providers/openai-compat.js';
+import { replaceNullAssistantContent, stripEmptyReasoning, fillMissingToolReasoning } from '../../providers/openai-message-normalization.js';
 
 describe('OpenAICompatProvider - content normalization', () => {
   let provider: OpenAICompatProvider;

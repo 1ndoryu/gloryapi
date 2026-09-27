@@ -5,89 +5,21 @@ import type {
   Platform,
 } from '@gloryapi/shared/types.js';
 import { BaseProvider, type CompletionOptions } from './base.js';
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  ensureReasoningContent as addReasoningContent,
-  fillMissingToolReasoning as fillToolReasoning,
-  normalizeChoices,
-  replaceNullAssistantContent as normalizeNullAssistantContent,
-  stripEmptyReasoning as dropEmptyReasoning,
-} from './openai-message-normalization.js';
+import { normalizeChoices } from './openai-message-normalization.js';
 import { getProviderErrorMessage } from './error-response.js';
 import { assertEffectiveModel, createModelIdentityError, extractEffectiveModel } from './compat/model-identity.js';
-import { getEffectiveProviderModelSettings } from '../settings/registry.js';
-import { getDb } from '../db/index.js';
-import { getConfiguredProviderFromDb } from '../services/provider-configuration.js';
+import { CompatTransport, clampReasoningEffort } from './compat/provider-transport.js';
+import { logFailedRequest } from './compat/request-log.js';
+import {
+  isResponsesReplayError,
+  isResponsesStateError,
+  responsesReplayBytes,
+} from './compat/responses-errors.js';
 import { streamOpenAICompatStream } from './compat/openai-stream.js';
 import { clampResponsesEffort, translateChatRequestToResponses } from './responses/translate-request.js';
 import { extractReasoningItems, translateResponsesResponse } from './responses/translate-response.js';
 import { translateResponsesStream } from './responses/translate-stream.js';
 import { lookupResponsesReasoning, storeResponsesReasoning } from './responses/reasoning-cache.js';
-
-function responsesReplayBytes(items: Array<{ encrypted_content: string }> | undefined): number {
-  if (!items) return 0;
-  return items.reduce((sum, item) => sum + Buffer.byteLength(item.encrypted_content, 'utf8'), 0);
-}
-
-function isResponsesStateError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const text = JSON.stringify(err).toLowerCase();
-  return text.includes('unknown parameter') && (text.includes('store') || text.includes('include') || text.includes('reasoning'))
-    || (text.includes('store') && text.includes('unexpected'))
-    || (text.includes('include') && text.includes('unexpected'));
-}
-
-/** Fail-open for a malformed replay: if the gateway rejects the replayed
- * `reasoning` item itself (e.g. a newly required field), retry once without
- * any replayed state instead of failing a request that used to succeed. */
-function isResponsesReplayError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const text = JSON.stringify(err).toLowerCase();
-  return text.includes('invalid_request') && (text.includes('reasoning') || text.includes('encrypted_content') || text.includes('summary'));
-}
-
-export function replaceNullAssistantContent(messages: ChatMessage[]): ChatMessage[] {
-  return normalizeNullAssistantContent(messages);
-}
-
-export function ensureReasoningContent(messages: ChatMessage[]): ChatMessage[] {
-  return addReasoningContent(messages);
-}
-
-export function stripEmptyReasoning(messages: ChatMessage[]): ChatMessage[] {
-  return dropEmptyReasoning(messages);
-}
-
-export function fillMissingToolReasoning(messages: ChatMessage[]): ChatMessage[] {
-  return fillToolReasoning(messages);
-}
-
-const FAILED_REQUESTS_LOG = process.env.GLORYAPI_FAILED_REQUESTS_LOG
-  ? process.env.GLORYAPI_FAILED_REQUESTS_LOG
-  : join(dirname(fileURLToPath(import.meta.url)), '../../data/failed_requests.log');
-
-class StreamError extends Error {
-  retryable = false;
-  streamAbort = false;
-  cancelled = false;
-}
-
-function logFailedRequest(provider: string, status: number, body: unknown, errorText: string): void {
-  try {
-    mkdirSync(dirname(FAILED_REQUESTS_LOG), { recursive: true });
-    appendFileSync(FAILED_REQUESTS_LOG, JSON.stringify({
-      ts: new Date().toISOString(),
-      provider,
-      status,
-      body,
-      error: errorText.slice(0, 2000),
-    }) + '\n');
-  } catch (e) {
-    console.error(`[${provider}] failed to write ${FAILED_REQUESTS_LOG}:`, e);
-  }
-}
 
 /**
  * Generic provider for platforms that use an OpenAI-compatible API.
@@ -97,22 +29,16 @@ function logFailedRequest(provider: string, status: number, body: unknown, error
 export class OpenAICompatProvider extends BaseProvider {
   readonly platform: Platform;
   readonly name: string;
-  private readonly baseUrl: string;
   private readonly extraHeaders: Record<string, string>;
   private readonly validateUrl?: string;
   private readonly prepareMessages?: (messages: ChatMessage[]) => ChatMessage[];
-  /** Per-provider HTTP timeout override. Cloud APIs finish in ~15s; locally-hosted
-   * inference (llama.cpp / vLLM on CPU) can take 30-120s for long prompts. Default 15000. */
-  private readonly timeoutMs: number;
+  /** Resolución del transporte efectivo (canary/DB/settings). Ver `compat/provider-transport.ts`. */
+  private readonly transport: CompatTransport;
   /** Default maximum reasoning_effort for this provider. */
   private readonly maxReasoningEffort: 'low' | 'medium' | 'high' | 'max';
   /** Per-model overrides for max reasoning_effort. Keys are substrings to match
    * against the model ID (case-insensitive). First match wins. */
   private readonly modelReasoningLimits: Map<string, 'low' | 'medium' | 'high' | 'max'>;
-  /** Map client-facing model_id → upstream model_id. Lets the catalog expose
-   * a bare ID (e.g. `deepseek-v4-flash`) while the provider's API requires a
-   * prefixed one (e.g. `deepseek/deepseek-v4-flash`). */
-  private readonly modelAliases: Record<string, string>;
   /** Buffer reasoning-only deltas and only start forwarding once a real
    * content delta arrives. If the upstream stream ends without ever emitting
    * content (e.g. a proxy worker hitting its wall-time limit mid-reasoning),
@@ -126,11 +52,6 @@ export class OpenAICompatProvider extends BaseProvider {
   private readonly bufferUntilDone: boolean;
   /** Ask providers that support it for the terminal usage SSE frame. */
   private readonly includeStreamUsage: boolean;
-  /** Per-model transport override: substring-matched against the model id
-   * (case-insensitive). Models whose upstream only serves the Responses API
-   * (e.g. Muse Spark on OpenCode Go) pin `responses` here; everything else
-   * keeps the OpenAI chat-completions contract. */
-  private readonly endpointKinds: Map<string, 'chat' | 'responses'>;
 
   constructor(opts: {
     platform: Platform;
@@ -151,112 +72,22 @@ export class OpenAICompatProvider extends BaseProvider {
     super();
     this.platform = opts.platform;
     this.name = opts.name;
-    this.baseUrl = opts.baseUrl;
+    this.transport = new CompatTransport({
+      platform: opts.platform,
+      name: opts.name,
+      baseUrl: opts.baseUrl,
+      timeoutMs: opts.timeoutMs,
+      modelAliases: opts.modelAliases,
+      endpointKinds: opts.endpointKinds,
+    });
     this.extraHeaders = opts.extraHeaders ?? {};
     this.validateUrl = opts.validateUrl;
     this.prepareMessages = opts.prepareMessages;
-    this.timeoutMs = opts.timeoutMs ?? 15000;
     this.maxReasoningEffort = opts.maxReasoningEffort ?? 'high';
     this.modelReasoningLimits = new Map(Object.entries(opts.modelReasoningLimits ?? {}));
-    this.modelAliases = opts.modelAliases ?? {};
     this.bufferUntilContent = opts.bufferUntilContent ?? false;
     this.bufferUntilDone = opts.bufferUntilDone ?? false;
     this.includeStreamUsage = opts.includeStreamUsage ?? false;
-    this.endpointKinds = new Map(Object.entries(opts.endpointKinds ?? {}));
-  }
-
-  private endpointKindFor(modelId?: string): 'chat' | 'responses' {
-    if (modelId) {
-      const lower = modelId.toLowerCase();
-      for (const [pattern, kind] of this.endpointKinds) {
-        if (lower.includes(pattern.toLowerCase())) return kind;
-      }
-    }
-    return 'chat';
-  }
-
-  private effectiveTransport(modelId?: string): { baseUrl: string; timeoutMs: number; modelAlias: string | null } {
-    // The isolated canary may point active adapters at a
-    // loopback fixture. It is opt-in, loopback-only, and rejected unless the
-    // process explicitly declares canary mode; production routing keeps the
-    // registered HTTPS endpoint and settings validation unchanged.
-    const canaryUrl = process.env.GLORYAPI_CANARY_UPSTREAM_URL?.trim();
-    const canaryPlatforms = new Set(['andoryyu', 'opencode-zen', 'opencode-go']);
-    if (canaryUrl && process.env.GLORYAPI_CANARY_MODE === '1' && canaryPlatforms.has(this.platform)) {
-      let parsed: URL;
-      try {
-        parsed = new URL(canaryUrl);
-      } catch {
-        throw new Error('Invalid canary upstream URL');
-      }
-      if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1') {
-        throw new Error('Canary upstream must use loopback HTTP');
-      }
-      return {
-        baseUrl: canaryUrl.replace(/\/$/, ''),
-        timeoutMs: this.timeoutMs,
-        modelAlias: null,
-      };
-    }
-
-    try {
-      const configured = getConfiguredProviderFromDb(getDb(), this.platform);
-      if (configured && configured.enabled && configured.lifecycle === 'active') {
-        return {
-          baseUrl: configured.endpoint,
-          timeoutMs: configured.timeoutMs,
-          modelAlias: modelId ? configured.transport.modelAliases[modelId] ?? null : null,
-        };
-      }
-    } catch {
-      // Isolated provider tests may call an adapter before DB initialization.
-    }
-
-    try {
-      const configured = getEffectiveProviderModelSettings(this.platform, modelId);
-      if (configured) {
-        if (configured.authScheme !== 'bearer') {
-          throw new Error(`${this.name} does not support the configured authentication scheme`);
-        }
-        return configured;
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('authentication scheme')) throw error;
-      // Isolated adapter unit tests may not initialize SQLite; static adapter
-      // defaults remain safe and deterministic in that context.
-    }
-    return { baseUrl: this.baseUrl, timeoutMs: this.timeoutMs, modelAlias: null };
-  }
-
-  /* Map the catalog model_id to the upstream model ID if an alias exists. */
-  private upstreamModelId(modelId: string, transport = this.effectiveTransport(modelId)): string {
-    const configuredModel = transport.modelAlias ?? modelId;
-    return this.modelAliases[configuredModel] ?? configuredModel;
-  }
-
-  /* Clamp reasoning_effort. Checks per-model limits first (substring match on
-   * model ID), then falls back to the provider default. 'max' is non-standard;
-   * models/providers that don't support it get it mapped down. */
-  private clampReasoningEffort(effort?: string, modelId?: string): string | undefined {
-    if (!effort) return undefined;
-    const order = ['low', 'medium', 'high', 'max'];
-    const curIdx = order.indexOf(effort);
-    if (curIdx < 0) return undefined;
-
-    // Check per-model overrides first
-    if (modelId) {
-      const lowerModel = modelId.toLowerCase();
-      for (const [pattern, limit] of this.modelReasoningLimits) {
-        if (lowerModel.includes(pattern.toLowerCase())) {
-          const limitIdx = order.indexOf(limit);
-          return curIdx > limitIdx ? limit : effort;
-        }
-      }
-    }
-
-    // Fall back to provider default
-    const maxIdx = order.indexOf(this.maxReasoningEffort);
-    return curIdx > maxIdx ? this.maxReasoningEffort : effort;
   }
 
   async chatCompletion(
@@ -266,9 +97,9 @@ export class OpenAICompatProvider extends BaseProvider {
     options?: CompletionOptions,
   ): Promise<ChatCompletionResponse> {
     const requestMessages = this.prepareMessages ? this.prepareMessages(messages) : messages;
-    const transport = this.effectiveTransport(modelId);
-    const upstreamModel = this.upstreamModelId(modelId, transport);
-    const useResponses = this.endpointKindFor(modelId) === 'responses';
+    const transport = this.transport.effectiveTransport(modelId);
+    const upstreamModel = this.transport.upstreamModelId(modelId, transport);
+    const useResponses = this.transport.endpointKindFor(modelId) === 'responses';
     const url = useResponses ? `${transport.baseUrl}/responses` : `${transport.baseUrl}/chat/completions`;
     const previousReasoning = useResponses ? lookupResponsesReasoning(requestMessages, upstreamModel) : undefined;
     const responsesEffort = options?.reasoning_effort
@@ -292,7 +123,7 @@ export class OpenAICompatProvider extends BaseProvider {
           tools: options?.tools,
           tool_choice: options?.tool_choice,
           parallel_tool_calls: options?.parallel_tool_calls,
-          ...(options?.reasoning_effort ? { reasoning_effort: this.clampReasoningEffort(options.reasoning_effort, modelId) } : {}),
+          ...(options?.reasoning_effort ? { reasoning_effort: clampReasoningEffort(options.reasoning_effort, modelId, this.modelReasoningLimits, this.maxReasoningEffort) } : {}),
         });
     const headers = {
       'Authorization': `Bearer ${apiKey}`,
@@ -373,9 +204,9 @@ export class OpenAICompatProvider extends BaseProvider {
     options?: CompletionOptions,
   ): AsyncGenerator<ChatCompletionChunk> {
     const requestMessages = this.prepareMessages ? this.prepareMessages(messages) : messages;
-    const transport = this.effectiveTransport(modelId);
-    const upstreamModel = this.upstreamModelId(modelId, transport);
-    const useResponses = this.endpointKindFor(modelId) === 'responses';
+    const transport = this.transport.effectiveTransport(modelId);
+    const upstreamModel = this.transport.upstreamModelId(modelId, transport);
+    const useResponses = this.transport.endpointKindFor(modelId) === 'responses';
     const url = useResponses ? `${transport.baseUrl}/responses` : `${transport.baseUrl}/chat/completions`;
     const previousReasoning = useResponses ? lookupResponsesReasoning(requestMessages, upstreamModel) : undefined;
     const responsesEffort = options?.reasoning_effort
@@ -400,7 +231,7 @@ export class OpenAICompatProvider extends BaseProvider {
           tools: options?.tools,
           tool_choice: options?.tool_choice,
           parallel_tool_calls: options?.parallel_tool_calls,
-          ...(options?.reasoning_effort ? { reasoning_effort: this.clampReasoningEffort(options.reasoning_effort, modelId) } : {}),
+          ...(options?.reasoning_effort ? { reasoning_effort: clampReasoningEffort(options.reasoning_effort, modelId, this.modelReasoningLimits, this.maxReasoningEffort) } : {}),
           ...(this.includeStreamUsage ? { stream_options: { include_usage: true } } : {}),
           stream: true,
         });
@@ -477,7 +308,7 @@ export class OpenAICompatProvider extends BaseProvider {
     // Note: transport errors (DNS / timeout / TLS) propagate to the caller.
     // health.ts catches them and marks status='error' WITHOUT incrementing
     // the consecutive-failure counter — only confirmed 401/403 disables a key.
-    const transport = this.effectiveTransport();
+    const transport = this.transport.effectiveTransport();
     const url = this.validateUrl ?? `${transport.baseUrl}/models`;
     const res = await this.fetchWithTimeout(url, {
       method: 'GET',
