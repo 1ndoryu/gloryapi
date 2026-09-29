@@ -69,7 +69,13 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
   Verificado vía `:3101`: non-stream `17*23` → `391` con `reasoning_tokens:17`; stream → `stop`
   (`Hi there friend`). Ojo: con `max_tokens` bajo devuelve `content:null`+`finish:length` (el thinking
   consume el presupuesto) y se autoidentifica como "ChatGPT/OpenAI". Transporte EL conserva
-  `strip-empty-reasoning`. No se tocó el orden Auto.
+   `strip-empty-reasoning`. No se tocó el orden Auto.
+- **099A-1 — Subir vitest 3→5 (advisory GHSA-82fw-gwwq-j7x9, dev-only)** *(pendiente; riesgo aceptado)*:
+  `npm audit` en `server/` reporta 2 moderate (`vitest`, `@vitest/mocker`, rango 2.1.0–4.1.10,
+  path traversal vía redirect mock); `prod vulns: 0`. El fix exige `vitest@5.0.2` (breaking, 2 majors)
+  con riesgo sobre la suite 352/352 y el trabajo activo (039A-1/18A-2/089A-1): no se bumpió en el
+  sweep 2026-09-28. Explotable solo ejecutando tests no confiables; la suite propia no está expuesta.
+  Hacerlo en ventana tranquila con suite completa verde antes/después.
 
 La corrección de coherencia del selector y las capacidades quedó validada
 localmente. La UI usa una sola lista de modelos,
