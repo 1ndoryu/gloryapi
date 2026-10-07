@@ -58,7 +58,7 @@
       "severity": "warning"
     },
     "unused": {
-      "enabled": true,
+      "enabled": false,
       "severity": "hint"
     }
   },
