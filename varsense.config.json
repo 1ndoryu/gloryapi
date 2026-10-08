@@ -13,6 +13,7 @@
   ],
   "excludePatterns": [
     "**/node_modules/**",
+    "**/vendor-*.css",
     "**/dist/**",
     "**/build/**",
     "**/server/dist/**",

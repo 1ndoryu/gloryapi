@@ -75,7 +75,19 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
   path traversal vía redirect mock); `prod vulns: 0`. El fix exige `vitest@5.0.2` (breaking, 2 majors)
   con riesgo sobre la suite 352/352 y el trabajo activo (039A-1/18A-2/089A-1): no se bumpió en el
   sweep 2026-09-28. Explotable solo ejecutando tests no confiables; la suite propia no está expuesta.
-  Hacerlo en ventana tranquila con suite completa verde antes/después.
+   Hacerlo en ventana tranquila con suite completa verde antes/después.
+- **08AA-1 — Excluir CSS vendored del análisis VarSense** *(HECHA 2026-10-08)*:
+  el re-scan de consola 02:06Z marcó gloryapi 20→25, los 25 en
+  `client/src/vendor-shadcn-tailwind.css` (vendored en `3c3df2b`): `--spacing`
+  (var del framework Tailwind v4), `--radix-*` (las fija Radix en runtime),
+  `--scroll-fade-reveal` (API pública con fallback), `0px` x4 y `shimmer`
+  huérfana (0 refs repo-wide) — todo FP clase "no tocar vendored" (precedente
+  excepciones-varsense.json 2026-09-11). Fix: `**/vendor-*.css` en
+  `excludePatterns` de `varsense.config.json` (patrón, no fichero: cubre
+  futuros vendored). Evidencia: CLI `all` 25→0 (exit 0, 484 archivos,
+  0 con hallazgos; base `C:\tmp\varsense-gloryapi-20261008-base.json`,
+  fixed `...-fixed.json`). Nada de código tocado. Detalle:
+  `Agente/completados/tareas-2026-10-08.md`.
 
 La corrección de coherencia del selector y las capacidades quedó validada
 localmente. La UI usa una sola lista de modelos,
