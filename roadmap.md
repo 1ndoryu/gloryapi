@@ -104,6 +104,14 @@ sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
 
 ## Bloques ya cerrados localmente
 
+- Seguridad deps 08AA (2026-10-08): `npm audit` 7 HIGH → 0 en root+client+server.
+  Se elimina la dependencia `shadcn` del client (su cadena braces/fast-glob no tiene
+  parche upstream; el único "fix" de npm era degradar a shadcn@1.0.0, breaking) y se
+  vendorea su único uso en runtime (`dist/tailwind.css` 4.21.4, autocontenido) en
+  `client/src/vendor-shadcn-tailwind.css`. Además: override `shell-quote ^1.12.0` en
+  root y `vitest ^3.2.7 → ^5.0.3` en server (dev, verificado). Evidencia: `npm run build`
+  PASS + suite server 58 archivos / 355 tests PASS.
+
 - Ahorro de tokens del bridge: plan ejecutado y conservado en
   `Agente/planes/completados/plan-ahorro-tokens-bridge-2026-08-12.md`; clasificador de
   títulos, auditoría compacta, presupuesto total compartido, telemetría de
