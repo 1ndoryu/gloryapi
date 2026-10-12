@@ -17,7 +17,6 @@
     "server": 120000
   },
   "heavyRun": {
-    "cooldownMinutes": 180,
     "maxConcurrent": 1
   },
   "reportRetention": {
