@@ -18,6 +18,19 @@ const bridgeSources = [
   'upstream-adapter.js',
   'response-handlers.js',
   'http-server.js',
+  'http-state.js',
+  'http-request.js',
+  'http-get-routes.js',
+  'http-responses-route.js',
+  'request-reasoning.js',
+  'request-tables.js',
+  'request-content.js',
+  'request-tools.js',
+  'context-util.js',
+  'context-tokens.js',
+  'context-audit.js',
+  'context-nudge.js',
+  'context-compaction.js',
 ].map((file) => read('bridge', file)).join('\n');
 // Keep the historical variable name for the contract assertions: it now
 // represents the canonical bridge source bundle, not one monolithic file.
