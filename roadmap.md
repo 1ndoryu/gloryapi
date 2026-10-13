@@ -9,7 +9,7 @@ FreeLLMAPI/ChatGPT normal; el bridge se abre bajo demanda en una ventana y un hi
   el transporte `responses` ahora envía siempre `store:false` + `include:["reasoning.encrypted_content"]`,
   captura el item `reasoning` en stream y no-stream por canal lateral y lo reinyecta en el turno
   continuado por prefijo de historial (caché solo-memoria LRU 100/TTL 30 min/32 KB, metadata-only).
-  Plan en `Agente/planes/plan-muse-replay-vscode-2026-09-03.md`; runtime `:3101` reiniciado el
+  Plan en `Agente/planes/completados/plan-muse-replay-vscode-2026-09-03.md`; runtime `:3101` reiniciado el
   2026-09-03 desde `dist` reconstruido (pid nuevo, `GLORYAPI_DEBUG_RESPONSES=1`, log en
   `C:\tmp\glory-3101-039A-1.log`); 039A-1b corrigió el 400 `missing required field summary` del
   replay y 039A-1c la coerción de floats integrales en args de tools (bucle `15000.0 vs u64` visto en

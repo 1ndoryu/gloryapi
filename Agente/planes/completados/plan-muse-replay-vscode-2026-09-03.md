@@ -26,7 +26,7 @@
 
 ## Estado
 
-- **Actual:** implementación completada 2026-09-03; pendiente de validación funcional en VS Code.
+- **Actual:** implementación completada 2026-09-03. Archivado 2026-10-13 por decisión de la usuaria **con la validación funcional pendiente en VS Code** (reiniciar `:3101` y probar 4–5 turnos continuados; no hay evidencia de ello aún).
 - **Evidencia reproducible:** `npm run build:server` PASS; `npx vitest run src/__tests__/providers/responses-translate.test.ts` 22/22 PASS (8 nuevos 039A-1); suite server 56 archivos / 342 tests PASS; `quality:doctor` no listo por causas preexistentes ajenas (checkout sentinel dirty, evidencia release ausente, CLI 0.7.6 vs 0.7.7 esperado) — se reporta sin mezclar.
 - **Limitación:** sin llamadas externas con la key real; falta reiniciar `:3101` y probar 4–5 turnos continuados en VS Code. Si el gateway rechaza `store/include` con 400, el fallback sin estado ya está cubierto y probado.
 - **Siguiente paso:** reiniciar el runtime, reproducir la tarea del botón Volver en conversación nueva con `GLORYAPI_DEBUG_RESPONSES=1` y comparar replanificación/tokens por turno.

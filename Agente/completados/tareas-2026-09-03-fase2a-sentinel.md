@@ -14,7 +14,7 @@ que esta misión debía dividir. Se documenta la excepción y se cierra la misi�
 | `server/src/providers/openai-compat.ts` | ` M` (WIP ajeno: +193/-38, integración transporte `responses`) | `limite-lineas`, 403 líneas efectivas |
 | `server/src/__tests__/providers/responses-translate.test.ts` | `??` (WIP ajeno: fichero nuevo sin commitear de 039A-1) | `limite-lineas` + `limite-lineas-nivel-2`, 608 líneas efectivas |
 
-El WIP corresponde a `Agente/planes/plan-muse-replay-vscode-2026-09-03.md` (implementación
+El WIP corresponde a `Agente/planes/completados/plan-muse-replay-vscode-2026-09-03.md` (implementación
 completada, pendiente de validación funcional y commit). Dividir ahora estos ficheros
 mezclaría el split Sentinel con la deuda aun sin commitear de esa misión, violando §5.1
 y el no-commit de esta campaña.
