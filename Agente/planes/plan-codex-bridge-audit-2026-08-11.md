@@ -1,4 +1,5 @@
 # Plan — Auditoría y refuerzo del bridge ChatGPT/Codex
+> **Revisión 2026-10-13:** sigue abierto. Próximo paso: el E2E desde la aplicación Desktop y la salud simultánea de cada proveedor.
 
 - **Objetivo:** que el sidecar Responses → Chat Completions sea modular, configurable y seguro al atravesar Andoryyu, OpenCode Zen y OpenCode Go, preservando herramientas, agentes, plugins, streaming y recuperación de contexto.
 - **Alcance:** bridge local, proxy/routing canary de GloryAPI, fixtures, documentación y pruebas locales.

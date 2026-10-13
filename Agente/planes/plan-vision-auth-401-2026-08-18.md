@@ -1,4 +1,5 @@
 # Plan: autenticación de visión Mimo en el bridge
+> **Revisión 2026-10-13:** sigue abierto, pendiente de un hecho externo o manual.
 
 - **Tarea:** 18A-2
 - **Objetivo:** evitar el `HTTP 401` al describir imágenes usando la clave DPAPI local de OpenCode Zen en la ruta primaria por defecto y OpenCode Go como fallback.
