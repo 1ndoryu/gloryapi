@@ -128,7 +128,10 @@ function post() {
         const out = (j.response && j.response.output) || [];
         console.log('COMPLETED. output items:', out.map((o) => o.type + (o.type === 'function_call' ? ':' + o.name : '')).join(', ') || '(vacio)');
       }
-    } catch (e) {}
+    } catch (e) {
+      // [DONE] no es JSON y es normal; cualquier otro fallo se reporta, no se traga
+      if (data !== '[DONE]') console.error('SSE malformado:', data.slice(0, 200), e.message);
+    }
   }
 })().catch((e) => {
   console.error('ERROR:', e.message);
