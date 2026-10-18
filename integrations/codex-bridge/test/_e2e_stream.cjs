@@ -97,7 +97,10 @@ function post() {
       } else if (t === 'response.completed') {
         console.log('COMPLETED. output:', JSON.stringify(j.response && j.response.output ? j.response.output.map((o)=>o.type) : []));
       }
-    } catch (e) {}
+    } catch (e) {
+      // [DONE] no es JSON y es normal; cualquier otro fallo se reporta, no se traga
+      if (data !== '[DONE]') console.error('SSE malformado:', data.slice(0, 200), e.message);
+    }
   }
 })().catch((e) => {
   console.error('ERROR:', e.message);
