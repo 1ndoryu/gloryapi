@@ -27,3 +27,6 @@ client-vite.err.log
 
 # Logs del mando dev (runtime, como en workspace-manager)
 logs/
+# alta 10AA-2 F10
+target/
+.runtime/
