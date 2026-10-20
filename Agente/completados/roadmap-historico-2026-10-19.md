@@ -67,7 +67,7 @@ localmente. La UI usa una sola lista de modelos,
 sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
   aislado después de verificar que las rutas compatibles de DeepSeek V4 Flash
   transmiten el nivel de razonamiento seleccionado. ChatGPT normal y
-`C:\Users\Owner\.codex` permanecen fuera del alcance.
+`%USERPROFILE%\.codex` permanecen fuera del alcance.
 
 ### Bloques ya cerrados localmente
 
@@ -153,11 +153,11 @@ sin duplicar la configuración de Auto y rutas fijadas, y publicar el catálogo
   `/v1/models`, health `published` y ausencia de Pro verificados; no se hizo
   una llamada externa de proveedor durante la prueba.
 
-- FreeLLMAPI sigue en `:3001`; ChatGPT normal y `C:\Users\Owner\.codex\config.toml` permanecen
+- FreeLLMAPI sigue en `:3001`; ChatGPT normal y `%USERPROFILE%\.codex\config.toml` permanecen
   sin cambios. El bridge responde en `http://127.0.0.1:4100/health` y se opera desde el acceso
   directo `ChatGPT Bridge - GloryAPI.lnk`.
 - La coexistencia quedó preparada y verificada: el home normal es
-  `C:\Users\Owner\.codex` y el home aislado es `C:\Users\Owner\.codex-gloryapi`; el segundo
+  `%USERPROFILE%\.codex` y el home aislado es `%USERPROFILE%\.codex-gloryapi`; el segundo
   no copia `auth.json`, SQLite ni conversaciones del primero.
 - Manual operativo: `integrations/codex-bridge/COMANDOS-BRIDGE.md`.
 - Evidencia 18A-2: helper de visión Zen/Go validado sin exponer claves; bridge `:4100` health/readiness/capabilities PASS; catálogo aislado 7/7 entradas anuncia `text,image` y solo Muse conserva visión nativa; suites bridge 176/176 y server 310/310 PASS. No se cerró todavía porque falta la inferencia real de Mimo tras el reintento del usuario.
