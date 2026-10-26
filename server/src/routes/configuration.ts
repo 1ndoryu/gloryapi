@@ -83,8 +83,8 @@ const providerTransportSchema = z.object({
   bufferUntilContent: z.boolean().optional(),
   bufferUntilDone: z.boolean().optional(),
   maxReasoningEffort: z.enum(['low', 'medium', 'high', 'max']).optional(),
-  modelAliases: z.record(z.string().regex(/^[A-Za-z0-9._:/-]{1,200}$/)).optional(),
-  modelReasoningLimits: z.record(z.enum(['low', 'medium', 'high', 'max'])).optional(),
+  modelAliases: z.record(z.string(), z.string().regex(/^[A-Za-z0-9._:/-]{1,200}$/)).optional(),
+  modelReasoningLimits: z.record(z.string(), z.enum(['low', 'medium', 'high', 'max'])).optional(),
   extraHeadersProfile: z.enum(['none', 'openrouter']).optional(),
 }).strict();
 const providerPolicySchema = z.object({
@@ -141,7 +141,7 @@ configurationRouter.get('/', (_req, res) => {
 configurationRouter.put('/bridge-vision', (req, res) => {
   const parsed = bridgeVisionSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   try {
@@ -155,7 +155,7 @@ configurationRouter.put('/routes/:routeId', (req, res) => {
   const routeId = typeof req.params.routeId === 'string' ? req.params.routeId : '';
   const parsed = routeSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   try {
@@ -173,7 +173,7 @@ configurationRouter.patch('/models/:modelDbId', (req, res) => {
   }
   const parsed = modelSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   if (Object.keys(parsed.data).length <= (parsed.data.expectedRevision === undefined ? 0 : 1)) {
@@ -190,7 +190,7 @@ configurationRouter.patch('/models/:modelDbId', (req, res) => {
 configurationRouter.post('/models', (req, res) => {
   const parsed = createModelSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   try {
@@ -204,7 +204,7 @@ configurationRouter.patch('/providers/:platform', (req, res) => {
   const platform = typeof req.params.platform === 'string' ? req.params.platform : '';
   const parsed = providerPatchSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   try {
@@ -217,7 +217,7 @@ configurationRouter.patch('/providers/:platform', (req, res) => {
 configurationRouter.post('/providers', (req, res) => {
   const parsed = createProviderSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { code: 'invalid_configuration', message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   try {

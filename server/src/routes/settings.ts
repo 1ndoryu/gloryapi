@@ -22,7 +22,7 @@ settingsRouter.use((req, res, next) => {
 
 const settingsUpdateSchema = z.object({
   expectedRevision: z.number().int().nonnegative().optional(),
-  values: z.record(z.unknown()),
+  values: z.record(z.string(), z.unknown()),
 }).strict();
 
 // Get the unified API key
@@ -50,7 +50,7 @@ settingsRouter.patch('/', (req: Request, res: Response) => {
   if (!requireAdmin(req, res)) return;
   const parsed = settingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
 

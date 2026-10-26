@@ -126,7 +126,7 @@ export function prepareChatRequest(req: Request, res: Response): {
   if (!parsed.success) {
     res.status(400).json({
       error: {
-        message: `Invalid request: ${parsed.error.errors.map(e => e.message).join(', ')}`,
+        message: `Invalid request: ${parsed.error.issues.map(e => e.message).join(', ')}`,
         type: 'invalid_request_error',
       },
     });

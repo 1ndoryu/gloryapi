@@ -93,7 +93,7 @@ registryRouter.post('/providers/:platform/models/select', (req: Request, res: Re
     return;
   }
   if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   replaceProviderModelDrafts(platform, parsed.data.models.map(model => ({ ...model, platform })));
@@ -103,7 +103,7 @@ registryRouter.post('/providers/:platform/models/select', (req: Request, res: Re
 function parseDraft(req: Request, res: Response): z.infer<typeof providerDraftSchema> | undefined {
   const parsed = providerDraftSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { message: parsed.error.issues.map(error => error.message).join(', ') } });
     return undefined;
   }
   return parsed.data;
@@ -175,7 +175,7 @@ registryRouter.post('/providers/:platform/duplicate', (req: Request, res: Respon
     return;
   }
   if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
   if (!source.endpoint || !source.endpoint.startsWith('https://')) {
@@ -202,7 +202,7 @@ registryRouter.post('/providers/:platform/verify', async (req: Request, res: Res
   const platform = typeof req.params.platform === 'string' ? req.params.platform : '';
   const parsed = verificationSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ error: { message: parsed.error.errors.map(error => error.message).join(', ') } });
+    res.status(400).json({ error: { message: parsed.error.issues.map(error => error.message).join(', ') } });
     return;
   }
 
